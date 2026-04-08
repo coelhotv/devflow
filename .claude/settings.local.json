@@ -5,6 +5,10 @@
       "Bash([ -f \"/Users/coelhotv/Library/Mobile Documents/com~apple~CloudDocs/git/meus-remedios/.agent/sessions/events.jsonl\" ])",
       "Bash(python3 /tmp/check_con001.py)",
       "Bash([ -d \"/Users/coelhotv/Library/Mobile Documents/com~apple~CloudDocs/git/meus-remedios/.agent/sessions\" ])"
+    ],
+    "additionalDirectories": [
+      "/Users/coelhotv/SKILLS/deliver-sprint",
+      "/Users/coelhotv/SKILLS/check-review"
     ]
   },
   "outputStyle": "Explanatory"
