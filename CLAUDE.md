@@ -1,6 +1,6 @@
 # DEVFLOW — Project Context for Claude Code
 
-> **Status: Phase 0 complete. Ready for migration-status.json + GitHub remote + Wave 0.**
+> **Status: Waves 0–2d complete (93 APs migrated). Next: Wave 3 (Knowledge).**
 
 ## What this repo is
 
@@ -12,40 +12,29 @@ Full architecture: see `master_plan_devflow.md` (comprehensive) or `README.md` (
 
 ---
 
-## Current Status (as of 2026-04-07)
+## Current Status (as of 2026-04-08)
 
-### Phase 0 — DEVFLOW Repo: COMPLETE ✓
+### Migration Progress — meus-remedios
 
-All core files created in this session:
-
-| File | Status |
-|------|--------|
-| `DEVFLOW.md` | ✓ Complete skill template (English) |
-| `README.md` | ✓ Full documentation |
-| `templates/state.json` | ✓ With `{{PLACEHOLDERS}}` |
-| `templates/genes.json` | ✓ Default gene values |
-| `templates/rules.json` | ✓ Empty array `[]` |
-| `templates/schema-reference.md` | ✓ Full schema docs |
-| `scripts/setup.sh` | ✓ Automated project setup |
-| `specs/WAVE_0_SCAFFOLDING.md` | ✓ |
-| `specs/WAVE_1A_RULES_1-50.md` | ✓ Full spec |
-| `specs/WAVE_1B_RULES_51-100.md` | ✓ |
-| `specs/WAVE_1C_RULES_101-156.md` | ✓ |
-| `specs/WAVE_2A_AP_CODE.md` | ✓ Full spec |
-| `specs/WAVE_2B_AP_PERF.md` | ✓ |
-| `specs/WAVE_2C_AP_UX.md` | ✓ |
-| `specs/WAVE_2D_AP_OTHER.md` | ✓ |
-| `specs/WAVE_3_KNOWLEDGE.md` | ✓ |
-| `specs/WAVE_4_ADR_MINING.md` | ✓ Full spec (incl. PR mining) |
-| `specs/WAVE_5_CONTRACTS.md` | ✓ |
-| `specs/WAVE_6_EXPORT_GLOBAL.md` | ✓ |
-| `specs/WAVE_7_VALIDATION.md` | ✓ |
+| Wave | Description | Status | Progress |
+|------|-------------|--------|----------|
+| Wave 0 | Scaffolding (setup.sh) | ✓ Complete | 2026-04-07 |
+| Wave 1a | Rules R-001–R-050 | ✓ Complete | 20/20 rules |
+| Wave 1b | Rules R-051–R-100 | ✓ Complete | 18/18 rules |
+| Wave 1c | Rules R-101–R-158 | ✓ Complete | 56/56 rules |
+| Wave 2a | Anti-Patterns — Code | ✓ Complete | 4/4 APs |
+| Wave 2b | Anti-Patterns — Perf | ✓ Complete | 20/20 APs |
+| Wave 2c | Anti-Patterns — UX | ✓ Complete | 23/23 APs |
+| Wave 2d | Anti-Patterns — Other | ✓ Complete | 46/46 APs |
+| Wave 3 | Knowledge | pending | — |
+| Wave 4 | ADR Mining + Journal Migration | pending | — |
+| Wave 5 | Contracts | pending | — |
+| Wave 6 | Export Global | pending | — |
+| Wave 7 | Validation | pending | — |
 
 ### Immediate Next Steps
 
-1. **Create `migration-status.json`** — wave progress tracker (see format below)
-2. **Create GitHub remote** — `gh repo create coelhotv/devflow --public` + push
-3. **Run Wave 0** — `bash scripts/setup.sh ~/git/meus-remedios "meus-remedios" "react,vite,supabase,typescript,node,telegram"` (open meus-remedios in VS Code for this)
+1. **Run Wave 3** — Knowledge facts from `meus-remedios/.memory/knowledge.md`
 
 ---
 

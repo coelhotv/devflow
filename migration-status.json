@@ -1,6 +1,6 @@
 {
   "project": "meus-remedios",
-  "last_updated": "2026-04-07",
+  "last_updated": "2026-04-08",
   "waves": {
     "wave_0": {
       "status": "completed",
@@ -30,32 +30,32 @@
       "rules_total": 56
     },
     "wave_2a": {
-      "status": "pending",
-      "started": null,
-      "completed": null,
-      "aps_done": 0,
+      "status": "completed",
+      "started": "2026-04-08",
+      "completed": "2026-04-08",
+      "aps_done": 4,
       "aps_total": 4
     },
     "wave_2b": {
-      "status": "pending",
-      "started": null,
-      "completed": null,
-      "aps_done": 0,
-      "aps_total": 21
+      "status": "completed",
+      "started": "2026-04-08",
+      "completed": "2026-04-08",
+      "aps_done": 20,
+      "aps_total": 20
     },
     "wave_2c": {
-      "status": "pending",
-      "started": null,
-      "completed": null,
-      "aps_done": 0,
+      "status": "completed",
+      "started": "2026-04-08",
+      "completed": "2026-04-08",
+      "aps_done": 23,
       "aps_total": 23
     },
     "wave_2d": {
-      "status": "pending",
-      "started": null,
-      "completed": null,
-      "aps_done": 0,
-      "aps_total": 7
+      "status": "completed",
+      "started": "2026-04-08",
+      "completed": "2026-04-08",
+      "aps_done": 46,
+      "aps_total": 46
     },
     "wave_3": {
       "status": "pending",
