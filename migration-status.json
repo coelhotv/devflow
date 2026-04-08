@@ -1,6 +1,6 @@
 {
   "project": "meus-remedios",
-  "last_updated": "2026-04-08",
+  "last_updated": "2026-04-08T00:00:00Z",
   "waves": {
     "wave_0": {
       "status": "completed",
@@ -58,10 +58,10 @@
       "aps_total": 46
     },
     "wave_3": {
-      "status": "pending",
-      "started": null,
-      "completed": null,
-      "facts_done": 0
+      "status": "completed",
+      "started": "2026-04-08",
+      "completed": "2026-04-08",
+      "facts_done": 70
     },
     "wave_4": {
       "status": "pending",
