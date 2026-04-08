@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(sort -t- -k2 -n)"
+      "Bash(sort -t- -k2 -n)",
+      "Bash([ -f \"/Users/coelhotv/Library/Mobile Documents/com~apple~CloudDocs/git/meus-remedios/.agent/sessions/events.jsonl\" ])",
+      "Bash(python3 /tmp/check_con001.py)",
+      "Bash([ -d \"/Users/coelhotv/Library/Mobile Documents/com~apple~CloudDocs/git/meus-remedios/.agent/sessions\" ])"
     ]
   },
   "outputStyle": "Explanatory"

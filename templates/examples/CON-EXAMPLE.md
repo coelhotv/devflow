@@ -1,0 +1,27 @@
+<!-- Example file — source: meus-remedios. Replace with project-specific content. -->
+
+# CON-016: useRedesign()
+
+**File:** src/shared/contexts/RedesignContext.jsx
+
+## Returns
+
+```typescript
+{
+  isRedesignEnabled: boolean
+  toggleRedesign: () => void
+}
+```
+
+## Consumers
+
+- `src/App.jsx`
+- `src/shared/components/ui/Button.jsx`
+- `src/views/Dashboard.jsx`
+- `src/views/Medicines.jsx`
+
+## Breaking Changes
+
+- Return object shape
+- Hook behavior
+- Feature flag logic

@@ -36,9 +36,9 @@ mkdir -p "$AGENT_DIR/synthesis"
 
 echo "  ✓ Directory tree created"
 
-# ─── 2. Copy DEVFLOW.md ───────────────────────────────────────────────────────
-cp "$DEVFLOW_DIR/DEVFLOW.md" "$AGENT_DIR/DEVFLOW.md"
-echo "  ✓ DEVFLOW.md copied"
+# ─── 2. Symlink DEVFLOW.md (always points to master, never stale) ────────────
+ln -sf "$DEVFLOW_DIR/DEVFLOW.md" "$AGENT_DIR/DEVFLOW.md"
+echo "  ✓ DEVFLOW.md symlinked → $DEVFLOW_DIR/DEVFLOW.md"
 
 # ─── 3. Initialize state.json ────────────────────────────────────────────────
 cat > "$AGENT_DIR/state.json" << EOF
@@ -114,9 +114,10 @@ if [ -f "$GITIGNORE" ]; then
   if ! grep -q "\.agent/sessions/" "$GITIGNORE"; then
     echo "" >> "$GITIGNORE"
     echo "# DEVFLOW runtime files (not versioned)" >> "$GITIGNORE"
+    echo ".agent/DEVFLOW.md" >> "$GITIGNORE"
     echo ".agent/sessions/.lock" >> "$GITIGNORE"
     echo ".agent/sessions/events.jsonl" >> "$GITIGNORE"
-    echo "  ✓ .gitignore updated (sessions/.lock and events.jsonl excluded)"
+    echo "  ✓ .gitignore updated (DEVFLOW.md symlink, sessions/.lock and events.jsonl excluded)"
   else
     echo "  ℹ .gitignore already has DEVFLOW entries — skipped"
   fi

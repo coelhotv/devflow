@@ -1,0 +1,16 @@
+<!-- Example file — source: meus-remedios. Replace with project-specific content. -->
+
+# AP-005 — Use `new Date('YYYY-MM-DD')`
+
+**Category:** Code
+**Status:** active
+**Related Rule:** R-020
+**Applies To:** all
+
+## Problem
+
+UTC midnight = wrong day in GMT-3
+
+## Prevention
+
+Use `parseLocalDate()` or `+ 'T00:00:00'`

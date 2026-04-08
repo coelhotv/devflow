@@ -1,219 +1,124 @@
-# DEVFLOW — Project Context for Claude Code
+# DEVFLOW — Claude Code Context
 
-> **Status: Waves 0–4 complete (93 APs + 70 Knowledge facts + 25 ADRs migrated). Next: Wave 5 (Contracts).**
+> **Status: v1.0 — Production ready. meus-remedios migration complete (all 7 waves).**
 
 ## What this repo is
 
-DEVFLOW is a Claude Code skill for autonomous software development agents. It provides persistent memory, goal alignment, contract-aware coding, and continuous learning — using the filesystem as the orchestrator (no central coordinator needed).
+DEVFLOW is a Claude Code skill for autonomous software development agents. It provides persistent memory, goal alignment, contract-aware coding, and continuous learning — using the filesystem as the orchestrator.
 
-Skill invocation: `/devflow [mode] "[goal]"`
+```
+/devflow [mode] "[goal]"
+```
 
-Full architecture: see `master_plan_devflow.md` (comprehensive) or `README.md` (quick reference).
+**Modes:** `planning` | `coding` | `reviewing` | `distillation`
+
+Full architecture: `master_plan_devflow.md` | Quick reference: `README.md`
 
 ---
 
-## Current Status (as of 2026-04-08)
+## Repo Structure
 
-### Migration Progress — meus-remedios
-
-| Wave | Description | Status | Progress |
-|------|-------------|--------|----------|
-| Wave 0 | Scaffolding (setup.sh) | ✓ Complete | 2026-04-07 |
-| Wave 1a | Rules R-001–R-050 | ✓ Complete | 20/20 rules |
-| Wave 1b | Rules R-051–R-100 | ✓ Complete | 18/18 rules |
-| Wave 1c | Rules R-101–R-158 | ✓ Complete | 56/56 rules |
-| Wave 2a | Anti-Patterns — Code | ✓ Complete | 4/4 APs |
-| Wave 2b | Anti-Patterns — Perf | ✓ Complete | 20/20 APs |
-| Wave 2c | Anti-Patterns — UX | ✓ Complete | 23/23 APs |
-| Wave 2d | Anti-Patterns — Other | ✓ Complete | 46/46 APs |
-| Wave 3 | Knowledge | ✓ Complete | 70/70 facts |
-| Wave 4 | ADR Mining + Journal Migration | ✓ Complete | 25 ADRs + 3 JSONL journals |
-| Wave 5 | Contracts | pending | — |
-| Wave 6 | Export Global | pending | — |
-| Wave 7 | Validation | pending | — |
-
-### Immediate Next Steps
-
-1. **Run Wave 5** — Contract specs from `meus-remedios/docs/reference/` (SERVICES.md, HOOKS.md, SCHEMAS.md)
+```
+SKILLS/devflow/
+├── DEVFLOW.md              ← The skill (symlinked into each project's .agent/)
+├── README.md               ← User-facing docs
+├── master_plan_devflow.md  ← Full architecture (read before major changes)
+├── migration-status.json   ← Cross-project migration progress tracker
+├── scripts/
+│   └── setup.sh            ← Bootstrap .agent/ in any project
+├── templates/
+│   ├── state.json          ← Template for new projects
+│   ├── genes.json          ← Default evolution genes
+│   ├── rules.json          ← Empty index template
+│   ├── anti-patterns.json  ← Empty index template
+│   ├── decisions.json      ← Empty index template
+│   ├── contracts.json      ← Empty index template
+│   ├── knowledge.json      ← Empty index template
+│   ├── schema-reference.md ← All format specs
+│   └── examples/           ← Canonical detail file examples
+│       ├── ADR-EXAMPLE.md
+│       ├── CON-EXAMPLE.md
+│       ├── AP-EXAMPLE.md
+│       └── K-EXAMPLE.md
+└── migration-guide/        ← Wave specs for onboarding existing projects
+    ├── WAVE_0_SCAFFOLDING.md
+    ├── WAVE_1A_RULES_1-50.md
+    └── ... (through WAVE_7)
+```
 
 ---
 
 ## Key Architectural Decisions
 
-These were settled in the design session — do not re-debate:
-
 | Decision | Choice |
 |----------|--------|
 | Memory format | JSON indexes (always loaded) + Markdown detail on-demand |
 | Loading strategy | Index-first → filter by tags/applies_to → load relevant `_detail/*.md` |
-| Session loop | **Assess → Execute → Record** (ReAct adapted, no PKM vocabulary) |
+| Session loop | **Assess → Execute → Record** |
 | Orchestrator | None — filesystem IS the orchestrator |
 | Lock strategy | Optimistic lock via `sessions/.lock`; append-only files need no lock |
-| Language | **English only** — all DEVFLOW files, templates, specs, generated artifacts |
-| Skill integrations | `/deliver-sprint` (DEVFLOW wraps it); `/check-review` (DEVFLOW reviewing syncs findings) |
-| ADR archaeology | Mine merged PRs via `gh pr list --state merged --limit 200` |
-| Repo location | `/Users/coelhotv/SKILLS/devflow` — dedicated repo |
+| Language | **English only** — all DEVFLOW files and generated artifacts |
+| DEVFLOW.md in projects | **Symlink** to this repo's DEVFLOW.md — never copy |
+| Skill integrations | `/deliver-sprint` (DEVFLOW wraps it); `/check-review` (DEVFLOW syncs findings) |
 
 ---
 
-## migration-status.json Format
-
-Create at repo root: `/Users/coelhotv/SKILLS/devflow/migration-status.json`
-
-```json
-{
-  "project": "meus-remedios",
-  "last_updated": "2026-04-07",
-  "waves": {
-    "wave_0": { "status": "pending", "started": null, "completed": null, "notes": "" },
-    "wave_1a": { "status": "pending", "started": null, "completed": null, "rules_done": 0, "rules_total": 50 },
-    "wave_1b": { "status": "pending", "started": null, "completed": null, "rules_done": 0, "rules_total": 50 },
-    "wave_1c": { "status": "pending", "started": null, "completed": null, "rules_done": 0, "rules_total": 56 },
-    "wave_2a": { "status": "pending", "started": null, "completed": null, "aps_done": 0, "aps_total": 4 },
-    "wave_2b": { "status": "pending", "started": null, "completed": null, "aps_done": 0, "aps_total": 21 },
-    "wave_2c": { "status": "pending", "started": null, "completed": null, "aps_done": 0, "aps_total": 23 },
-    "wave_2d": { "status": "pending", "started": null, "completed": null, "aps_done": 0, "aps_total": 7 },
-    "wave_3": { "status": "pending", "started": null, "completed": null, "facts_done": 0 },
-    "wave_4": { "status": "pending", "started": null, "completed": null, "prs_mined": false, "adrs_done": 0 },
-    "wave_5": { "status": "pending", "started": null, "completed": null, "contracts_done": 0 },
-    "wave_6": { "status": "pending", "started": null, "completed": null, "items_exported": 0 },
-    "wave_7": { "status": "pending", "started": null, "completed": null }
-  }
-}
-```
-
----
-
-## Meus-Remedios Source Files for Migration
-
-| Wave | Source files |
-|------|-------------|
-| 1 (Rules) | `meus-remedios/.memory/rules.md` |
-| 2 (APs) | `meus-remedios/.memory/anti-patterns.md` |
-| 3 (Knowledge) | `meus-remedios/.memory/knowledge.md` |
-| 4 (ADRs) | `meus-remedios/CLAUDE.md`, `.memory/journal/`, `gh pr list --state merged --limit 200` |
-| 5 (Contracts) | `meus-remedios/docs/reference/SERVICES.md`, `HOOKS.md`, `SCHEMAS.md`, `src/shared/` |
-
-Project paths:
-- Local: `/Users/coelhotv/Library/Mobile Documents/com~apple~CloudDocs/git/meus-remedios`
-- Also: `/Users/coelhotv/git-icloud/meus-remedios`
-
----
-
-## ⚠️ CRITICAL: Wave Execution Protocol — Artifact Location Rules
-
-### Rule 1: ALL ARTIFACTS GO IN PROJECT `.agent/memory/` — NOT `.agent/` ROOT OR THIS REPO
-
-**❌ WRONG:**
-```
-/Users/coelhotv/SKILLS/devflow/decisions.json         ← WRONG: in DEVFLOW repo
-meus-remedios/.agent/decisions.json                   ← WRONG: in .agent/ root
-meus-remedios/.agent/decisions_detail/                ← WRONG: in .agent/ root
-```
-
-**✅ CORRECT:**
-```
-meus-remedios/.agent/memory/decisions.json           ← RIGHT: in .agent/memory/
-meus-remedios/.agent/memory/decisions_detail/        ← RIGHT: in .agent/memory/
-meus-remedios/.agent/memory/journal/2026-W*.jsonl    ← RIGHT: in .agent/memory/journal/
-```
-
-**Full correct structure:**
-```
-.agent/
-├─ DEVFLOW.md
-├─ state.json
-├─ evolution/
-│  └─ genes.json
-├─ sessions/
-│  ├─ .lock
-│  └─ events.jsonl
-├─ synthesis/
-│  └─ pending_export.json
-└─ memory/                                ← ALL wave artifacts go here!
-   ├─ rules.json
-   ├─ rules_detail/
-   ├─ anti-patterns.json
-   ├─ anti-patterns_detail/
-   ├─ decisions.json
-   ├─ decisions_detail/
-   ├─ contracts.json
-   ├─ contracts_detail/
-   ├─ knowledge.json
-   └─ journal/
-      └─ archive/
-```
-
-### Rule 2: ONLY `migration-status.json` Lives in DEVFLOW Repo
-
-This repo (`/SKILLS/devflow/`) contains **only**:
-- `migration-status.json` — progress tracker across projects
-- `CLAUDE.md` — this file (wave execution instructions)
-- `specs/WAVE_*.md` — wave specifications
-- `templates/`, `scripts/` — framework templates
-
-### Rule 3: Artifact Locations by Wave
-
-| Wave | Artifacts | Destination | Example |
-|------|-----------|-------------|---------|
-| 1 | rules.json | `meus-remedios/.agent/` | `decisions.json` → `ADRs in wave-4` |
-| 2 | anti-patterns.json | `meus-remedios/.agent/` | `anti_patterns.json` |
-| 3 | knowledge.json | `meus-remedios/.agent/` | `knowledge.json` |
-| 4 | decisions.json + detail/ | `meus-remedios/.agent/` | `decisions.json`, `decisions_detail/ADR-*.md` |
-| 4 | journal JSONL | `meus-remedios/.agent/memory/journal/` | `2026-W*.jsonl` |
-| 5 | contracts.json + detail/ | `meus-remedios/.agent/` | `contracts.json`, `contracts_detail/C-*.md` |
-| 6-7 | export + validation | `meus-remedios/.agent/` | export results |
-
-### Rule 4: Commit Artifacts to PROJECT Repo, NOT DEVFLOW Repo
+## Setting Up a New Project
 
 ```bash
-# ✅ CORRECT
-cd meus-remedios
-git add .agent/decisions.json .agent/decisions_detail/
-git commit -m "feat(wave-4): ADR registry and journal migration"
-
-# ❌ WRONG
-cd /SKILLS/devflow
-git add decisions.json decisions_detail/  # NO!
+bash /Users/coelhotv/SKILLS/devflow/scripts/setup.sh <project-path> <project-name> <stack-csv>
 ```
 
-### Rule 5: Update migration-status.json AFTER Artifacts are Committed
-
-```bash
-# Step 1: Commit artifacts to meus-remedios
-cd meus-remedios && git add/commit
-
-# Step 2: THEN update progress tracker in DEVFLOW
-cd /SKILLS/devflow
-# Edit migration-status.json: wave_4.status = "completed", adrs_done = 25
-git add migration-status.json && git commit -m "docs: update wave-4 status"
-```
-
-### Wave Execution Protocol
-
-Each wave is a self-contained session. At start:
-1. Read `migration-status.json` → find current wave and progress
-2. Read the wave spec from `specs/WAVE_*.md`
-3. **Navigate to project directory** (`meus-remedios`)
-4. Verify current file state (don't trust status alone)
-5. Resume from last processed entry
-
-At end:
-1. Create artifacts in `meus-remedios/.agent/` (NOT here)
-2. Commit to meus-remedios: `git commit -m "feat(wave-Nx): description"`
-3. **Return to DEVFLOW repo**
-4. Update `migration-status.json` with real progress
-5. Commit status update: `git commit -m "docs: update wave-Nx status"`
-6. Push both repos to GitHub
+What `setup.sh` does:
+1. Creates full `.agent/` directory tree
+2. **Symlinks** `DEVFLOW.md` (not copied — always stays current)
+3. Initializes `state.json`, `genes.json`, empty indexes
+4. Imports 69 GR-NNN rules + 64 GAP-NNN anti-patterns from `~/.devflow/global_base/`
+5. Updates `.gitignore` (excludes symlink + runtime files)
 
 ---
 
-## File Reference
+## Migrating an Existing Project
 
-- `DEVFLOW.md` — the skill itself (copy this to `.agent/DEVFLOW.md` in each project)
-- `README.md` — user-facing docs
-- `master_plan_devflow.md` — full architecture plan (created in the design session)
-- `templates/` — files for `scripts/setup.sh` to copy into new projects
-- `scripts/setup.sh` — run this to bootstrap `.agent/` in any project
-- `specs/` — one spec per migration wave
-- `migration-status.json` — wave progress tracker (create this next)
+Use the wave-based migration guide in `migration-guide/`. Waves are independent and deliver value individually:
+
+| Wave | What it migrates | Effort |
+|------|-----------------|--------|
+| 0 | Scaffolding | 15 min |
+| 1 | Rules → rules.json + rules_detail/ | 2-3h |
+| 2 | Anti-patterns → anti-patterns.json + detail/ | 2-3h |
+| 3 | Knowledge → knowledge.json | 1h |
+| 4 | ADR archaeology + journal migration | 4-5h |
+| 5 | Contracts from SERVICES.md/HOOKS.md | 2h |
+| 6 | Export universal knowledge to ~/.devflow/ | 1h |
+| 7 | Validation | 1h |
+
+Track progress in `migration-status.json`.
+
+---
+
+## Global Base (`~/.devflow/global_base/`)
+
+Universal rules and anti-patterns shared across all projects:
+- `universal_rules.json` — 69 GR-NNN rules (from meus-remedios, stack-universal)
+- `universal_anti_patterns.json` — 64 GAP-NNN patterns
+- Detail files in `rules_detail/` and `anti_patterns_detail/`
+
+Every new project bootstrapped with `setup.sh` auto-imports the global base.
+
+---
+
+## Migrated Projects
+
+| Project | Status | Rules | APs | ADRs | Contracts | Knowledge |
+|---------|--------|-------|-----|------|-----------|-----------|
+| meus-remedios | ✓ Complete | 106 | 93 | 25 | 16 | 70 facts |
+
+---
+
+## Adding Another Project
+
+1. Run `setup.sh` on the new project
+2. Populate `knowledge.json` with stack-specific facts
+3. Run through migration waves if it's an existing project with existing memory
+4. After maturing, run Wave 6 to export new universal patterns to `~/.devflow/global_base/`
