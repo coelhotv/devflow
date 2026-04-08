@@ -64,11 +64,13 @@
       "facts_done": 70
     },
     "wave_4": {
-      "status": "pending",
-      "started": null,
-      "completed": null,
-      "prs_mined": false,
-      "adrs_done": 0
+      "status": "completed",
+      "started": "2026-04-08",
+      "completed": "2026-04-08",
+      "prs_mined": true,
+      "adrs_done": 25,
+      "journals_migrated": 3,
+      "journals_archived": 11
     },
     "wave_5": {
       "status": "pending",
