@@ -16,11 +16,11 @@
       "rules_total": 20
     },
     "wave_1b": {
-      "status": "pending",
-      "started": null,
-      "completed": null,
-      "rules_done": 0,
-      "rules_total": 50
+      "status": "completed",
+      "started": "2026-04-07",
+      "completed": "2026-04-07",
+      "rules_done": 18,
+      "rules_total": 18
     },
     "wave_1c": {
       "status": "pending",
