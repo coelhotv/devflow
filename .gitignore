@@ -1,6 +1,5 @@
 *.code-workspace
 .vscode/
-specs/
 coverage/
 node_modules/
 dist/
