@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "genes": {
-    "memory_distillation_threshold": 10,
+    "memory_distillation_threshold": 15,
     "auto_promote_rule_after_incidents": 2,
     "require_adr_for_schema_changes": true,
     "require_adr_for_api_breaking_changes": true,

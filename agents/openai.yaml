@@ -1,0 +1,4 @@
+interface:
+  display_name: "DEVFLOW"
+  short_description: "Persistent memory dev workflow"
+  default_prompt: "Use $devflow to bootstrap project memory and run a structured software development workflow for this task."
