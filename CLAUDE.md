@@ -102,20 +102,46 @@ Project paths:
 
 ## ⚠️ CRITICAL: Wave Execution Protocol — Artifact Location Rules
 
-### Rule 1: ALL ARTIFACTS GO IN PROJECT `.agent/` — NOT IN THIS REPO
+### Rule 1: ALL ARTIFACTS GO IN PROJECT `.agent/memory/` — NOT `.agent/` ROOT OR THIS REPO
 
-**❌ WRONG** (common mistake in Wave 4):
+**❌ WRONG:**
 ```
-/Users/coelhotv/SKILLS/devflow/decisions.json           ← WRONG
-/Users/coelhotv/SKILLS/devflow/decisions_detail/        ← WRONG
-/Users/coelhotv/SKILLS/devflow/.agent/memory/journal/   ← WRONG
+/Users/coelhotv/SKILLS/devflow/decisions.json         ← WRONG: in DEVFLOW repo
+meus-remedios/.agent/decisions.json                   ← WRONG: in .agent/ root
+meus-remedios/.agent/decisions_detail/                ← WRONG: in .agent/ root
 ```
 
 **✅ CORRECT:**
 ```
-meus-remedios/.agent/decisions.json              ← RIGHT: in project
-meus-remedios/.agent/decisions_detail/           ← RIGHT: in project
-meus-remedios/.agent/memory/journal/2026-W*.jsonl ← RIGHT: in project
+meus-remedios/.agent/memory/decisions.json           ← RIGHT: in .agent/memory/
+meus-remedios/.agent/memory/decisions_detail/        ← RIGHT: in .agent/memory/
+meus-remedios/.agent/memory/journal/2026-W*.jsonl    ← RIGHT: in .agent/memory/journal/
+```
+
+**Full correct structure:**
+```
+.agent/
+├─ DEVFLOW.md
+├─ state.json
+├─ evolution/
+│  └─ genes.json
+├─ sessions/
+│  ├─ .lock
+│  └─ events.jsonl
+├─ synthesis/
+│  └─ pending_export.json
+└─ memory/                                ← ALL wave artifacts go here!
+   ├─ rules.json
+   ├─ rules_detail/
+   ├─ anti-patterns.json
+   ├─ anti-patterns_detail/
+   ├─ decisions.json
+   ├─ decisions_detail/
+   ├─ contracts.json
+   ├─ contracts_detail/
+   ├─ knowledge.json
+   └─ journal/
+      └─ archive/
 ```
 
 ### Rule 2: ONLY `migration-status.json` Lives in DEVFLOW Repo
