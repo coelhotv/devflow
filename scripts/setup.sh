@@ -38,7 +38,6 @@ echo "  ✓ Directory tree created"
 
 # ─── 2. Symlink DEVFLOW.md (always points to master, never stale) ────────────
 ln -sf "$DEVFLOW_DIR/DEVFLOW.md" "$AGENT_DIR/DEVFLOW.md"
-ln -sf "$AGENT_DIR/DEVFLOW.md" "$AGENT_DIR/SKILL.md"
 echo "  ✓ DEVFLOW.md symlinked → $DEVFLOW_DIR/DEVFLOW.md"
 
 # ─── 3. Initialize state.json ────────────────────────────────────────────────
