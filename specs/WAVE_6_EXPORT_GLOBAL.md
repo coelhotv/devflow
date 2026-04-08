@@ -2,6 +2,7 @@
 
 **Status:** pending
 **Project:** meus-remedios
+**Path:** `/Users/coelhotv/Library/Mobile\ Documents/com~apple~CloudDocs/git/meus-remedios/.agent`
 **Estimated effort:** 1h (1 session)
 **Prerequisites:** Waves 1-5 complete
 
