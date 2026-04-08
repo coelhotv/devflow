@@ -1,10 +1,14 @@
 # DEVFLOW — Autonomous Software Development Agent
 
 > **The filesystem is the orchestrator.**
+>
+> **Status: v1.0 — Production ready. meus-remedios migration complete (all 7 waves).**
 
 DEVFLOW is a skill for autonomous AI agents working on long-term software projects. It provides persistent memory, goal alignment, contract-aware coding, and continuous learning — without requiring a formal orchestrator.
 
 Each agent session reads project state from files, acts, and deposits learnings back. The next session finds a richer state. Knowledge compounds over time.
+
+**Auto-load via symlink:** Agents automatically load DEVFLOW skill through `SKILL.md` symlink to `DEVFLOW.md`.
 
 ---
 
@@ -65,30 +69,43 @@ If your project uses `/check-review`, run it first, then sync findings with DEVF
 
 ```
 devflow/
-  DEVFLOW.md              ← The skill itself (copy to .agent/ in each project)
+  DEVFLOW.md              ← The skill itself (symlinked to .agent/DEVFLOW.md in each project)
+  SKILL.md                ← Symlink to DEVFLOW.md (auto-loads skill for agents)
   README.md               ← This file
+  CLAUDE.md               ← Project instructions (v1.0 status, architecture decisions)
+  master_plan_devflow.md  ← Full architectural specification
+
   templates/
     state.json            ← state.json template with placeholders
-    genes.json            ← default gene values
-    rules.json            ← empty index array
+    genes.json            ← default evolution genes
+    rules.json            ← empty index template
+    anti-patterns.json    ← empty index template
+    decisions.json        ← empty index template
+    contracts.json        ← empty index template
+    knowledge.json        ← empty index template
     schema-reference.md   ← Full schema docs for all index and detail files
+    examples/
+      R-EXAMPLE.md, AP-EXAMPLE.md, ADR-EXAMPLE.md, CON-EXAMPLE.md, K-EXAMPLE.md
+
   scripts/
-    setup.sh              ← Automated project setup
-  specs/
-    WAVE_0_SCAFFOLDING.md      ← meus-remedios migration Wave 0
-    WAVE_1A_RULES_1-50.md      ← meus-remedios migration Wave 1a
-    WAVE_1B_RULES_51-100.md    ← meus-remedios migration Wave 1b
-    WAVE_1C_RULES_101-156.md   ← meus-remedios migration Wave 1c
-    WAVE_2A_AP_CODE.md         ← meus-remedios migration Wave 2a
-    WAVE_2B_AP_PERF.md         ← meus-remedios migration Wave 2b
-    WAVE_2C_AP_UX.md           ← meus-remedios migration Wave 2c
-    WAVE_2D_AP_OTHER.md        ← meus-remedios migration Wave 2d
-    WAVE_3_KNOWLEDGE.md        ← meus-remedios migration Wave 3
-    WAVE_4_ADR_MINING.md       ← meus-remedios migration Wave 4
-    WAVE_5_CONTRACTS.md        ← meus-remedios migration Wave 5
-    WAVE_6_EXPORT_GLOBAL.md    ← meus-remedios migration Wave 6
-    WAVE_7_VALIDATION.md       ← meus-remedios migration Wave 7
-  migration-status.json   ← Progress tracker for meus-remedios migration
+    setup.sh              ← Bootstrap .agent/ in any new project (auto-imports global base)
+
+  migration-guide/
+    WAVE_0_SCAFFOLDING.md      ← Scaffolding (.agent/ structure)
+    WAVE_1A_RULES_1-50.md      ← Rule 1-50 → rules.json
+    WAVE_1B_RULES_51-100.md    ← Rule 51-100 → rules.json
+    WAVE_1C_RULES_101-156.md   ← Rule 101-156 → rules.json
+    WAVE_2A_AP_CODE.md         ← Anti-patterns (code) → anti-patterns.json
+    WAVE_2B_AP_PERF.md         ← Anti-patterns (performance)
+    WAVE_2C_AP_UX.md           ← Anti-patterns (UX)
+    WAVE_2D_AP_OTHER.md        ← Anti-patterns (other)
+    WAVE_3_KNOWLEDGE.md        ← Domain facts → knowledge.json
+    WAVE_4_ADR_MINING.md       ← ADR archaeology → decisions.json
+    WAVE_5_CONTRACTS.md        ← Interface contracts → contracts.json
+    WAVE_6_EXPORT_GLOBAL.md    ← Export universal knowledge to ~/.devflow/
+    WAVE_7_VALIDATION.md       ← Validation & completion
+  
+  migration-status.json   ← Progress tracker (meus-remedios: ✓ complete)
 ```
 
 ---
@@ -128,25 +145,22 @@ Each project using DEVFLOW gets a `.agent/` folder:
 
 ---
 
-## Global Knowledge Base
+## Global Knowledge Base (Established)
 
-After your first project matures, export universal knowledge to `~/.devflow/`:
-
-```bash
-/devflow export
-```
-
-Future projects bootstrap with this global knowledge:
+DEVFLOW maintains a shared knowledge base at `~/.devflow/global_base/`:
 
 ```
-~/.devflow/
-  global_base/
-    universal_rules.json         ← GR-NNN (stack-agnostic rules)
-    universal_anti_patterns.json ← GAP-NNN (stack-agnostic APs)
-    rules_detail/GR-NNN.md
-    anti-patterns_detail/GAP-NNN.md
-    index.json                   ← project registry
+~/.devflow/global_base/
+  universal_rules.json         ← GR-NNN (69 stack-agnostic rules from meus-remedios)
+  universal_anti_patterns.json ← GAP-NNN (64 stack-agnostic anti-patterns)
+  rules_detail/GR-NNN.md
+  anti-patterns_detail/GAP-NNN.md
+  index.json                   ← project registry
 ```
+
+**Bootstrap:** New projects created with `setup.sh` automatically import these 69+64 universal rules and anti-patterns, accelerating knowledge transfer across projects.
+
+**Export:** After a project matures, run `/devflow export` to promote project-specific patterns to the global base for reuse across all future projects.
 
 ---
 
@@ -168,6 +182,28 @@ Future projects bootstrap with this global knowledge:
 All DEVFLOW files are in **English** — for LLM compatibility across model families and future open-source collaboration.
 
 Project domain content (business logic, UI text) may remain in the project's native language.
+
+---
+
+## Project Status & Deliverables
+
+### meus-remedios Migration — Complete ✓
+
+| Component | Status | Count |
+|-----------|--------|-------|
+| Rules | ✓ Complete | 106 rules (37 local + 69 global GR-NNN) |
+| Anti-patterns | ✓ Complete | 93 patterns (29 local + 64 global GAP-NNN) |
+| Decisions (ADRs) | ✓ Complete | 25 architectural decisions |
+| Contracts | ✓ Complete | 16 interface contracts |
+| Knowledge | ✓ Complete | 70 domain facts |
+| Global Base | ✓ Exported | 69 universal rules + 64 universal APs |
+
+### Recent Deliverables
+
+- **Wave 7 (Validation)** — Full migration validation complete, zero gaps
+- **Wave 6 (Export)** — 69 universal rules + 64 anti-patterns exported to `~/.devflow/global_base/`
+- **Post-migration Cleanup** — Templates standardized, CLAUDE.md established, SKILL.md symlink created
+- **v1.0 Release** — Production-ready skill with index-first memory, contract gateway, meta-evolution
 
 ---
 
