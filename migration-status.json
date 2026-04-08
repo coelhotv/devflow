@@ -83,10 +83,14 @@
       "notes": "16 stable interfaces identified: services, hooks, schemas, UI components"
     },
     "wave_6": {
-      "status": "pending",
-      "started": null,
-      "completed": null,
-      "items_exported": 0
+      "status": "completed",
+      "started": "2026-04-08",
+      "completed": "2026-04-08",
+      "items_exported": 133,
+      "universal_rules": 69,
+      "universal_aps": 64,
+      "destination": "~/.devflow/global_base/",
+      "notes": "69 universal rules (GR-001..GR-069) + 64 universal anti-patterns (GAP-001..GAP-064) exported from meus-remedios"
     },
     "wave_7": {
       "status": "pending",
