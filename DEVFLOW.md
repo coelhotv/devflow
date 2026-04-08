@@ -158,12 +158,29 @@ Verify before writing any code (do not skip):
 For each file to be modified:
   Grep contracts.json for the file name or its exports.
   IF a contract covers this interface:
-    IF change is non-breaking (additive, optional fields only) → proceed
     IF change is breaking → HALT
                          → Draft ADR-NNN in decisions.json (status: "proposed")
                          → Create decisions_detail/ADR-NNN.md
                          → Report to human: "Breaking change on CON-NNN. ADR-NNN drafted. Awaiting approval."
                          → Do NOT proceed until ADR status = "accepted"
+    IF change is non-breaking (additive, optional fields only) → continue to gate below
+
+[C2 GATE — always fires after contract check passes, breaking or non-breaking]
+Output this summary, then STOP and await go-ahead:
+
+  ╔══ DEVFLOW C2 GATE ══════════════════════════════╗
+  ║ Files to modify   : [list of files]             ║
+  ║ Contracts touched : [CON-NNN list or "none"]    ║
+  ║ Rules to apply    : [top R-NNN relevant to task]║
+  ║ Watch-for AP-NNN  : [top AP-NNN relevant]       ║
+  ║ C3 order          : [brief implementation seq]  ║
+  ║ C4 quality gates  : [lint / test / build cmds]  ║
+  ╚═════════════════════════════════════════════════╝
+
+  → Awaiting go-ahead. Options:
+      "go"              — DEVFLOW proceeds to C3 → C4 → C5
+      /deliver-sprint   — hand off C3/C4 to deliver-sprint; DEVFLOW resumes at C5
+      "stop"            — abort session, state preserved in state.json
 ```
 
 ### C3 — Implementation Order
