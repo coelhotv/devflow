@@ -69,8 +69,10 @@
       "completed": "2026-04-08",
       "prs_mined": true,
       "adrs_done": 25,
-      "journals_migrated": 3,
-      "journals_archived": 11
+      "journals_migrated": 6,
+      "journal_events": 33,
+      "journals_archived": 11,
+      "notes": "Converted 6 JSONL files: 3 main weeks + 3 wave-specific subfiles with 33 events total"
     },
     "wave_5": {
       "status": "pending",
