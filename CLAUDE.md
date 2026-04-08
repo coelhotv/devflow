@@ -100,18 +100,85 @@ Project paths:
 
 ---
 
-## Wave Execution Protocol
+## ⚠️ CRITICAL: Wave Execution Protocol — Artifact Location Rules
+
+### Rule 1: ALL ARTIFACTS GO IN PROJECT `.agent/` — NOT IN THIS REPO
+
+**❌ WRONG** (common mistake in Wave 4):
+```
+/Users/coelhotv/SKILLS/devflow/decisions.json           ← WRONG
+/Users/coelhotv/SKILLS/devflow/decisions_detail/        ← WRONG
+/Users/coelhotv/SKILLS/devflow/.agent/memory/journal/   ← WRONG
+```
+
+**✅ CORRECT:**
+```
+meus-remedios/.agent/decisions.json              ← RIGHT: in project
+meus-remedios/.agent/decisions_detail/           ← RIGHT: in project
+meus-remedios/.agent/memory/journal/2026-W*.jsonl ← RIGHT: in project
+```
+
+### Rule 2: ONLY `migration-status.json` Lives in DEVFLOW Repo
+
+This repo (`/SKILLS/devflow/`) contains **only**:
+- `migration-status.json` — progress tracker across projects
+- `CLAUDE.md` — this file (wave execution instructions)
+- `specs/WAVE_*.md` — wave specifications
+- `templates/`, `scripts/` — framework templates
+
+### Rule 3: Artifact Locations by Wave
+
+| Wave | Artifacts | Destination | Example |
+|------|-----------|-------------|---------|
+| 1 | rules.json | `meus-remedios/.agent/` | `decisions.json` → `ADRs in wave-4` |
+| 2 | anti-patterns.json | `meus-remedios/.agent/` | `anti_patterns.json` |
+| 3 | knowledge.json | `meus-remedios/.agent/` | `knowledge.json` |
+| 4 | decisions.json + detail/ | `meus-remedios/.agent/` | `decisions.json`, `decisions_detail/ADR-*.md` |
+| 4 | journal JSONL | `meus-remedios/.agent/memory/journal/` | `2026-W*.jsonl` |
+| 5 | contracts.json + detail/ | `meus-remedios/.agent/` | `contracts.json`, `contracts_detail/C-*.md` |
+| 6-7 | export + validation | `meus-remedios/.agent/` | export results |
+
+### Rule 4: Commit Artifacts to PROJECT Repo, NOT DEVFLOW Repo
+
+```bash
+# ✅ CORRECT
+cd meus-remedios
+git add .agent/decisions.json .agent/decisions_detail/
+git commit -m "feat(wave-4): ADR registry and journal migration"
+
+# ❌ WRONG
+cd /SKILLS/devflow
+git add decisions.json decisions_detail/  # NO!
+```
+
+### Rule 5: Update migration-status.json AFTER Artifacts are Committed
+
+```bash
+# Step 1: Commit artifacts to meus-remedios
+cd meus-remedios && git add/commit
+
+# Step 2: THEN update progress tracker in DEVFLOW
+cd /SKILLS/devflow
+# Edit migration-status.json: wave_4.status = "completed", adrs_done = 25
+git add migration-status.json && git commit -m "docs: update wave-4 status"
+```
+
+### Wave Execution Protocol
 
 Each wave is a self-contained session. At start:
 1. Read `migration-status.json` → find current wave and progress
 2. Read the wave spec from `specs/WAVE_*.md`
-3. Verify current file state (don't trust status alone)
-4. Resume from last processed entry
+3. **Navigate to project directory** (`meus-remedios`)
+4. Verify current file state (don't trust status alone)
+5. Resume from last processed entry
 
 At end:
-1. Update `migration-status.json` with real progress
-2. Commit: `git commit -m "feat(wave-Nx): description"`
-3. Push to GitHub
+1. Create artifacts in `meus-remedios/.agent/` (NOT here)
+2. Commit to meus-remedios: `git commit -m "feat(wave-Nx): description"`
+3. **Return to DEVFLOW repo**
+4. Update `migration-status.json` with real progress
+5. Commit status update: `git commit -m "docs: update wave-Nx status"`
+6. Push both repos to GitHub
 
 ---
 
