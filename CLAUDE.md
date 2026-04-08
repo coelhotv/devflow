@@ -1,6 +1,6 @@
 # DEVFLOW — Project Context for Claude Code
 
-> **Status: Waves 0–2d complete (93 APs migrated). Next: Wave 3 (Knowledge).**
+> **Status: Waves 0–3 complete (93 APs + 70 Knowledge facts migrated). Next: Wave 4 (ADR Mining).**
 
 ## What this repo is
 
@@ -26,7 +26,7 @@ Full architecture: see `master_plan_devflow.md` (comprehensive) or `README.md` (
 | Wave 2b | Anti-Patterns — Perf | ✓ Complete | 20/20 APs |
 | Wave 2c | Anti-Patterns — UX | ✓ Complete | 23/23 APs |
 | Wave 2d | Anti-Patterns — Other | ✓ Complete | 46/46 APs |
-| Wave 3 | Knowledge | pending | — |
+| Wave 3 | Knowledge | ✓ Complete | 70/70 facts |
 | Wave 4 | ADR Mining + Journal Migration | pending | — |
 | Wave 5 | Contracts | pending | — |
 | Wave 6 | Export Global | pending | — |
@@ -34,7 +34,7 @@ Full architecture: see `master_plan_devflow.md` (comprehensive) or `README.md` (
 
 ### Immediate Next Steps
 
-1. **Run Wave 3** — Knowledge facts from `meus-remedios/.memory/knowledge.md`
+1. **Run Wave 4** — ADR Mining from `meus-remedios/` via `gh pr list --state merged --limit 200`
 
 ---
 
