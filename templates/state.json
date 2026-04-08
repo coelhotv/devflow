@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "project": {
+    "name": "{{PROJECT_NAME}}",
+    "slug": "{{PROJECT_SLUG}}",
+    "stack": ["{{STACK_1}}", "{{STACK_2}}"],
+    "phase": "initial",
+    "current_sprint": "{{YYYY-WWW}}"
+  },
+  "session": {
+    "id": null,
+    "started_at": null,
+    "mode": null,
+    "goal": null,
+    "goal_type": null,
+    "status": "idle"
+  },
+  "memory": {
+    "rules_count": 0,
+    "anti_patterns_count": 0,
+    "decisions_count": 0,
+    "contracts_count": 0,
+    "last_distillation": null,
+    "journal_entries_since_distillation": 0
+  },
+  "evolution": {
+    "genes_version": "1.0",
+    "pending_mutations": []
+  },
+  "quality_gates": {
+    "index_loaded_at": null,
+    "relevant_rules_loaded_at": null
+  }
+}
