@@ -138,6 +138,23 @@ Write journal entry to .agent/memory/journal/YYYY-WWW.jsonl
 
 **Purpose:** Implement features following memory constraints and contracts.
 
+### C0 — State Transition to Analysis
+
+Upon entering Coding mode, immediately update state.json:
+
+```json
+{
+  "session": {
+    "mode": "coding",
+    "status": "analysis",
+    "goal": "<from planning or user input>",
+    "goal_type": "<feature|fix|refactor|docs|chore>"
+  }
+}
+```
+
+This marks the session as analyzing code structure before implementation begins.
+
 ### C1 — Pre-Code Checklist
 ```
 Verify before writing any code (do not skip):
@@ -175,9 +192,15 @@ Output this summary, then STOP and await go-ahead:
   ╚═════════════════════════════════════════════════╝
 
   → Awaiting go-ahead. Options:
-      "go"              — DEVFLOW proceeds to C3 → C4 → C5
-      /deliver-sprint   — hand off C3/C4 to deliver-sprint; DEVFLOW resumes at C5
-      "stop"            — abort session, state preserved in state.json
+
+      "go" → Update state.json: session.status = "coding"
+             Then DEVFLOW proceeds to C3 → C4 → C5
+
+      /deliver-sprint → Update state.json: session.status = "coding"
+                        Hand off C3/C4 to /deliver-sprint; DEVFLOW resumes at C5
+
+      "stop" → Update state.json: session.status = "halted"
+               Abort session, preserve all changes in state.json and git working tree
 ```
 
 ### C3 — Implementation Order
@@ -213,7 +236,9 @@ All must pass. Fix failures before proceeding to C5.
   [ ] Acquire lock → update relevant index files → release lock (see Locking Protocol)
   [ ] Append to events.jsonl: {timestamp, event: "coding_complete", files: [...], rules_applied: [...], aps_triggered: [...]}
   [ ] Write journal entry to memory/journal/YYYY-WWW.jsonl
-  [ ] Update state.json: increment memory.journal_entries_since_distillation
+  [ ] Update state.json:
+      - Increment memory.journal_entries_since_distillation
+      - Set session.status = "completed"
   [ ] IF journal_entries_since_distillation >= genes.memory_distillation_threshold → trigger Distillation Mode
 ```
 
