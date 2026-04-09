@@ -95,6 +95,23 @@ Update state.json: quality_gates.index_loaded_at = now
 
 **Purpose:** Understand scope, design solution, create specs and ADRs.
 
+### P0 — State Transition to Planning
+
+Upon entering Planning mode, immediately update state.json:
+
+```json
+{
+  "session": {
+    "mode": "planning",
+    "status": "planning",
+    "goal": "<goal title or description>",
+    "goal_type": "<feature|fix|refactor|docs|chore>"
+  }
+}
+```
+
+This marks the session as in planning phase before scope analysis begins.
+
 ### P1 — Scope Analysis
 ```
 Read relevant files in plans/ for existing specs.
@@ -122,14 +139,23 @@ Write execution spec to plans/EXEC_SPEC_<GOAL>.md including:
   - Quality gate commands (exact commands to run)
 ```
 
-### P4 — State Update
+### P4 — State Update & Completion
+
+Upon completing all planning steps (P1-P3):
+
 ```
 Update .agent/state.json:
   session.goal = <goal title>
   session.goal_type = feature | fix | refactor | docs | chore
+  session.status = "planned"
+
 Append to .agent/sessions/events.jsonl:
   {"timestamp": "...", "event": "planning_complete", "spec": "plans/EXEC_SPEC_X.md"}
+
 Write journal entry to .agent/memory/journal/YYYY-WWW.jsonl
+```
+
+This transitions the session from "planning" to "planned" state, signaling readiness for Coding mode.
 ```
 
 ---
@@ -261,6 +287,22 @@ If /deliver-sprint is not available, follow C1-C5 directly.
 
 **Purpose:** Analyze code changes against memory constraints. Update memory with findings.
 
+### R0 — State Transition to Reviewing
+
+Upon entering Reviewing mode, immediately update state.json:
+
+```json
+{
+  "session": {
+    "mode": "reviewing",
+    "status": "reviewing",
+    "goal": "<PR number or branch name being reviewed>"
+  }
+}
+```
+
+This marks the session as actively reviewing code changes.
+
 ### R1 — Load Review Context
 ```
 Load: rules.json, anti-patterns.json, contracts.json, decisions.json (all indexes)
@@ -293,7 +335,10 @@ For patterns done correctly: note in journal as positive signal
 Append to events.jsonl: {event: "review_complete", violations: [...], compliant: [...]}
 ```
 
-### R5 — Review Output
+### R5 — Review Output & State Update
+
+Upon completing all review steps (R1-R4):
+
 ```
 Produce structured review:
   CRITICAL issues (must fix before merge)
@@ -301,6 +346,15 @@ Produce structured review:
   MEDIUM issues (consider fixing)
   Memory updates made
   Rules well-applied (positive signal)
+
+Update state.json:
+  session.status = "reviewed"
+  Append to events.jsonl: {timestamp, event: "reviewing_complete", violations: [...], compliant: [...]}
+
+Write journal entry to memory/journal/YYYY-WWW.jsonl with findings summary
+```
+
+This transitions the session from "reviewing" to "reviewed" state, signaling review completion.
 ```
 
 ### Integration with /check-review
@@ -321,6 +375,22 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 ## Mode: Distillation
 
 **Purpose:** Compress journal entries, review rule lifecycle, export cross-project knowledge.
+
+### D0 — State Transition to Distillation
+
+Upon entering Distillation mode, immediately update state.json:
+
+```json
+{
+  "session": {
+    "mode": "distillation",
+    "status": "distilling",
+    "goal": "compress and distill project memory"
+  }
+}
+```
+
+This marks the session as actively compressing journal history and reviewing rule lifecycle.
 
 ### D1 — Journal Compression
 ```
@@ -366,7 +436,36 @@ For each entry in synthesis/pending_export.json:
 Clear synthesis/pending_export.json after successful export
 ```
 
-### D5 — State Reset
+### D4.5 — Export (if needed, triggered by /devflow export)
+
+#### E0 — State Transition to Export
+
+Upon invoking `/devflow export` (or within D4), update state.json:
+
+```json
+{
+  "session": {
+    "mode": "distillation",
+    "status": "exporting",
+    "goal": "export general rules/APs to global base"
+  }
+}
+```
+
+#### E5 — Export Complete & State Update
+
+After exporting to global_base/:
+
+```
+Update state.json:
+  session.status = "exported"
+  Append to evolution/evolution_log.jsonl: {timestamp, event: "export_complete", rules_promoted: N, aps_promoted: M}
+```
+
+### D5 — Distillation Complete & State Update
+
+Upon completing all distillation steps (D1-D4):
+
 ```
 Acquire lock → update state.json:
   memory.last_distillation = now (ISO timestamp)
@@ -375,9 +474,16 @@ Acquire lock → update state.json:
   memory.anti_patterns_count = count of active entries in anti-patterns.json
   memory.decisions_count = count entries in decisions.json
   memory.contracts_count = count entries in contracts.json
+  session.status = "distilled"
 Release lock
+
 Append to evolution/evolution_log.jsonl:
   {"timestamp": "...", "event": "distillation_complete", "rules_promoted": N, "aps_triggered": N}
+
+Write journal entry to memory/journal/YYYY-WWW.jsonl with distillation summary
+```
+
+This transitions the session from "distilling" to "distilled" state, signaling distillation completion.
 ```
 
 ---
@@ -523,6 +629,79 @@ Top Anti-Patterns (last 30 days):
   AP-NNN: <title> — <N> triggers
 Contracts Checked Before Coding: <N of M sessions> (<pct>%)
 ```
+
+---
+
+## Session State Machine
+
+All modes follow a consistent state lifecycle. Agents MUST update `session.status` at each transition:
+
+```
+PLANNING MODE:
+  START (agent invoked with /devflow planning)
+    ↓
+  P0: session.status = "planning"
+    ↓
+  P1-P3: scope analysis, ADR check, spec creation
+    ↓
+  P4: session.status = "planned"
+    ↓
+  END (awaiting Coding mode invocation)
+
+CODING MODE:
+  START (agent invoked with /devflow coding)
+    ↓
+  C0: session.status = "analysis"
+    ↓
+  C1-C2: pre-code checklist, contract gateway (outputs C2 GATE)
+    ↓
+  (GATE) → "go" or "/deliver-sprint": session.status = "coding"
+         → "stop": session.status = "halted" (END)
+    ↓
+  C3-C4: implementation, quality gates
+    ↓
+  C5: session.status = "completed"
+    ↓
+  END (memory updated, awaiting next phase)
+
+REVIEWING MODE:
+  START (agent invoked with /devflow reviewing)
+    ↓
+  R0: session.status = "reviewing"
+    ↓
+  R1-R4: load context, violation scan, severity classification, memory update
+    ↓
+  R5: session.status = "reviewed"
+    ↓
+  END (review findings logged, awaiting merge decision)
+
+DISTILLATION MODE:
+  START (agent invoked with /devflow distill)
+    ↓
+  D0: session.status = "distilling"
+    ↓
+  D1-D4: journal compression, rule lifecycle review, promotion assessment, export prep
+    ↓
+  D4.5 (optional): IF /devflow export is invoked:
+      E0: session.status = "exporting"
+        ↓
+      Export to global_base/
+        ↓
+      E5: session.status = "exported"
+    ↓
+  D5: session.status = "distilled"
+    ↓
+  END (memory distilled, counters reset)
+```
+
+**Orchestration Rules for Autonomous Agents:**
+
+- ✅ **Read** `session.status` BEFORE deciding what actions are valid
+- ✅ **Update** `session.status` EXACTLY as documented in each phase (P0, P4, C0, C2, C5, R0, R5, D0, D5, E0, E5)
+- ✅ **Never skip** state transitions — missing status updates break agent orchestration
+- ✅ **Append to events.jsonl** ONLY when transitioning to final state of each mode (P4, C5, R5, D5, E5)
+- ❌ **Never modify** `session.status` outside the documented phases
+- ❌ **Never assume** agent can proceed without checking `session.status` first
 
 ---
 
