@@ -40,6 +40,41 @@ A session that skips Record is incomplete — it consumed knowledge without cont
 
 ---
 
+## ⚠️ **CRITICAL: State Checkpoint Protocol**
+
+**state.json is a CHECKPOINT, not a log.** Each mode transition MUST update it immediately. Missing updates break agent orchestration across sessions.
+
+### **Update state.json AT THESE EXACT POINTS:**
+
+```
+PLANNING MODE:
+  ✅ P0 (entering): session.status = "planning"
+  ✅ P4 (completing): session.status = "planned"
+
+CODING MODE:
+  ✅ C0 (entering): session.status = "analysis", session.goal = <new goal>
+  ✅ C2 (gate passed): session.status = "coding"
+  ✅ C5 (completing): session.status = "completed", increment memory.journal_entries_since_distillation
+
+REVIEWING MODE:
+  ✅ R0 (entering): session.status = "reviewing"
+  ✅ R5 (completing): session.status = "reviewed"
+
+DISTILLATION MODE:
+  ✅ D0 (entering): session.status = "distilling"
+  ✅ D5 (completing): session.status = "distilled", reset memory.journal_entries_since_distillation = 0
+```
+
+### **DO NOT:**
+- ❌ Skip state transitions (agent orchestration FAILS)
+- ❌ Update state.json only at session end (checkpoint lost)
+- ❌ Assume you "will update it later" (context resets between invocations)
+- ❌ Proceed to next phase without confirming state.json was written
+
+### **If you skip this: Next session finds invalid state and restarts from P0 BOOTSTRAP**
+
+---
+
 ## Memory Architecture: Index-First, Detail On-Demand
 
 All memory files follow a two-level structure:
@@ -49,10 +84,40 @@ Level 1 — Index (always loaded):   *.json files  — compact, filterable, ~1 l
 Level 2 — Detail (on-demand):      *_detail/*.md — rich content, loaded only when relevant
 ```
 
+Rules and anti-pattern indexes support three operational layers:
+
+- `hot`: always considered during bootstrap
+- `warm`: loaded only when relevant to the current goal, stack, tags, or files in scope
+- `cold`: active but non-bootstrap context; load only for historical lookup, specialized work, or explicit request
+
+Lifecycle states across these layers:
+
+- `hot + active`: universal guardrails, always part of bootstrap
+- `warm + active`: contextual guidance, loaded only when scope matches
+- `cold + active`: retained for consultation, but excluded from normal bootstrap
+- `cold + archived`: preserved only for historical traceability; do not load unless auditing memory history
+
+Rules and anti-patterns may also declare a contextual `pack`, such as:
+
+- `file-integrity`
+- `review-validation`
+- `date-time`
+- `test-hygiene`
+- `schema-data`
+- `react-hooks`
+- `infra-api`
+- `adherence-reporting-mobile`
+- `telegram`
+- `design-ui`
+- `process-hygiene`
+
 **Loading protocol:**
-1. Load the index file (e.g., `rules.json`) — all entries, compact
-2. Filter by `tags` and `applies_to` relevant to the current goal
-3. Load `*_detail/X-NNN.md` only for the filtered subset (~10-15 entries per session)
+1. Load the compact index files
+2. Start from every `hot` entry with `bootstrap_default = true`
+3. Infer relevant `warm` packs from goal, stack, tags, and files in scope
+4. Filter additional `warm` entries by `pack`, `tags`, and `applies_to`
+5. Ignore `cold` entries during normal bootstrap
+6. Load `*_detail/X-NNN.md` only for the resulting relevant subset
 
 **Context cost:** ~120 lines (full index) + ~200 lines (10-15 detail files) = ~320 lines total
 vs. ~800+ lines if reading a monolithic markdown file.
@@ -70,11 +135,14 @@ Every session — without exception — follows this sequence:
    → Know: project name, current sprint, session goal, mode, last distillation date
 
 2. Read .agent/memory/rules.json (full index, compact)
-   → Filter by: applies_to includes current stack OR tags intersect with current goal
-   → Identify relevant R-NNN subset (not all rules, just relevant ones)
+   → Load all `hot` rules where bootstrap_default = true
+   → Infer relevant `warm` packs from goal, stack, tags, and files in scope
+   → Identify relevant R-NNN subset from `hot + matching warm`
+   → Ignore `cold` unless explicitly requested or needed for historical lookup
 
 3. Read .agent/memory/anti-patterns.json (full index, compact)
-   → Same filter: tags/applies_to relevant to current goal
+   → Same protocol: `hot` by default + matching `warm` by context
+   → Ignore `cold` unless explicitly requested or needed for historical lookup
 
 4. For each relevant R-NNN: read .agent/memory/rules_detail/R-NNN.md
 5. For each relevant AP-NNN: read .agent/memory/anti-patterns_detail/AP-NNN.md
@@ -84,6 +152,17 @@ Every session — without exception — follows this sequence:
 
 7. Determine mode: planning | coding | reviewing | distillation
    → If not specified in invocation, infer from task description
+
+Pack inference heuristics:
+  - files in `src/features/*/components` or React UI work → `react-hooks`
+  - files in `src/features/*/services`, `src/services`, `src/schemas` → `schema-data`
+  - files in `api/` → `infra-api`
+  - files in `server/` or goals mentioning Telegram/bot/webhook → `telegram`
+  - goals mentioning dashboard/adherence/pdf/consultation/mobile → `adherence-reporting-mobile`
+  - goals mentioning css/layout/design/ux/modal/button/animation → `design-ui`
+  - goals mentioning tests/timers/cleanup/async → `test-hygiene`
+  - goals mentioning review/PR/validation/merge/process → `review-validation`
+  - goals mentioning date/time/timezone/calendar → `date-time`
 
 GATE: Do not proceed to any action until all 7 bootstrap steps are complete.
 Update state.json: quality_gates.index_loaded_at = now
@@ -97,7 +176,9 @@ Update state.json: quality_gates.index_loaded_at = now
 
 ### P0 — State Transition to Planning
 
-Upon entering Planning mode, immediately update state.json:
+**⚠️ MANDATORY FIRST STEP — DO NOT SKIP**
+
+Upon entering Planning mode, **IMMEDIATELY** update state.json BEFORE proceeding to P1:
 
 ```json
 {
@@ -109,6 +190,16 @@ Upon entering Planning mode, immediately update state.json:
   }
 }
 ```
+
+**Checklist:**
+- ✅ Read current state.json
+- ✅ Update mode = "planning"
+- ✅ Update status = "planning"
+- ✅ Update goal = (new goal title)
+- ✅ Update goal_type = (feature/fix/refactor/docs/chore)
+- ✅ Write state.json to disk
+- ✅ Verify write succeeded
+- ✅ NOW PROCEED to P1
 
 This marks the session as in planning phase before scope analysis begins.
 
@@ -166,7 +257,9 @@ This transitions the session from "planning" to "planned" state, signaling readi
 
 ### C0 — State Transition to Analysis
 
-Upon entering Coding mode, immediately update state.json:
+**⚠️ MANDATORY FIRST STEP — DO NOT SKIP**
+
+Upon entering Coding mode, **IMMEDIATELY** update state.json BEFORE proceeding to C1:
 
 ```json
 {
@@ -178,6 +271,18 @@ Upon entering Coding mode, immediately update state.json:
   }
 }
 ```
+
+**Checklist (DO THIS FIRST):**
+- ✅ Read current state.json
+- ✅ Update mode = "coding"
+- ✅ Update status = "analysis"
+- ✅ Update goal = (new goal title)
+- ✅ Update goal_type = (feature/fix/refactor/docs/chore)
+- ✅ Write state.json to disk
+- ✅ Verify write succeeded (check file mtime changed)
+- ✅ NOW PROCEED to C1
+
+**If you skip C0:** state.json still says "completed" from previous session, and next session will be confused.
 
 This marks the session as analyzing code structure before implementation begins.
 
@@ -254,19 +359,36 @@ All must pass. Fix failures before proceeding to C5.
 ```
 
 ### C5 — Post-Code Protocol (mandatory — do not skip)
+
+**⚠️ CRITICAL: state.json MUST be updated at the END, not skipped**
+
+Execute this checklist IN ORDER:
+
 ```
-  [ ] New bug found and fixed? → Add AP-NNN to anti-patterns.json + anti-patterns_detail/AP-NNN.md
-  [ ] New pattern discovered? → Add R-NNN to rules.json + rules_detail/R-NNN.md
-  [ ] Contract updated? → Update contracts.json (CON-NNN) + contracts_detail/CON-NNN.md
-  [ ] Architectural decision made? → decisions.json ADR-NNN (status: "accepted") + detail file
-  [ ] Acquire lock → update relevant index files → release lock (see Locking Protocol)
-  [ ] Append to events.jsonl: {timestamp, event: "coding_complete", files: [...], rules_applied: [...], aps_triggered: [...]}
-  [ ] Write journal entry to memory/journal/YYYY-WWW.jsonl
-  [ ] Update state.json:
-      - Increment memory.journal_entries_since_distillation
-      - Set session.status = "completed"
-  [ ] IF journal_entries_since_distillation >= genes.memory_distillation_threshold → trigger Distillation Mode
+  [ ] 1. New bug found and fixed? → Add AP-NNN to anti-patterns.json + anti-patterns_detail/AP-NNN.md
+  [ ] 2. New pattern discovered? → Add R-NNN to rules.json + rules_detail/R-NNN.md
+  [ ] 3. Contract updated? → Update contracts.json (CON-NNN) + contracts_detail/CON-NNN.md
+  [ ] 4. Architectural decision made? → decisions.json ADR-NNN (status: "accepted") + detail file
+  [ ] 5. Acquire lock → update relevant index files → release lock (see Locking Protocol)
+  
+  [ ] 6. Append to events.jsonl: 
+      {timestamp, event: "coding_complete", files: [...], rules_applied: [...], aps_triggered: [...]}
+  
+  [ ] 7. Write journal entry to memory/journal/YYYY-WWW.jsonl
+  
+  [ ] 8. **UPDATE state.json (FINAL STEP — DO NOT SKIP):**
+      ✅ Read current state.json
+      ✅ Set session.status = "completed"
+      ✅ Increment memory.journal_entries_since_distillation
+      ✅ Update quality_gates.index_loaded_at = now
+      ✅ Write state.json to disk
+      ✅ Verify write succeeded
+  
+  [ ] 9. IF journal_entries_since_distillation >= genes.memory_distillation_threshold 
+      → trigger Distillation Mode
 ```
+
+**If you skip step 8:** state.json stays "coding", next session gets confused about what phase was last completed.
 
 ### Integration with /deliver-sprint
 ```
@@ -306,6 +428,10 @@ This marks the session as actively reviewing code changes.
 ### R1 — Load Review Context
 ```
 Load: rules.json, anti-patterns.json, contracts.json, decisions.json (all indexes)
+For rules/APs:
+  - always include `hot`
+  - include `warm` matching the PR scope, changed files, tags, and stack
+  - exclude `cold` unless the review requires historical investigation
 For rules/APs/contracts relevant to the PR scope: load their _detail/ files
 ```
 
@@ -409,12 +535,38 @@ Write compressed archive: memory/journal/archive/YYYY-WXX-WYY.json
 Read rules.json — for each entry where review_due < today:
   Grep recent journal entries for references to this R-NNN
   IF referenced recently (< 4 weeks ago) → extend review_due by 12 weeks
-  IF not referenced (> 12 weeks) → set status = "in-review"
+  IF not referenced (> 12 weeks) → evaluate lifecycle:
+                                 → universal + recurring → keep `active`, consider `warm -> cold` only if bootstrap value dropped
+                                 → contextual + still plausible → keep `active`, set `layer = cold`
+                                 → historical / wave-specific / no operational value → set `status = "archived"` and `layer = cold`
                                  → write human note to current journal entry
 
 Read anti-patterns.json — for each entry where expiry_date < today:
   IF trigger_count == 0 since creation → flag as candidate for deprecation
   IF trigger_count > 0 → extend expiry_date by 52 weeks
+```
+
+### D2.5 — Memory Lifecycle Heuristics
+```
+Promotion to `hot`:
+  - rule/AP prevents recurring regressions across multiple domains
+  - guidance is operational without extra context
+  - evidence exists in repeated incidents, reviews, or journal references
+
+Demotion to `cold`:
+  - guidance is still valid but only matters in narrow scopes
+  - item depends on specific feature families, incidents, or historical architectures
+  - bootstrap cost is higher than day-to-day value
+
+Archival:
+  - item is already `cold`
+  - recurrence is near-zero and usefulness is mostly historical
+  - content is tied to a retired wave, persona, experiment, or component lineage
+
+Guardrails:
+  - prefer `warm -> cold` before archiving
+  - do not archive items that still protect active contracts, production incidents, or ongoing architectural risks
+  - preserve IDs and detail files when archiving for traceability
 ```
 
 ### D3 — Promotion Assessment
@@ -749,8 +901,8 @@ Next Session
   state.json                    ← session state (read first, update last in every session)
 
   memory/
-    rules.json                  ← R-NNN index (always load, filter before loading details)
-    anti-patterns.json          ← AP-NNN index (always load, filter before loading details)
+    rules.json                  ← R-NNN index (`hot` always, `warm` by pack/context, `cold` consult-only outside bootstrap)
+    anti-patterns.json          ← AP-NNN index (`hot` always, `warm` by pack/context, `cold` consult-only outside bootstrap)
     contracts.json              ← CON-NNN index (load when touching feature boundaries)
     decisions.json              ← ADR-NNN index (load when making architectural decisions)
     knowledge.json              ← domain facts index (load relevant topics only)
@@ -782,8 +934,9 @@ Next Session
 
 | DO | DO NOT |
 |----|--------|
-| Run full bootstrap before every session | Skip bootstrap steps to save time |
+| Run the full selective bootstrap before every session | Skip bootstrap steps to save time |
 | Filter index files before loading details | Load all _detail/ files upfront |
+| Start from `hot`, then expand into matching `warm` packs | Treat `cold` items as normal bootstrap context |
 | Acquire lock before writing any index file | Write index files without lock |
 | Draft ADR before breaking any contract | Break a contract without ADR |
 | Append to journal — never rewrite | Truncate or rewrite journal entries |
