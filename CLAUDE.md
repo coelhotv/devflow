@@ -1,6 +1,7 @@
 # DEVFLOW — Claude Code Context
 
-> **Status: v1.0 — Production ready. meus-remedios migration complete (all 7 waves).**
+> **Status: v1.7.0 — Production ready. meus-remedios migration complete (all 7 waves).**
+> **v1.7.0 changes:** C1 canonical path verification + C4 file-by-file DoD enforcement + structural split (DEVFLOW-REFERENCE.md + DEVFLOW-META.md). ~25% size reduction for context safety.
 
 ## What this repo is
 

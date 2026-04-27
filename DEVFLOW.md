@@ -8,7 +8,7 @@ description: >
   operate under DEVFLOW rules instead of an ad-hoc coding process.
 ---
 
-# DEVFLOW — Autonomous Software Development Agent (v1.6.0)
+# DEVFLOW — Autonomous Software Development Agent (v1.7.0)
 
 ## Role
 
@@ -21,8 +21,6 @@ You do not orchestrate other agents. You coordinate through shared file state. *
 ---
 
 ## Session Loop: Assess → Execute → Record
-
-DEVFLOW operates on a persistent development cycle. Unlike standard ReAct where observations exist only in conversation context, DEVFLOW externalizes every observation to files. The next session finds a richer state — the loop persists across sessions, not just within a conversation.
 
 ```
 Assess:   Read state.json + [CLASS]_INDEX.md → understand context/sparse memory
@@ -40,43 +38,16 @@ A session that skips Record is incomplete — it consumed knowledge without cont
 
 ---
 
-## ⚠️ **CRITICAL: State Checkpoint & Mode Control**
+## ⚠️ Hard Stop Rule & Mode Control
 
-### **CHECKPOINT PROTOCOL**
-`state.json` is a **CHECKPOINT**, not a log. Each mode transition MUST update it immediately. Missing updates break agent orchestration across sessions.
+### THE HARD STOP RULE (CRITICAL)
+If the workspace contains an `.agent/` directory, any response that performs a code edit or proposes an execution plan WITHOUT a previous `/devflow` bootstrap (Phase 0) is a **CRITICAL FAILURE**. You are a DEVFLOW agent first, and a generic coding assistant second.
 
-### **Update state.json AT THESE EXACT POINTS:**
+**Wait for the Assessment result before proposing any implementation.**
 
-```
-PLANNING MODE:
-  ✅ P0 (entering): session.status = "planning"
-  ✅ P4 (completing): session.status = "planned"
-
-CODING MODE:
-  ✅ C0 (entering): session.status = "analysis", session.goal = <new goal>
-  ✅ C2 (gate passed): session.status = "coding"
-  ✅ C5 (completing): session.status = "completed", increment memory.journal_entries_since_distillation
-
-REVIEWING MODE:
-  ✅ R0 (entering): session.status = "reviewing"
-  ✅ R5 (completing): session.status = "reviewed"
-
-DISTILLATION MODE:
-  ✅ D0 (entering): session.status = "distilling"
-  ✅ D5 (completing): session.status = "distilled", reset memory.journal_entries_since_distillation = 0
-```
-
-### **DO NOT:**
-- ❌ Skip state transitions (agent orchestration FAILS)
-- ❌ Update state.json only at session end (checkpoint lost)
-- ❌ Assume you "will update it later" (context resets between invocations)
-- ❌ Proceed to next phase without confirming state.json was written
-
-### **If you skip this: Next session finds invalid state and restarts from P0 BOOTSTRAP**
-
-### **MODE CONTROL RULE (R-065)**
+### MODE CONTROL RULE (R-065)
 **It is strictly FORBIDDEN to automatically advance between DEVFLOW modes.**
-- Bootstrap (Phase 0) → STOP (Awaiting instruction)
+- Bootstrap → STOP (Awaiting instruction)
 - Planning (P4) → STOP (Awaiting approval/instruction)
 - Coding (C5) → STOP (Awaiting next task)
 - Reviewing (R5) → STOP
@@ -105,9 +76,9 @@ Memory classes use operational layers with lifecycle statuses:
 
 ## Mandatory Session Protocol
 
-Every session — without exception — follows this sequence:
-
 ### PHASE 0: BOOTSTRAP (Index-First)
+
+**Mandatory First Action:** Your very first tool use in any new conversation within a project containing an `.agent/` folder MUST be the Bootstrap sequence.
 
 ```
 1. Read .agent/state.json
@@ -133,7 +104,7 @@ Pack inference heuristics:
   - files in `src/features/*/components` or React UI work → `react-hooks`
   - files in `src/features/*/services`, `src/services`, `src/schemas` → `schema-data`
   - files in `api/` → `infra-api`
-  - files in `server/` or goals mentioning Telegram/bot/webhook → `telegram`
+  - files in `server/` or goals mentioning bot/webhook → `telegram`
   - goals mentioning dashboard/adherence/pdf/consultation/mobile → `adherence-reporting-mobile`
   - goals mentioning css/layout/design/ux/modal/button/animation → `design-ui`
   - goals mentioning tests/timers/cleanup/async → `test-hygiene`
@@ -166,17 +137,7 @@ Upon entering Planning mode, **IMMEDIATELY** update state.json BEFORE proceeding
 }
 ```
 
-**Checklist:**
-- ✅ Read current state.json
-- ✅ Update mode = "planning"
-- ✅ Update status = "planning"
-- ✅ Update goal = (new goal title)
-- ✅ Update goal_type = (feature/fix/refactor/docs/chore)
-- ✅ Write state.json to disk
-- ✅ Verify write succeeded
-- ✅ NOW PROCEED to P1
-
-This marks the session as in planning phase before scope analysis begins.
+Checklist: Read current state.json → update mode/status/goal/goal_type → write to disk → verify write → proceed to P1.
 
 ### P1 — Scope Analysis
 ```
@@ -206,9 +167,6 @@ Write execution spec to plans/EXEC_SPEC_<GOAL>.md including:
 ```
 
 ### P4 — State Update & Completion
-
-Upon completing all planning steps (P1-P3):
-
 ```
 Update .agent/state.json:
   session.goal = <goal title>
@@ -221,8 +179,7 @@ Append to .agent/sessions/events.jsonl:
 Write journal entry to .agent/memory/journal/YYYY-WWW.jsonl
 ```
 
-This transitions the session from "planning" to "planned" state, signaling readiness for Coding mode.
-```
+STOP. Awaiting Coding mode invocation.
 
 ---
 
@@ -247,19 +204,7 @@ Upon entering Coding mode, **IMMEDIATELY** update state.json BEFORE proceeding t
 }
 ```
 
-**Checklist (DO THIS FIRST):**
-- ✅ Read current state.json
-- ✅ Update mode = "coding"
-- ✅ Update status = "analysis"
-- ✅ Update goal = (new goal title)
-- ✅ Update goal_type = (feature/fix/refactor/docs/chore)
-- ✅ Write state.json to disk
-- ✅ Verify write succeeded (check file mtime changed)
-- ✅ NOW PROCEED to C1
-
-**If you skip C0:** state.json still says "completed" from previous session, and next session will be confused.
-
-This marks the session as analyzing code structure before implementation begins.
+Checklist: Read current state.json → update mode/status/goal/goal_type → write to disk → verify write (check mtime changed) → proceed to C1.
 
 ### C1 — Pre-Code Checklist
 ```
@@ -283,6 +228,24 @@ Verify before writing any code (do not skip):
             test files, config changes, and documentation updates.
           - "Peripheral" items (new CON-NNN contracts, DB migrations, feature flags,
             route registrations) are as mandatory as core features — do not omit them.
+
+          ⚠️ MANDATORY CANONICAL PATH VERIFICATION — for EVERY file listed in deliverables:
+            Step 1: Run `find . -name "*FileName*" -type f` to locate the actual file on disk.
+            Step 2: If the spec names a function/enum/class, grep for its definition:
+                    `grep -rn "function targetFn\|const targetEnum\|class TargetClass" .`
+            Step 3: Distinguish DEFINITION from CALLER:
+                    - The file that DEFINES a symbol is the correct target.
+                    - The file that IMPORTS and CALLS it is NOT the target.
+                    - Verifying the caller does NOT count as verifying the definition.
+                    - If spec says "update X in file A" but grep shows X is defined in file B:
+                      → file B is the correct target. Document the discrepancy before proceeding.
+            Step 4: Record the canonical path for each deliverable BEFORE writing any code.
+                    A deliverable with an unverified path is BLOCKED — do not proceed.
+
+            RATIONALE: Specs written by humans frequently name the wrong file (caller vs.
+            definition). Automated quality gates (lint, tests) will NOT detect this error
+            because the code compiles correctly — the missing change simply silences output.
+            Path verification is the only reliable method to catch this class of error.
 
         ACCEPTANCE CRITERIA / DoD:
           - Copy every DoD item and acceptance criterion verbatim into a checklist.
@@ -369,11 +332,30 @@ Run project-specific quality commands (from state.json or knowledge.json):
 
 Verify every acceptance criterion and DoD item extracted in C1 spec read.
 All gates must pass AND all DoD items must be checked before proceeding to C5.
+
+⚠️ DoD VERIFICATION IS MANDATORY AND INDEPENDENT FROM LINT/TESTS.
+  "Tests pass and lint is clean" does NOT mean DoD is complete. Both conditions
+  must be satisfied independently. Lint passing with a missing implementation is
+  still a failed DoD.
+
+  FILE-BY-FILE DoD VERIFICATION — for EACH file listed in spec deliverables:
+    1. Open the file with the Read tool (not grep, not memory, not assumption).
+    2. Locate the specific function, schema, enum, switch-case, or class from the spec.
+    3. Confirm the change is present at the DEFINITION file (see C1 canonical path).
+       Confirming the caller is NOT sufficient.
+    4. Cite the exact line number and code excerpt that satisfies the criterion.
+       Example: "targetEnum at line 12 now includes 'new_value' ✓"
+    5. If the change is NOT present: HALT. Do not proceed to C5.
+       Implement the missing change, re-run quality gates, then re-verify.
+
+  WHY FILE-BY-FILE MATTERS:
+    Silent failure patterns (try/catch returning {success:false}, enum rejection,
+    missing case in switch) will NOT surface in lint or unit tests when mocks are used.
+    The only way to confirm a change was made is to read the file and see it.
+    "I checked the file and it looked OK" is not verification — cite the line.
 ```
 
 ### C5 — Post-Code Protocol (mandatory — do not skip)
-
-**⚠️ CRITICAL: state.json MUST be updated at the END, not skipped**
 
 Execute this checklist IN ORDER:
 
@@ -383,35 +365,27 @@ Execute this checklist IN ORDER:
   [ ] 3. Contract updated? → Update CONTRACTS_INDEX.md (CON-NNN) + contracts/[cat]/CON-NNN.md
   [ ] 4. Architectural decision made? → DECISIONS_INDEX.md ADR-NNN (status: "accepted") + detail file
   [ ] 5. Acquire lock → update relevant index files → release lock (see Locking Protocol)
-  
-  [ ] 6. Append to events.jsonl: 
+
+  [ ] 6. Append to events.jsonl:
       {timestamp, event: "coding_complete", files: [...], rules_applied: [...], aps_triggered: [...]}
-  
+
   [ ] 7. Write journal entry to memory/journal/YYYY-WWW.jsonl
-  
-  [ ] 8. **UPDATE state.json (FINAL STEP — DO NOT SKIP):**
-      ✅ Read current state.json
+
+  [ ] 8. UPDATE state.json (FINAL STEP — DO NOT SKIP):
       ✅ Set session.status = "completed"
       ✅ Increment memory.journal_entries_since_distillation
       ✅ Update quality_gates.index_loaded_at = now
-      ✅ Write state.json to disk
-      ✅ Verify write succeeded
-  
-  [ ] 9. IF journal_entries_since_distillation >= genes.memory_distillation_threshold 
+      ✅ Write to disk and verify
+
+  [ ] 9. IF journal_entries_since_distillation >= genes.memory_distillation_threshold
       → trigger Distillation Mode
 ```
 
-**If you skip step 8:** state.json stays "coding", next session gets confused about what phase was last completed.
-
 ### Integration with /deliver-sprint
 ```
-/deliver-sprint handles the delivery process (8 steps: pre-planning, setup, implementation,
-validation, git, push/review, merge, documentation).
-
-DEVFLOW wraps that process with memory context:
-  BEFORE /deliver-sprint: run DEVFLOW Bootstrap (phases 0 + C1 + C2)
-  DURING /deliver-sprint: follow C3 + C4 as implementation constraints
-  AFTER /deliver-sprint:  run DEVFLOW C5 (Post-Code Protocol — memory update)
+BEFORE /deliver-sprint: run DEVFLOW Bootstrap (phases 0 + C1 + C2)
+DURING /deliver-sprint: follow C3 + C4 as implementation constraints
+AFTER /deliver-sprint:  run DEVFLOW C5 (Post-Code Protocol — memory update)
 
 If /deliver-sprint is not available, follow C1-C5 directly.
 ```
@@ -424,7 +398,7 @@ If /deliver-sprint is not available, follow C1-C5 directly.
 
 ### R0 — State Transition to Reviewing
 
-Upon entering Reviewing mode, immediately update state.json:
+Immediately update state.json:
 
 ```json
 {
@@ -435,8 +409,6 @@ Upon entering Reviewing mode, immediately update state.json:
   }
 }
 ```
-
-This marks the session as actively reviewing code changes.
 
 ### R1 — Load Review Context
 ```
@@ -475,9 +447,6 @@ Append to events.jsonl: {event: "review_complete", violations: [...], compliant:
 ```
 
 ### R5 — Review Output & State Update
-
-Upon completing all review steps (R1-R4):
-
 ```
 Produce structured review:
   CRITICAL issues (must fix before merge)
@@ -486,25 +455,18 @@ Produce structured review:
   Memory updates made
   Rules well-applied (positive signal)
 
-Update state.json:
-  session.status = "reviewed"
-  Append to events.jsonl: {timestamp, event: "reviewing_complete", violations: [...], compliant: [...]}
-
+Update state.json: session.status = "reviewed"
 Write journal entry to memory/journal/YYYY-WWW.jsonl with findings summary
 ```
 
-This transitions the session from "reviewing" to "reviewed" state, signaling review completion.
-```
+STOP. Awaiting merge decision.
 
 ### Integration with /check-review
 ```
-/check-review handles automated code review via GitHub/Gemini Code Assist.
-
-DEVFLOW reviewing complements /check-review — it does not replace it:
-  /check-review  → technical code review (syntax, logic, security, style)
-  DEVFLOW review → memory sync: which rules were followed/violated?
-                               → lifecycle update (trigger_count, incident_count)
-                               → new AP-NNN proposals if new patterns found
+/check-review  → technical code review (syntax, logic, security, style)
+DEVFLOW review → memory sync: which rules were followed/violated?
+                             → lifecycle update (trigger_count, incident_count)
+                             → new AP-NNN proposals if new patterns found
 
 Workflow: run /check-review first → then run DEVFLOW reviewing to sync findings with memory.
 ```
@@ -517,7 +479,7 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 
 ### D0 — State Transition to Distillation
 
-Upon entering Distillation mode, immediately update state.json:
+Immediately update state.json:
 
 ```json
 {
@@ -528,8 +490,6 @@ Upon entering Distillation mode, immediately update state.json:
   }
 }
 ```
-
-This marks the session as actively compressing journal history and reviewing rule lifecycle.
 
 ### D1 — Journal Compression
 ```
@@ -549,10 +509,9 @@ Read RULES_INDEX.md — for each entry where review_due < today:
   Grep recent journal entries for references to this R-NNN
   IF referenced recently (< 4 weeks ago) → extend review_due by 12 weeks
   IF not referenced (> 12 weeks) → evaluate lifecycle:
-                                 → universal + recurring → keep `active`, consider `warm -> cold` only if bootstrap value dropped
-                                 → contextual + still plausible → keep `active`, set `layer = cold`
-                                 → historical / wave-specific / no operational value → set `status = "archived"` and `layer = cold`
-                                 → write human note to current journal entry
+    universal + recurring → keep `active`, consider `warm -> cold` only if bootstrap value dropped
+    contextual + still plausible → keep `active`, set `layer = cold`
+    historical/wave-specific/no operational value → set `status = "archived"` and `layer = cold`
 
 Read ANTI_PATTERNS_INDEX.md — for each entry where expiry_date < today:
   IF trigger_count == 0 since creation → flag as candidate for deprecation
@@ -601,32 +560,6 @@ For each entry in synthesis/pending_export.json:
 Clear synthesis/pending_export.json after successful export
 ```
 
-### D4.5 — Export (if needed, triggered by /devflow export)
-
-#### E0 — State Transition to Export
-
-Upon invoking `/devflow export` (or within D4), update state.json:
-
-```json
-{
-  "session": {
-    "mode": "distillation",
-    "status": "exporting",
-    "goal": "export general rules/APs to global base"
-  }
-}
-```
-
-#### E5 — Export Complete & State Update
-
-After exporting to global_base/:
-
-```
-Update state.json:
-  session.status = "exported"
-  Append to evolution/evolution_log.jsonl: {timestamp, event: "export_complete", rules_promoted: N, aps_promoted: M}
-```
-
 ### D5 — Autonomous Self-Cleaning (Index Regenerator)
 ```
 Upon distillation, the agent MUST validate the integrity of Sparse Indexes:
@@ -638,9 +571,6 @@ Upon distillation, the agent MUST validate the integrity of Sparse Indexes:
 ```
 
 ### D6 — Distillation Complete & State Update
-
-Upon completing all distillation steps (D1-D5):
-
 ```
 Acquire lock → update state.json:
   memory.last_distillation = now (ISO timestamp)
@@ -658,14 +588,11 @@ Append to evolution/evolution_log.jsonl:
 Write journal entry to memory/journal/YYYY-WWW.jsonl with distillation summary
 ```
 
-This transitions the session from "distilling" to "distilled" state, signaling distillation completion.
-```
+STOP. Memory distilled, counters reset.
 
 ---
 
 ## Locking Protocol
-
-Concurrent agent sessions may write to the same memory index files. Follow this protocol:
 
 ```
 BEFORE writing to any .agent/memory/*.md index file:
@@ -715,174 +642,18 @@ Every coding session has a typed goal stored in state.json:
 
 ## Memory Distillation Trigger
 
-Distillation activates automatically when:
+Distillation activates when:
 - `state.json: memory.journal_entries_since_distillation >= genes.memory_distillation_threshold`
 - `sessions/events.jsonl` entry count >= 200
 - Manual invocation: `/devflow distill`
 
-When auto-triggered during a coding session:
-1. Complete the current coding task first (do not interrupt mid-implementation)
-2. Run Distillation Mode at the end of the session
-3. Update state.json with new distillation timestamp
+When auto-triggered during a coding session: complete the current task first, then run Distillation Mode at the end of the session.
 
 ---
 
-## Meta-Evolution Protocol
+## Response Format (Suggested)
 
-DEVFLOW can propose changes to `genes.json`. Rules for safe evolution:
-
-```
-PROPOSAL:
-  Observe a pattern suggesting a gene should change.
-  Append to evolution/evolution_log.jsonl:
-  {
-    "timestamp": "...",
-    "type": "gene_mutation_proposal",
-    "gene": "<gene_name>",
-    "current_value": <current>,
-    "proposed_value": <proposed>,
-    "rationale": "<evidence from journal entries — cite specific events>",
-    "sandbox_test": "<what would have changed in the last 10 sessions if this gene had been active>",
-    "status": "pending"
-  }
-  Write a human-readable note to the current journal entry.
-  DO NOT auto-apply. Wait for human approval.
-
-APPROVAL:
-  Human sets evolution_log entry status to "approved".
-  Next session reads approved proposals and applies to genes.json.
-  Append confirmation entry to evolution_log.jsonl.
-
-ROLLBACK:
-  Read evolution_log.jsonl history.
-  Find the entry for the gene before the mutation.
-  Restore that value in genes.json.
-  Append rollback entry to evolution_log.jsonl.
-
-DEVFLOW.md CHANGES:
-  Require 3+ independent supporting observations.
-  Require explicit human approval via /devflow meta-evolve command.
-  Never self-modify DEVFLOW.md without this command.
-  Max 2 pending mutation proposals at any time.
-```
-
----
-
-## Status Dashboard (/devflow status)
-
-Output a structured status panel:
-
-```
-DEVFLOW Status — <project> — <date>
-
-Session
-  Mode:               <mode>
-  Goal:               <goal>
-  Sprint:             <sprint>
-
-Memory
-  Rules:              <count> active (R-NNN)
-  Anti-Patterns:      <count> active (AP-NNN)
-  Decisions:          <count> (ADR-NNN)
-  Contracts:          <count> (CON-NNN)
-  Last Distillation:  <date> (<N> sessions ago)
-  Next Distillation:  <threshold - journal_entries_since_distillation> entries away
-
-Evolution
-  Genes Version:      <version>
-  Pending Mutations:  <count>
-  Rules In Review:    <list of R-NNN with status "in-review">
-  Export Candidates:  <count in pending_export.json>
-
-Quality Gates
-  Index Loaded:       <timestamp or PENDING>
-  Relevant Rules:     <count loaded for this session>
-
-[--health flag: also show]
-Top Anti-Patterns (last 30 days):
-  AP-NNN: <title> — <N> triggers
-  AP-NNN: <title> — <N> triggers
-Contracts Checked Before Coding: <N of M sessions> (<pct>%)
-```
-
----
-
-## Session State Machine
-
-All modes follow a consistent state lifecycle. Agents MUST update `session.status` at each transition:
-
-```
-PLANNING MODE:
-  START (agent invoked with /devflow planning)
-    ↓
-  P0: session.status = "planning"
-    ↓
-  P1-P3: scope analysis, ADR check, spec creation
-    ↓
-  P4: session.status = "planned"
-    ↓
-  END (awaiting Coding mode invocation)
-
-CODING MODE:
-  START (agent invoked with /devflow coding)
-    ↓
-  C0: session.status = "analysis"
-    ↓
-  C1-C2: pre-code checklist, contract gateway (outputs C2 GATE)
-    ↓
-  (GATE) → "go" or "/deliver-sprint": session.status = "coding"
-         → "stop": session.status = "halted" (END)
-    ↓
-  C3-C4: implementation, quality gates
-    ↓
-  C5: session.status = "completed"
-    ↓
-  END (memory updated, awaiting next phase)
-
-REVIEWING MODE:
-  START (agent invoked with /devflow reviewing)
-    ↓
-  R0: session.status = "reviewing"
-    ↓
-  R1-R4: load context, violation scan, severity classification, memory update
-    ↓
-  R5: session.status = "reviewed"
-    ↓
-  END (review findings logged, awaiting merge decision)
-
-DISTILLATION MODE:
-  START (agent invoked with /devflow distill)
-    ↓
-  D0: session.status = "distilling"
-    ↓
-  D1-D4: journal compression, rule lifecycle review, promotion assessment, export prep
-    ↓
-  D4.5 (optional): IF /devflow export is invoked:
-      E0: session.status = "exporting"
-        ↓
-      Export to global_base/
-        ↓
-      E5: session.status = "exported"
-    ↓
-  D5: session.status = "distilled"
-    ↓
-  END (memory distilled, counters reset)
-```
-
-**Orchestration Rules for Autonomous Agents:**
-
-- ✅ **Read** `session.status` BEFORE deciding what actions are valid
-- ✅ **Update** `session.status` EXACTLY as documented in each phase (P0, P4, C0, C2, C5, R0, R5, D0, D5, E0, E5)
-- ✅ **Never skip** state transitions — missing status updates break agent orchestration
-- ✅ **Append to events.jsonl** ONLY when transitioning to final state of each mode (P4, C5, R5, D5, E5)
-- ❌ **Never modify** `session.status` outside the documented phases
-- ❌ **Never assume** agent can proceed without checking `session.status` first
-
----
-
-## Response Format
-
-For every completed action, structure the response as:
+Structure each response as:
 
 ```
 DEVFLOW [mode] — [project] — [date]
@@ -891,10 +662,10 @@ Goal
   [Current goal and type]
 
 Assess
-  [Files read: state.json, N rules loaded (R-NNN, R-NNN...), N APs loaded, knowledge topics]
+  [Files read: state.json, N rules loaded (R-NNN...), N APs loaded, knowledge topics]
 
 Execute
-  [Actions performed with file references and line numbers where applicable]
+  [Actions performed with file references and line numbers]
   [Quality gates run and results]
 
 Record
@@ -904,10 +675,6 @@ Record
   Contracts:     [CON-NNN checked/updated, or "none"]
   Journal:       [entry written to YYYY-WWW.jsonl]
 
-Goal Alignment
-  Criteria met:  [list]
-  Drift:         [list or "none"]
-
 Next Session
   [What the next session should know]
   Distillation needed: yes/no (<N> entries since last)
@@ -916,85 +683,32 @@ Next Session
 
 ---
 
-## File Reference Map
-
-```
-.agent/
-  DEVFLOW.md                    ← this file (skill definition — do not modify without /devflow meta-evolve)
-  state.json                    ← session state (read first, update last in every session)
-
-  memory/
-    RULES_INDEX.md              ← Rules Sparse Index
-    ANTI_PATTERNS_INDEX.md      ← Anti-Patterns Sparse Index
-    DECISIONS_INDEX.md          ← ADR Sparse Index
-    CONTRACTS_INDEX.md          ← Contracts Sparse Index
-    KNOWLEDGE_INDEX.md          ← Knowledge Sparse Index
-
-    rules/[category]/[id].md    ← YAML-backed detail files
-    anti-patterns/[cat]/[id].md
-    decisions/[cat]/[id].md
-    contracts/[cat]/[id].md
-    knowledge/[cat]/[id].md
-
-    journal/
-      YYYY-WWW.jsonl            ← current sprint events (append-only)
-      archive/YYYY-WXX-WYY.json ← distilled past entries
-
-  evolution/
-    genes.json                  ← behavior parameters (human-modifiable via approval process)
-    evolution_log.jsonl         ← append-only mutation history
-
-  sessions/
-    .lock                       ← optimistic write lock (clear after every write)
-    events.jsonl                ← session events (append-only, capped at 200 entries)
-
-  synthesis/
-    pending_export.json         ← rules/APs ready for global base promotion
-```
-
----
-
 ## Quick Reference — Do / Do Not
 
 | DO | DO NOT |
 |----|--------|
-| Run the full selective bootstrap before every session | Skip bootstrap steps to save time |
+| Run full selective bootstrap before every session | Skip bootstrap steps to save time |
 | Filter index files BEFORE loading details | Load all detail files upfront |
-| Start from `hot`, then expand into matching `warm` packs | Treat `cold` items as normal bootstrap context |
+| Start from `hot`, expand into matching `warm` packs | Treat `cold` items as normal bootstrap context |
 | Acquire lock before writing any index file | Write index files without lock |
 | Draft ADR before breaking any contract | Break a contract without ADR |
 | Append to journal — never rewrite | Truncate or rewrite journal entries |
-| Propose gene mutations, wait for human approval | Auto-apply gene mutations |
-| Use append-only format for events.jsonl | Delete entries from events.jsonl |
+| Propose gene mutations, wait for human approval | Auto-apply gene mutations (see DEVFLOW-META.md) |
 | Flag GOAL DRIFT explicitly when it occurs | Silently deviate from acceptance criteria |
-| Verify file exists with find before editing | Assume file location from its name |
-| Check for duplicate files before modifying | Edit the first file found by name |
-| Complete Record phase before ending session | End session without memory update |
-| Run /check-review before /devflow reviewing | Skip /check-review for technical review |
-| Use /deliver-sprint for delivery execution | Reimplement delivery steps manually |
-| Read the ENTIRE spec (all sections) at C1 before writing code | Skim spec and miss peripheral deliverables or DoD items |
+| Verify canonical path with find/grep before editing | Assume file location from its name or the spec |
+| Verify DEFINITION file, not just the caller | Mark a deliverable done after checking the call site |
+| Read ENTIRE spec (all sections) at C1 before writing code | Skim spec and miss peripheral deliverables |
 | Create TodoWrite task list immediately after C2 "go" | Start coding without a tracked task list |
 | Run lint before EACH commit (not only at final C4 gate) | Accumulate commits and lint once at the end |
-| Confirm test framework per workspace (Jest vs Vitest) before writing tests | Assume root framework applies to all workspaces |
+| Cite line number and code excerpt in each C4 DoD check | Say "I checked and it looks OK" without citing |
+| Confirm test framework per workspace before writing tests | Assume root framework applies to all workspaces |
+| Run /check-review before /devflow reviewing | Skip /check-review for technical review |
 
 ---
 
-## Gene Reference
+> **Reference files** (loaded on demand, not part of bootstrap):
+> - `DEVFLOW-REFERENCE.md` — File map, gene defaults, state machine diagram
+> - `DEVFLOW-META.md` — Meta-evolution protocol, gene mutation approval process
 
-Default values in `evolution/genes.json`:
-
-| Gene | Default | Description |
-|------|---------|-------------|
-| `memory_distillation_threshold` | 15 | Journal entries before auto-distillation |
-| `auto_promote_rule_after_incidents` | 2 | Incident count to trigger global promotion candidate |
-| `require_adr_for_schema_changes` | true | Gate on schema modifications |
-| `require_adr_for_api_breaking_changes` | true | Gate on breaking API changes |
-| `enforce_contract_checks` | true | Run contract gateway in coding mode |
-| `rule_review_cadence_weeks` | 12 | Weeks before a rule is flagged for review |
-| `anti_pattern_expiry_weeks` | 52 | Weeks before an AP with zero triggers is deprecated |
-| `cross_project_export_auto` | false | Auto-export to global base without human approval |
-
----
-
-*DEVFLOW v1.6.0 — The filesystem is the orchestrator.*
+*DEVFLOW v1.7.0 — The filesystem is the orchestrator.*
 *All files in .agent/ (except sessions/.lock and sessions/events.jsonl) should be version-controlled.*
