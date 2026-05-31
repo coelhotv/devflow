@@ -2,13 +2,13 @@
 name: devflow
 description: >
   Persistent software development workflow with filesystem-based memory, index-first loading,
-  planning/coding/reviewing/distillation modes, contract-aware change gates, and journal-backed
+  specifying/planning/coding/reviewing/distillation modes, contract-aware change gates, and journal-backed
   learning across sessions. Use when an engineering agent should bootstrap project memory from
   `.agent/`, follow a structured delivery loop, update persistent engineering knowledge, or
   operate under DEVFLOW rules instead of an ad-hoc coding process.
 ---
 
-# DEVFLOW — Autonomous Software Development Agent (v1.7.0)
+# DEVFLOW — Autonomous Software Development Agent (v1.8.0)
 
 ## Role
 
@@ -48,6 +48,7 @@ If the workspace contains an `.agent/` directory, any response that performs a c
 ### MODE CONTROL RULE (R-065)
 **It is strictly FORBIDDEN to automatically advance between DEVFLOW modes.**
 - Bootstrap → STOP (Awaiting instruction)
+- Specifying (S6) → STOP (Awaiting Planning mode invocation)
 - Planning (P4) → STOP (Awaiting approval/instruction)
 - Coding (C5) → STOP (Awaiting next task)
 - Reviewing (R5) → STOP
@@ -84,6 +85,11 @@ Memory classes use operational layers with lifecycle statuses:
 1. Read .agent/state.json
    → Know: project name, current sprint, session goal, mode, counters
 
+1.5. If `.agent/constitution.md` exists:
+   → Read governing project principles and non-negotiable constraints
+   → Include constitution summary in Assessment output
+   → Treat conflicts as `[DEVFLOW: CONSTITUTION CONFLICT]`
+
 2. Read .agent/memory/RULES_INDEX.md
    → Load all `hot` rules
    → Infer relevant `warm` packs from goal and files in scope
@@ -116,6 +122,106 @@ Update state.json: quality_gates.index_loaded_at = now
 
 ---
 
+## Mode: Specifying
+
+**Purpose:** Convert product or development intent into a durable, numbered feature specification before technical planning.
+
+### S0 — State Transition to Specifying
+
+**⚠️ MANDATORY FIRST STEP — DO NOT SKIP**
+
+Upon entering Specifying mode, **IMMEDIATELY** update state.json BEFORE proceeding to S1:
+
+```json
+{
+  "session": {
+    "mode": "specifying",
+    "status": "specifying",
+    "goal": "<feature description>",
+    "goal_type": "feature"
+  }
+}
+```
+
+Checklist: Read current state.json → update mode/status/goal/goal_type → write to disk → verify write → proceed to S1.
+
+### S1 — Short Name
+```
+Generate a concise short name from the feature description:
+  - 2-4 words
+  - kebab-case
+  - action-noun when possible
+  - preserve technical terms (OAuth, API, tz, PDF, etc.)
+  - remove filler words
+
+Examples:
+  "Add user authentication" → user-auth
+  "Fix payment processing timeout" → fix-payment-timeout
+  "Create analytics dashboard" → analytics-dashboard
+```
+
+### S2 — Numbering
+```
+Feature specs live in `plans/specs/`.
+
+Sequential numbering:
+  1. Create `plans/specs/` if missing
+  2. List directories matching `^[0-9]{3,}-`
+  3. Extract numeric prefixes
+  4. next = max(prefixes) + 1, or 001 if none exist
+  5. Format with at least 3 digits; allow 1000+ naturally
+
+Do NOT count legacy specs outside `plans/specs/`.
+```
+
+### S3 — Directory Creation
+```
+Create:
+  plans/specs/NNN-feature-name/
+  plans/specs/NNN-feature-name/checklists/
+  plans/specs/NNN-feature-name/contracts/
+```
+
+### S4 — Feature Specification
+```
+Write `plans/specs/NNN-feature-name/spec.md` with:
+  - Feature Directory, Created, Status, Input
+  - User Scenarios & Testing (prioritized user stories)
+  - Acceptance Scenarios
+  - Edge Cases
+  - Functional Requirements (FR-###)
+  - Key Entities, if data is involved
+  - Success Criteria (SC-###)
+  - Assumptions
+  - Open Questions with [NEEDS CLARIFICATION] when needed
+
+Specifying focuses on WHAT and WHY. Do NOT choose stack, files, APIs,
+database tables, or implementation details here.
+
+Use `[NEEDS CLARIFICATION: ...]` only when ambiguity changes scope,
+UX, security/privacy, architecture, or validation. Limit to 3 markers.
+```
+
+### S5 — State Update
+```
+Update .agent/state.json:
+  session.status = "specified"
+  session.spec_dir = "plans/specs/NNN-feature-name"
+  session.spec = "plans/specs/NNN-feature-name/spec.md"
+```
+
+### S6 — Record & Completion
+```
+Append to .agent/sessions/events.jsonl:
+  {"timestamp": "...", "event": "specifying_complete", "spec_dir": "...", "spec": "..."}
+
+Write journal entry to .agent/memory/journal/YYYY-WWW.jsonl.
+```
+
+STOP. Awaiting Planning mode invocation.
+
+---
+
 ## Mode: Planning
 
 **Purpose:** Understand scope, design solution, create specs and ADRs.
@@ -141,10 +247,43 @@ Checklist: Read current state.json → update mode/status/goal/goal_type → wri
 
 ### P1 — Scope Analysis
 ```
-Read relevant files in plans/ for existing specs.
+If state.json has session.spec_dir:
+  Read `spec.md` from that directory.
+  Prepare to write `plan.md`, `tasks.md`, `analysis.md`, and checklists there.
+Else:
+  Read relevant legacy files in plans/ from session.spec or task context.
+
 Read .agent/memory/DECISIONS_INDEX.md — filter for relevant ADRs (tags match goal).
 Read .agent/memory/CONTRACTS_INDEX.md — identify interfaces in scope.
 For relevant decisions and contracts: load their detail files.
+```
+
+### P1.5 — Formal Requirement Clarification
+```
+Before ADR check and technical planning, scan the active spec with this taxonomy:
+  - Functional Scope & Behavior
+  - Personas / User Roles
+  - Domain & Data Model
+  - Interaction & UX Flow
+  - Non-Functional Requirements
+  - Integration & External Dependencies
+  - Edge Cases & Failure Handling
+  - Constraints & Tradeoffs
+  - Terminology & Consistency
+  - Completion Signals
+
+Ask at most 5 questions. Ask only when the answer materially changes
+architecture, task breakdown, test design, UX behavior, contracts, or validation.
+Do NOT ask what can be discovered from the repo.
+
+Record each accepted answer in `plan.md` under:
+  ## Clarifications
+  - Q: <question> → A: <answer>
+
+Create/update `checklists/requirements.md` in the spec directory when using the
+v1.8 spec format. Checklist items are "unit tests for requirements writing":
+they validate completeness, clarity, consistency, coverage, measurability, and
+traceability. They do NOT test implementation behavior.
 ```
 
 ### P2 — ADR Check
@@ -158,12 +297,21 @@ For any significant architectural decision in scope:
 
 ### P3 — Spec Creation
 ```
-Write execution spec to plans/EXEC_SPEC_<GOAL>.md including:
+For v1.8 specs, write technical plan to `plans/specs/NNN-feature-name/plan.md`.
+For legacy workflows, write execution spec to plans/EXEC_SPEC_<GOAL>.md including:
   - Scope and deliverables
   - Target files (canonical paths, verified with find/grep)
   - Acceptance criteria (verifiable, not aspirational)
   - Risk flags (contracts touched, ADRs required)
   - Quality gate commands (exact commands to run)
+
+For v1.8 specs, also write `tasks.md` in the same directory. Each task MUST:
+  - Start with `- [ ] TNNN`
+  - Use `[P]` only for independent parallel work
+  - Use `[US1]`, `[US2]`, etc. when tied to a user story
+  - Use `[C4]` for validation tasks
+  - Use `[C5]` for record/memory/state tasks
+  - Cover every deliverable, acceptance criterion, quality gate, and C5 step
 ```
 
 ### P4 — State Update & Completion
@@ -172,6 +320,8 @@ Update .agent/state.json:
   session.goal = <goal title>
   session.goal_type = feature | fix | refactor | docs | chore
   session.status = "planned"
+  session.plan = "plans/specs/NNN-feature-name/plan.md"       # if using v1.8 specs
+  session.tasks = "plans/specs/NNN-feature-name/tasks.md"     # if using v1.8 specs
 
 Append to .agent/sessions/events.jsonl:
   {"timestamp": "...", "event": "planning_complete", "spec": "plans/EXEC_SPEC_X.md"}
@@ -278,6 +428,51 @@ Verify before writing any code (do not skip):
       are accounted for. Only proceed to C2 when the full extraction is done.
 ```
 
+### C1.5 — Artifact Coverage Analysis
+```
+For v1.8 specs, run artifact analysis BEFORE C2 and BEFORE writing code.
+
+Inputs:
+  - spec.md
+  - plan.md
+  - tasks.md
+  - checklists/requirements.md
+  - contracts/ (feature-local, if present)
+  - .agent/constitution.md (if present)
+  - .agent/memory/CONTRACTS_INDEX.md
+  - .agent/memory/DECISIONS_INDEX.md
+  - relevant rules/APs loaded during bootstrap
+
+Write output to:
+  plans/specs/NNN-feature-name/analysis.md
+
+Required checks:
+  [ ] Every FR-### has a task or explicit justification
+  [ ] Every SC-### has C4 verification coverage
+  [ ] Every P1/P2 user story has an independent test path
+  [ ] Every deliverable in plan.md has a task
+  [ ] Every target file path is verified or marked BLOCKED
+  [ ] Every task maps to a user story, FR, SC, deliverable, quality gate, or C5
+  [ ] Interfaces touched are covered by CONTRACTS_INDEX.md or feature-local contracts
+  [ ] Breaking changes have accepted ADRs before implementation
+  [ ] Constitution MUST constraints are reflected in the plan
+  [ ] Requirements checklist blockers are resolved or explicitly accepted by the operator
+
+Severity:
+  CRITICAL: constitution conflict, breaking contract without accepted ADR,
+            missing task for baseline FR, missing required artifact
+  HIGH: ambiguous security/performance requirement, acceptance criterion without
+        verification, checklist blocker
+  MEDIUM: terminology drift, weak non-functional coverage, task ordering risk
+  LOW: wording/style/process improvement
+
+Gate behavior:
+  IF CRITICAL or HIGH findings exist:
+    STOP before C2 and report `[DEVFLOW: ARTIFACT ANALYSIS BLOCKED]`
+  IF only MEDIUM/LOW findings exist:
+    Continue to C2 with risks listed in analysis.md
+```
+
 ### C2 — Contract Gateway
 ```
 For each file to be modified:
@@ -294,10 +489,13 @@ For each file to be modified:
 Output this summary, then STOP and await go-ahead:
 
   ╔══ DEVFLOW C2 GATE ══════════════════════════════╗
+  ║ Spec dir          : [plans/specs/... or legacy] ║
+  ║ Artifact analysis : [PASS / risks / BLOCKED]    ║
   ║ Files to modify   : [list of files]             ║
   ║ Contracts touched : [CON-NNN list or "none"]    ║
   ║ Rules to apply    : [top R-NNN relevant to task]║
   ║ Watch-for AP-NNN  : [top AP-NNN relevant]       ║
+  ║ Tasks source      : [tasks.md / TodoWrite only] ║
   ║ C3 order          : [brief implementation seq]  ║
   ║ C4 quality gates  : [lint / test / build cmds]  ║
   ╚═════════════════════════════════════════════════╝
@@ -305,18 +503,23 @@ Output this summary, then STOP and await go-ahead:
   → Awaiting go-ahead. Options:
 
       "go" → Update state.json: session.status = "coding"
-             IMMEDIATELY create a TodoWrite task list before writing any code:
-               - One task per deliverable from the C1 spec extraction (core + peripheral)
-               - One task per acceptance criterion / DoD item to verify at C4
-               - One task per C4 quality gate (lint, test, build)
-               - One task per C5 post-code step (AP/R/ADR memory update, journal, state.json)
+             IF tasks.md exists:
+               - Read tasks.md as the durable task source
+               - Mirror tasks into TodoWrite before writing code
+               - Update tasks.md at persistent checkpoints
+             ELSE:
+               IMMEDIATELY create a TodoWrite task list before writing any code:
+                 - One task per deliverable from the C1 spec extraction (core + peripheral)
+                 - One task per acceptance criterion / DoD item to verify at C4
+                 - One task per C4 quality gate (lint, test, build)
+                 - One task per C5 post-code step (AP/R/ADR memory update, journal, state.json)
              Mark each task complete immediately when finished — never batch completions.
-             This list is the agent's persistent context. If the session is interrupted,
-             the next session reads TodoWrite state and resumes without loss.
+             TodoWrite is runtime context; tasks.md is durable context when present.
              Then DEVFLOW proceeds to C3 → C4 → C5
 
       /deliver-sprint → Update state.json: session.status = "coding"
-                        Create TodoWrite task list (same structure as "go" above).
+                        Create TodoWrite task list from tasks.md when present; otherwise same
+                        structure as "go" above.
                         Hand off C3/C4 to /deliver-sprint; DEVFLOW resumes at C5
 
       "stop" → Update state.json: session.status = "halted"
@@ -777,8 +980,8 @@ Next Session
 ---
 
 > **Reference files** (loaded on demand, not part of bootstrap):
-> - `DEVFLOW-REFERENCE.md` — File map, gene defaults, state machine diagram
+> - `references/DEVFLOW-REFERENCE.md` — File map, gene defaults, state machine diagram
 > - `DEVFLOW-META.md` — Meta-evolution protocol, gene mutation approval process
 
-*DEVFLOW v1.7.0 — The filesystem is the orchestrator.*
+*DEVFLOW v1.8.0 — The filesystem is the orchestrator.*
 *All files in .agent/ (except sessions/.lock and sessions/events.jsonl) should be version-controlled.*

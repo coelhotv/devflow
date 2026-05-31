@@ -11,6 +11,7 @@
 .agent/
   DEVFLOW.md                    ← skill definition (symlink — do not modify without /devflow meta-evolve)
   state.json                    ← session state (read first, update last in every session)
+  constitution.md               ← project governing principles and non-negotiable constraints
 
   memory/
     RULES_INDEX.md              ← Rules Sparse Index
@@ -39,6 +40,18 @@
 
   synthesis/
     pending_export.json         ← rules/APs ready for global base promotion
+
+plans/
+  specs/
+    NNN-feature-name/
+      spec.md                   ← product intent, WHAT/WHY, user stories, FRs, SCs
+      plan.md                   ← technical plan from Planning mode
+      tasks.md                  ← durable task list mirrored into TodoWrite during Coding
+      analysis.md               ← C1.5 artifact coverage report
+      checklists/
+        requirements.md         ← requirements quality checklist
+      contracts/
+        *.md                    ← feature-local interface contracts, if needed
 ```
 
 ---
@@ -63,12 +76,23 @@ Default values in `evolution/genes.json`:
 ## Session State Machine
 
 ```
+SPECIFYING MODE:
+  START (/devflow specifying)
+    ↓
+  S0: session.status = "specifying"
+    ↓
+  S1-S4: short name, numbering, spec directory, spec.md
+    ↓
+  S5-S6: session.status = "specified"; event/journal
+    ↓
+  END → STOP (awaiting Planning mode invocation)
+
 PLANNING MODE:
   START (/devflow planning)
     ↓
   P0: session.status = "planning"
     ↓
-  P1-P3: scope analysis, ADR check, spec creation
+  P1-P3: scope analysis, clarification, ADR check, plan/tasks creation
     ↓
   P4: session.status = "planned"
     ↓
@@ -79,7 +103,7 @@ CODING MODE:
     ↓
   C0: session.status = "analysis"
     ↓
-  C1-C2: pre-code checklist, contract gateway (C2 GATE fires)
+  C1-C2: pre-code checklist, artifact analysis, contract gateway (C2 GATE fires)
     ↓
   "go" / /deliver-sprint → session.status = "coding"
   "stop"                 → session.status = "halted" → END
