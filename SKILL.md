@@ -209,7 +209,25 @@ Checklist: Read current state.json → update mode/status/goal/goal_type → wri
 ### C1 — Pre-Code Checklist
 ```
 Verify before writing any code (do not skip):
+  [ ] BRANCH SYNC RITUAL — before creating a new branch OR spawning a sub-agent
+      that touches files in shared packages (`packages/*`, `apps/*/src/features/*`):
+        1. git fetch origin
+        2. git status — confirm current branch is up-to-date with origin
+        3. IF base branch (main/develop) drifted from local → git pull (or
+           `git reset --hard origin/<base>` when local has no committed work)
+        4. ONLY THEN create the new feature branch or spawn the sub-agent
+      RATIONALE: an outdated local branch causes sub-agents to "port" files
+      that already exist in origin, generating duplicates that explode at
+      `git push` (lint clash, merge conflict). Cost: 15+ min reset hard per
+      incident. Detected in retro Fase 2 (D7); documented as AP-169 in dosiq.
   [ ] RULES_INDEX.md loaded and relevant rules identified
+  [ ] R-221 SQP loaded for any code-changing work
+      Extract and record before implementation:
+        - affected platform(s): Web/PWA, Mobile, Shared/Core, Backend/Infra
+        - SemVer impact: patch, minor, major, or no-user-impact
+        - version source(s) to update, if any
+        - CHANGELOG.md [Unreleased] target section
+        - store-note relevance for mobile changes
   [ ] ANTI_PATTERNS_INDEX.md loaded and relevant APs identified
   [ ] Target file exists: find src -name "*TargetFile*" (verify single result)
   [ ] No duplicate files: same find command, count == 1
@@ -330,6 +348,13 @@ Run project-specific quality commands (from state.json or knowledge.json):
   Tests:  [project test command for changed files]
   Build:  [project build command if applicable]
 
+Verify R-221 SQP release evidence independently from lint/tests:
+  - platform(s) identified
+  - SemVer impact recorded
+  - version source(s) updated when impact is not no-user-impact
+  - CHANGELOG.md [Unreleased] updated in Portuguese
+  - mobile store-note relevance recorded when Mobile is affected
+
 Verify every acceptance criterion and DoD item extracted in C1 spec read.
 All gates must pass AND all DoD items must be checked before proceeding to C5.
 
@@ -370,6 +395,12 @@ Execute this checklist IN ORDER:
       {timestamp, event: "coding_complete", files: [...], rules_applied: [...], aps_triggered: [...]}
 
   [ ] 7. Write journal entry to memory/journal/YYYY-WWW.jsonl
+      Include R-221 SQP release log for code-changing work:
+        - affected platform(s)
+        - SemVer impact
+        - old/new version(s), or no-user-impact justification
+        - CHANGELOG.md entry summary
+        - store-note relevance for mobile changes
 
   [ ] 8. UPDATE state.json (FINAL STEP — DO NOT SKIP):
       ✅ Set session.status = "completed"
@@ -560,25 +591,63 @@ For each entry in synthesis/pending_export.json:
 Clear synthesis/pending_export.json after successful export
 ```
 
-### D5 — Autonomous Self-Cleaning (Index Regenerator)
+### D5 — Autonomous Self-Cleaning (Index Regenerator) — MANDATORY DEEP SCAN
 ```
-Upon distillation, the agent MUST validate the integrity of Sparse Indexes:
-1. Scan all memory/[class]/[category]/ directories.
-2. For each .md file found, extract YAML frontmatter.
-3. Update the corresponding row in [CLASS]_INDEX.md.
-4. Add new items not in the index.
-5. Mark as "archived" items whose detail files were deleted or moved.
+D5 is MANDATORY in every distillation — NOT optional. State.json counters
+drift silently across sessions when sessions add R-NNN/AP-NNN/ADR-NNN
+without bumping state.json counters. Trust the INDEX.md files as the
+single source of truth; reconcile state.json against them.
+
+Steps (in order):
+
+1. SCAN detail files vs index entries (per class):
+   For each class in {rules, anti-patterns, decisions, contracts, knowledge}:
+     a. List all files matching memory/<class>/<category>/<ID>.md
+     b. List all entries in [CLASS]_INDEX.md (regex match on [R-NNN], [AP-NNN], etc.)
+     c. Compute symmetric diff:
+        - files_without_index_entry → ADD entry to index (one-liner with
+          title from H1 of the detail file)
+        - index_entries_without_file → MARK as archived (do NOT delete;
+          preserve traceability) OR flag for human review if status was active
+
+2. RECONCILE state.json counters against indexes:
+   For each counter in state.json.memory:
+     a. count = grep -cE '^- \*\*\[<PREFIX>-' [CLASS]_INDEX.md
+     b. If state.json count != grep count → UPDATE state.json with grep count
+     c. LOG the delta in the distillation journal entry (before/after/delta).
+        Example: "rules_count: 182→183 (+1 reconciled from index)"
+
+3. AUDIT contract drops (specific to D5 deep scan):
+   If contracts_count decreased since last_distillation:
+     a. Identify which CON-NNN files no longer exist (compare git log on
+        memory/contracts/ vs current state)
+     b. Document the removed CON-NNN in the distillation journal entry
+     c. If removal was unintentional, flag for human review
+
+4. EMIT reconciliation block in journal entry:
+   {
+     "type": "distillation",
+     "reconciliation": {
+       "before": {...counters from state.json read at D0...},
+       "after":  {...counters from grep at end of D5...},
+       "delta":  {...per-class delta with sign...},
+       "interpretation": "...one-line per non-zero delta..."
+     }
+   }
+
+DO NOT skip steps 2 and 4 to save time — silent counter drift is a
+recurring bug detected in prior distills (PR #559 / AP-161).
 ```
 
 ### D6 — Distillation Complete & State Update
 ```
-Acquire lock → update state.json:
+After D5 reconciliation, acquire lock → update state.json:
   memory.last_distillation = now (ISO timestamp)
   memory.journal_entries_since_distillation = 0
-  memory.rules_count = count of active entries in RULES_INDEX.md
-  memory.anti_patterns_count = count of active entries in ANTI_PATTERNS_INDEX.md
-  memory.decisions_count = count entries in DECISIONS_INDEX.md
-  memory.contracts_count = count entries in CONTRACTS_INDEX.md
+  memory.rules_count = count of active entries in RULES_INDEX.md (POST D5)
+  memory.anti_patterns_count = count of active entries in ANTI_PATTERNS_INDEX.md (POST D5)
+  memory.decisions_count = count entries in DECISIONS_INDEX.md (POST D5)
+  memory.contracts_count = count entries in CONTRACTS_INDEX.md (POST D5)
   session.status = "distilled"
 Release lock
 
@@ -695,6 +764,7 @@ Next Session
 | Append to journal — never rewrite | Truncate or rewrite journal entries |
 | Propose gene mutations, wait for human approval | Auto-apply gene mutations (see DEVFLOW-META.md) |
 | Flag GOAL DRIFT explicitly when it occurs | Silently deviate from acceptance criteria |
+| `git fetch origin` + sync local before creating new branch OR spawning sub-agent on shared files | Spawn from outdated branch — sub-agent will duplicate files |
 | Verify canonical path with find/grep before editing | Assume file location from its name or the spec |
 | Verify DEFINITION file, not just the caller | Mark a deliverable done after checking the call site |
 | Read ENTIRE spec (all sections) at C1 before writing code | Skim spec and miss peripheral deliverables |
