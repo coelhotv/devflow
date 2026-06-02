@@ -8,7 +8,7 @@ description: >
   operate under DEVFLOW rules instead of an ad-hoc coding process.
 ---
 
-# DEVFLOW — Autonomous Software Development Agent (v1.8.0)
+# DEVFLOW — Autonomous Software Development Agent (v1.9.0)
 
 ## Role
 
@@ -55,6 +55,54 @@ If the workspace contains an `.agent/` directory, any response that performs a c
 - Distillation (D5) → STOP
 
 The operator (Human/PO) has total control over the flow. Agents MUST NOT chain modes without explicit request.
+
+---
+
+## ⚙️ Work Tiers — Right-Sizing the Artifact Set (SDD-like, not SDD-dogma)
+
+DEVFLOW serves real projects where most work is small. The full 5-artifact SDD bundle
+(`spec.md` + `plan.md` + `tasks.md` + `analysis.md` + `checklists/`) is **overhead, not
+rigor, when the blast radius is small**. Before Specifying/Planning, classify the work into
+a tier and produce **only** the artifacts that tier requires.
+
+**Pick the tier by the HIGHEST signal that matches** (when in doubt, ask the operator — do not silently upgrade/downgrade):
+
+| Signal | Tier 0 — Trivial | Tier 1 — Standard | Tier 2 — Epic / High-Risk |
+|--------|------------------|-------------------|---------------------------|
+| Scope | ≤2 files, 1 layer | 3–8 files, 1 feature | multi-PR, multi-file, often sliced into sub-specs |
+| goal_type | `fix` / `docs` / `chore` | `feature` / `fix` / `refactor` | `feature` / `refactor` (epic) |
+| DB migration | none | none | **yes** |
+| Contract (CON-NNN) | none | additive/none | **breaking or new/uncatalogued** |
+| ADR | none | none | **new architectural decision** |
+| Platforms | one | one (or shared, non-breaking) | **cross (web+mobile+bot/core)** |
+| Data migration / RLS / security | none | none | **yes** |
+| Examples (dosiq) | typo, copy tweak, dep bump, lint fix, single-fn rename | a hook, a widget, a service method, a scoped bugfix+tests | dose_instances, líquidos (022/023/024), tz e2e |
+
+### Required artifacts per tier
+
+```
+Tier 0 — Trivial:    NO plans/specs dir. Bootstrap → C1(lite) → C3 → C4(lint+changed tests) → C5(journal one-liner).
+                     TodoWrite optional. Skip Specifying, Planning, analysis.md, checklists/.
+
+Tier 1 — Standard:   plans/specs/NNN-name/ with spec.md (lite) + tasks.md ONLY.
+                     spec.md lite = Context + 1–3 user stories (w/ acceptance) + FR + SC + Assumptions.
+                     Planning is FOLDED into the C2 gate (no separate plan.md unless a design choice
+                     needs to be recorded). NO analysis.md / checklists/ UNLESS C1.5 finds a real risk
+                     → then create analysis.md just for that finding.
+
+Tier 2 — Epic:       FULL set: spec.md, plan.md, tasks.md, analysis.md, checklists/requirements.md,
+                     contracts/ as needed. Slice into sub-specs (NNN per atomic deliverable) when the
+                     epic spans layers (db → core → ui). analysis.md is MANDATORY and gated (see C1.5).
+```
+
+**Tier is recorded** in `state.json.session.tier` (`0` | `1` | `2`) and in the spec header
+(`**Tier**: N`). Re-evaluate the tier if scope grows mid-work (e.g. a "small fix" reveals a
+needed migration → upgrade to Tier 2 and tell the operator).
+
+> **Anti-bloat rule:** more artifacts ≠ more safety. Each extra file is another surface that can
+> **drift** from the code and from the other files. Only Tier 2 earns the full bundle. Do not
+> generate `analysis.md`/`checklists/` for Tier 0/1 "to be safe" — an empty-ritual artifact is
+> worse than none (it manufactures false confidence — see C1.5 Reality Check).
 
 ---
 
@@ -174,9 +222,22 @@ Sequential numbering:
 Do NOT count legacy specs outside `plans/specs/`.
 ```
 
-### S3 — Directory Creation
+### S2.5 — Tier Classification (MANDATORY)
 ```
-Create:
+Classify the work using the Work Tiers table. Record session.tier in state.json.
+  Tier 0 → do NOT enter Specifying. Tell the operator "Tier 0 — no spec needed;
+           ready to code under C1-C5 directly." STOP.
+  Tier 1 → create the dir but only spec.md (lite) + tasks.md (see S3/S4).
+  Tier 2 → full dir + full bundle; consider slicing into sub-specs.
+If the tier is ambiguous, ASK the operator before creating any artifact.
+```
+
+### S3 — Directory Creation (tier-aware)
+```
+Tier 1:
+  plans/specs/NNN-feature-name/        # spec.md + tasks.md live here
+
+Tier 2:
   plans/specs/NNN-feature-name/
   plans/specs/NNN-feature-name/checklists/
   plans/specs/NNN-feature-name/contracts/
@@ -184,22 +245,32 @@ Create:
 
 ### S4 — Feature Specification
 ```
-Write `plans/specs/NNN-feature-name/spec.md` with:
-  - Feature Directory, Created, Status, Input
-  - User Scenarios & Testing (prioritized user stories)
-  - Acceptance Scenarios
-  - Edge Cases
+Write `plans/specs/NNN-feature-name/spec.md`.
+
+Header MUST include: Feature Directory, Created, Status, **Tier**, Input.
+
+Tier 1 (lite) — keep it to one screen:
+  - Context (why, short)
+  - 1–3 User Stories (prioritized) each with Acceptance Scenarios (Given/When/Then)
   - Functional Requirements (FR-###)
-  - Key Entities, if data is involved
   - Success Criteria (SC-###)
-  - Assumptions
-  - Open Questions with [NEEDS CLARIFICATION] when needed
+  - Assumptions / Open Questions
+
+Tier 2 (full) — also:
+  - Edge Cases
+  - Key Entities (when data is involved)
+  - Explicit data-migration scenarios when a schema/enum/format changes (see Reality note below)
 
 Specifying focuses on WHAT and WHY. Do NOT choose stack, files, APIs,
-database tables, or implementation details here.
+database tables, or implementation details here (those go in plan.md / C2).
 
-Use `[NEEDS CLARIFICATION: ...]` only when ambiguity changes scope,
-UX, security/privacy, architecture, or validation. Limit to 3 markers.
+Use `[NEEDS CLARIFICATION: ...]` for any ambiguity that changes scope, UX,
+security/privacy, ARCHITECTURE, DATA MODEL, or validation. Limit to 3 markers.
+⚠️ A decision with architectural impact MUST be a [NEEDS CLARIFICATION] marker
+resolved by the operator — NEVER a plausible guess. Guessing an architectural
+default and discovering it wrong later is the most expensive failure mode (e.g.
+the "derive liquid from concentration unit vs. is_liquid boolean + required data
+migration" call must be a marker, not an assumption).
 ```
 
 ### S5 — State Update
@@ -295,17 +366,26 @@ For any significant architectural decision in scope:
   IF ADR exists with status "proposed" → flag for human review before implementation
 ```
 
-### P3 — Spec Creation
+### P3 — Spec Creation (tier-aware)
 ```
-For v1.8 specs, write technical plan to `plans/specs/NNN-feature-name/plan.md`.
-For legacy workflows, write execution spec to plans/EXEC_SPEC_<GOAL>.md including:
-  - Scope and deliverables
-  - Target files (canonical paths, verified with find/grep)
-  - Acceptance criteria (verifiable, not aspirational)
-  - Risk flags (contracts touched, ADRs required)
-  - Quality gate commands (exact commands to run)
+Tier 1 (Standard): plan.md is OPTIONAL. If the approach is obvious from spec.md,
+  skip plan.md and capture the design directly in the C2 gate (files, order, gates).
+  Write plan.md only when a non-obvious design choice deserves a durable record.
+  Do NOT create analysis.md / checklists/ for Tier 1 unless C1.5 surfaces a real risk.
 
-For v1.8 specs, also write `tasks.md` in the same directory. Each task MUST:
+Tier 2 (Epic): write the full technical plan to `plans/specs/NNN-feature-name/plan.md`:
+  - Summary + Technical Context (cite REAL schema/code evidence: table cols, fn signatures,
+    enum values — verified via find/grep/MCP, with file:line, NOT assumed)
+  - Constitution Check
+  - Architecture / Approach (incl. data-migration plan when a format/enum/schema changes)
+  - Target Files table (canonical paths verified with find/grep; mark UNVERIFIED if not)
+  - Contracts and ADRs
+  - Risks + Quality Gates
+
+For legacy workflows, write execution spec to plans/EXEC_SPEC_<GOAL>.md (scope, target files
+verified, acceptance criteria, risk flags, gate commands).
+
+Write `tasks.md` (both tiers). Each task MUST:
   - Start with `- [ ] TNNN`
   - Use `[P]` only for independent parallel work
   - Use `[US1]`, `[US2]`, etc. when tied to a user story
@@ -428,49 +508,74 @@ Verify before writing any code (do not skip):
       are accounted for. Only proceed to C2 when the full extraction is done.
 ```
 
-### C1.5 — Artifact Coverage Analysis
+### C1.5 — Artifact Coverage Analysis (Tier 2 MANDATORY; Tier 1 only if risk; Tier 0 skip)
+
+> **The hard-won lesson (liquid-meds 022/023/024, 2026-06):** an `analysis.md` that validates
+> the spec's *narrative* instead of the *real repo* is worse than no analysis — it stamps "PASS /
+> 100%" on top of critical bugs (an enum that didn't exist, a cap in the wrong file, an insert that
+> bypassed the canonical RPC). The format is not the safety; **running it against the code is**.
+> An analysis without code evidence is a self-fulfilling rubber stamp. This section is the gate
+> that makes the artifact earn its place.
+
 ```
-For v1.8 specs, run artifact analysis BEFORE C2 and BEFORE writing code.
+Run BEFORE C2 and BEFORE writing code. Tier 2: always. Tier 1: only when C1.5 spots a real risk
+(then write a focused analysis.md for it). Tier 0: skip.
 
-Inputs:
-  - spec.md
-  - plan.md
-  - tasks.md
-  - checklists/requirements.md
-  - contracts/ (feature-local, if present)
-  - .agent/constitution.md (if present)
-  - .agent/memory/CONTRACTS_INDEX.md
-  - .agent/memory/DECISIONS_INDEX.md
-  - relevant rules/APs loaded during bootstrap
+Inputs: spec.md, plan.md, tasks.md, checklists/requirements.md, contracts/ (if any),
+  .agent/constitution.md, CONTRACTS_INDEX.md, DECISIONS_INDEX.md, rules/APs from bootstrap,
+  AND THE REAL REPOSITORY (find / grep / MCP / Read — not memory, not the spec's own claims).
 
-Write output to:
-  plans/specs/NNN-feature-name/analysis.md
+Write output to plans/specs/NNN-feature-name/analysis.md.
+```
 
-Required checks:
-  [ ] Every FR-### has a task or explicit justification
-  [ ] Every SC-### has C4 verification coverage
-  [ ] Every P1/P2 user story has an independent test path
-  [ ] Every deliverable in plan.md has a task
-  [ ] Every target file path is verified or marked BLOCKED
-  [ ] Every task maps to a user story, FR, SC, deliverable, quality gate, or C5
-  [ ] Interfaces touched are covered by CONTRACTS_INDEX.md or feature-local contracts
-  [ ] Breaking changes have accepted ADRs before implementation
-  [ ] Constitution MUST constraints are reflected in the plan
-  [ ] Requirements checklist blockers are resolved or explicitly accepted by the operator
+**REALITY CHECK (the non-negotiable core of this gate):**
+```
+1. EVIDENCE TABLE — required, populated, no PASS without it. For every target file/symbol:
+   | Spec claim | Real repo (file:line) | Verified? | Note |
+   - "Verified?" = ✅ only after find/grep/Read confirmed it ON DISK. ❌ or UNVERIFIED blocks.
+   - The file that DEFINES a symbol is the target, not a caller (re-confirm at C4).
+   - Examples of claims that MUST be verified against the repo, not assumed:
+       * an enum/CHECK includes a value the spec depends on (e.g. `dosage_unit` has `mg/ml`)
+       * a cap/limit lives in the file the spec names (grep the actual `.max(...)`)
+       * an RPC/function has the signature the plan calls (read its definition)
+       * a column exists with the type/precision the plan assumes (information_schema/MCP)
+       * a "new" helper/contract isn't already defined elsewhere (no duplication)
 
+2. CROSS-FILE CONSISTENCY — spec.md ↔ plan.md ↔ tasks.md ↔ analysis.md must AGREE.
+   Flag any contradiction (e.g. plan says "insert direct" while analysis says "via RPC").
+   Contradiction between artifacts = HIGH at minimum.
+
+3. DATA-MIGRATION COMPLETENESS — if a schema/enum/format/unit changes, there MUST be an
+   explicit migration deliverable for existing rows (and a verification query). A format change
+   without a data migration is a CRITICAL gap (legacy rows silently orphaned).
+
+4. COVERAGE — every FR→task; every SC→C4 check; every P1/P2 story→independent test;
+   every deliverable→task; every touched interface→CON-NNN (or new ADR if breaking).
+```
+
+**Honesty rules (anti-rubber-stamp):**
+```
+- NEVER write "PASS / 100% / perfeito / nenhum gap" unless the Evidence Table is fully ✅
+  AND cross-file consistency holds. A confident PASS over unverified claims is a CRITICAL
+  PROCESS FAILURE, not a pass.
+- Prefer finding gaps. A first-pass analysis that finds zero gaps on a Tier 2 epic is
+  suspect — re-run against the repo before declaring PASS.
+- Record resolved gaps with IDs + the evidence that resolved them (don't delete history).
+```
+
+```
 Severity:
-  CRITICAL: constitution conflict, breaking contract without accepted ADR,
-            missing task for baseline FR, missing required artifact
-  HIGH: ambiguous security/performance requirement, acceptance criterion without
-        verification, checklist blocker
-  MEDIUM: terminology drift, weak non-functional coverage, task ordering risk
-  LOW: wording/style/process improvement
+  CRITICAL: constitution conflict; breaking contract w/o accepted ADR; missing task for a
+            baseline FR; format/enum/schema change without data migration; target path
+            unverified/wrong; cross-file contradiction on a core flow.
+  HIGH: ambiguous security/perf requirement; acceptance criterion without verification;
+        cap/limit/contract targeted at the wrong file; checklist blocker.
+  MEDIUM: terminology drift; weak NFR coverage; task-ordering risk.
+  LOW: wording/style/process.
 
 Gate behavior:
-  IF CRITICAL or HIGH findings exist:
-    STOP before C2 and report `[DEVFLOW: ARTIFACT ANALYSIS BLOCKED]`
-  IF only MEDIUM/LOW findings exist:
-    Continue to C2 with risks listed in analysis.md
+  CRITICAL or HIGH present → STOP before C2, report `[DEVFLOW: ARTIFACT ANALYSIS BLOCKED]`.
+  Only MEDIUM/LOW → continue to C2 with risks listed in analysis.md.
 ```
 
 ### C2 — Contract Gateway
@@ -489,8 +594,10 @@ For each file to be modified:
 Output this summary, then STOP and await go-ahead:
 
   ╔══ DEVFLOW C2 GATE ══════════════════════════════╗
-  ║ Spec dir          : [plans/specs/... or legacy] ║
-  ║ Artifact analysis : [PASS / risks / BLOCKED]    ║
+  ║ Tier              : [0 / 1 / 2]                  ║
+  ║ Spec dir          : [plans/specs/... or "none"]  ║
+  ║ Artifact analysis : [PASS / risks / BLOCKED / n/a]║
+  ║ Reality check     : [evidence table ✅ / n/a]    ║
   ║ Files to modify   : [list of files]             ║
   ║ Contracts touched : [CON-NNN list or "none"]    ║
   ║ Rules to apply    : [top R-NNN relevant to task]║
@@ -976,6 +1083,12 @@ Next Session
 | Cite line number and code excerpt in each C4 DoD check | Say "I checked and it looks OK" without citing |
 | Confirm test framework per workspace before writing tests | Assume root framework applies to all workspaces |
 | Run /check-review before /devflow reviewing | Skip /check-review for technical review |
+| Classify the Work Tier before creating any artifact | Generate the full 5-file bundle for a Tier 0/1 task |
+| Match artifacts to tier (Tier 0 none, Tier 1 spec+tasks, Tier 2 full) | Treat `analysis.md`/`checklists/` as mandatory everywhere |
+| Back every analysis claim with repo evidence (file:line via find/grep/MCP) | Write "PASS / 100%" validating the spec's own narrative |
+| Mark architectural choices as `[NEEDS CLARIFICATION]` for the operator | Guess a plausible architectural default and proceed |
+| Require an explicit data-migration deliverable when a format/enum/schema changes | Change a unit/enum/format and leave legacy rows orphaned |
+| Keep the 5 artifacts mutually consistent (flag contradictions) | Let plan.md and analysis.md disagree on the same flow |
 
 ---
 
@@ -983,5 +1096,9 @@ Next Session
 > - `references/DEVFLOW-REFERENCE.md` — File map, gene defaults, state machine diagram
 > - `DEVFLOW-META.md` — Meta-evolution protocol, gene mutation approval process
 
-*DEVFLOW v1.8.0 — The filesystem is the orchestrator.*
+*DEVFLOW v1.9.0 — The filesystem is the orchestrator.*
+*v1.9.0: Work Tiers (right-size the artifact set: Tier 0 none / Tier 1 spec+tasks / Tier 2 full SDD)
++ hardened C1.5 Reality Check (analysis.md must be verified against the real repo with a populated
+evidence table; no rubber-stamp PASS) + architectural choices as `[NEEDS CLARIFICATION]` + mandatory
+data-migration deliverable on format/enum/schema changes. Lesson source: liquid-meds specs 022/023/024.*
 *All files in .agent/ (except sessions/.lock and sessions/events.jsonl) should be version-controlled.*
