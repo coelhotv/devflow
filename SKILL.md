@@ -477,6 +477,29 @@ Verify before writing any code (do not skip):
           - "Peripheral" items (new CON-NNN contracts, DB migrations, feature flags,
             route registrations) are as mandatory as core features — do not omit them.
 
+          ⚠️ TARGET FILES COMPLETENESS CHECK (R-267) — when plan.md has a Target Files table:
+            Before accepting the list as complete, validate both paths for every new/changed field:
+
+            WRITE PATH (typically in Target Files):
+              doseInstanceGenerator, repository, migration SQL — usually present in plan.md
+
+            READ PATH (frequently missing from Target Files — source of silent bugs):
+              1. Zod schema (packages/core or apps/*/src/schemas/) — `safeParse()` strips
+                 unknown fields silently; field absent from schema = field never persisted (AP-214)
+              2. All service `.select()` calls that fetch the entity — grep `from('<table>')` across
+                 apps/ packages/ server/; a select without the field = always `undefined` downstream,
+                 causing derived logic (e.g. `hasCriticalProtocol`) to produce wrong results (AP-215)
+              3. Detail/edit screens — field saved but not displayed = confusing UX
+              4. Migration SQL — field absent in DB = insert/update silently fails
+
+            IF any read-path file is absent from plan.md Target Files:
+              → ADD it before proceeding. Do NOT assume the plan is complete because the
+                write-path looks correct. Lint and tests will NOT catch this class of error.
+
+            RATIONALE: sprint-010 (`critical_alarm`) had a complete write-path spec but missed
+            the Zod schema and two service selects from Target Files. Sub-agents implemented
+            exactly what was listed — both gaps caused production bugs (AP-214, AP-215).
+
           ⚠️ MANDATORY CANONICAL PATH VERIFICATION — for EVERY file listed in deliverables:
             Step 1: Run `find . -name "*FileName*" -type f` to locate the actual file on disk.
             Step 2: If the spec names a function/enum/class, grep for its definition:
