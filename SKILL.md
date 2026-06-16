@@ -54,6 +54,7 @@ If the workspace contains an `.agent/` directory, any response that performs a c
 - Planning (P4) → STOP (Awaiting approval/instruction)
 - Coding (C5) → STOP (Awaiting next task)
 - Reviewing R1+RC5 (ASK findings) → STOP (Awaiting operator decision on findings)
+- Reviewing RC6 (independent AI review posted) → STOP (Awaiting operator decision on findings)
 - Reviewing (R5) → STOP
 - Distillation (D5) → STOP
 
@@ -180,7 +181,13 @@ Update state.json: quality_gates.index_loaded_at = now
 
 ## Mode: Ideation
 
-**Purpose:** Equivalent to a YC-style product diagnostic (office-hours). Use when the goal is vague, exploratory, or requires premise validation before specifying. This mode produces a design draft — NOT code, NOT specs.
+**Purpose:** A YC-style product diagnostic (office-hours), applied to whatever stage the project is at. Use when the goal is vague, exploratory, or requires premise validation before specifying. This mode produces a design draft — NOT code, NOT specs.
+
+**Two contexts, same rigor (auto-detect which one applies):**
+- **Net-new** (0→1): a new product/business. "Customer" = someone who pays; "demand" = money + retention; "status quo" = the duct-taped workaround they live with today.
+- **Business evolution** (1→N): a new feature/change inside an *existing* product with *existing* users. "Customer" = the current user/segment; "demand" = observed usage, retention, support load, churn signals — not anecdote; "status quo" = how users solve it *inside or around the product today*.
+
+Most real work is **evolution**, not creation. Do not force the 0→1 "who pays?" frame onto a feature decision — translate it: the question is whether *existing* behavior proves the pain, not whether a market exists. The Operating Principles below hold in both contexts; only the vocabulary shifts.
 
 **Phase Detection:** If the goal contains terms like "ideia", "explorar", "brainstorm", "pensar sobre", "faz sentido?", "vale a pena?", or the operator cannot articulate a clear problem statement → suggest Ideation before Specifying.
 
@@ -258,6 +265,8 @@ These shape every response in Ideation mode:
 
 Push on each one until the answer is specific, evidence-based, and uncomfortable.
 
+> **Evidence lives in the project — use it.** Before accepting anecdote, check whether the project exposes its own signal: analytics/telemetry services, usage events, retention/adherence data, support or ticket channels, error logs. If it does, direct the operator there ("what does the usage data say?") instead of accepting "I think users want this." In evolution (1→N) work this is the *primary* demand evidence; in net-new (0→1) work it may not exist yet, and that absence is itself a finding.
+
 #### I1: Demand Reality
 **Ask:** "Qual é a evidência mais forte de que alguém realmente quer isso — não 'tem interesse', não 'se cadastrou na waitlist' — mas ficaria genuinamente frustrado se desaparecesse amanhã?"
 **Push until you hear:** Specific behavior. Someone paying. Someone expanding usage. Someone who would have to scramble if you vanished.
@@ -317,7 +326,21 @@ Persist the draft (do NOT rely on chat history — it can be lost to IDE restart
 3. Append journal entry to `YYYY-WWW.jsonl` linking to the draft.
 4. Append to `events.jsonl`: `{"event": "ideation_complete", "draft": "<path>", "decision": "<proceed|abandon|park>"}`
 
-STOP. Awaiting specifying mode invocation or operator decision.
+### I5 — Hand-off to Specifying (connect the modes — don't dead-end)
+
+A validated wedge already carries a natural **Work Tier**. Don't make the operator re-derive it cold in Specifying — pre-classify here and hand it forward:
+
+```
+If decision == proceed:
+  - Estimate the Tier of the wedge (0/1/2) using the Work Tiers table (scope, migration, contract, platforms).
+  - Record it in the draft as `**Suggested Tier**: N` (a suggestion, not a lock — S2.5 confirms/corrects).
+  - State the next mode explicitly: "Wedge validated, ~Tier N → next: /devflow specifying (or, if Tier 0, code
+    directly under C1-C5)." Trivial wedges should NOT be forced through full Specifying ceremony.
+```
+
+This keeps the wedge's "narrowest version" discipline flowing straight into right-sized artifacts instead of re-inflating in Specifying.
+
+STOP. Awaiting specifying mode invocation or operator decision. (Per R-065, do NOT auto-advance — surface the suggested next mode, let the operator invoke it.)
 
 ---
 
@@ -440,6 +463,13 @@ Append to .agent/sessions/events.jsonl:
 Write journal entry to .agent/memory/journal/YYYY-WWW.jsonl.
 ```
 
+**SPECS INDEX SYNC (MANDATORY — do not skip):** if the specs directory has an index/README
+(e.g. `plans/specs/README.md`), **register the new spec as a row there** (number, short name,
+status, one-line note) in the same step that creates the spec. Any change under the specs
+directory — **a new spec dir, or a status transition** — MUST be reflected in that index in the
+SAME action that caused it; the index is the canonical status source and silently drifts when
+creation/status updates skip it. (No index file → skip; this is conditional, not project-specific.)
+
 STOP. Awaiting Planning mode invocation.
 
 ---
@@ -453,7 +483,8 @@ STOP. Awaiting Planning mode invocation.
 - `/devflow design-review` (RC2)
 - `/devflow eng-review` (RC3)
 - `/devflow devex-review` (RC4)
-- `/devflow autoplan` (RC-AUTO: Runs RC1→RC2→RC3→RC4 sequentially)
+- `/devflow security-review` (RC-SEC — applicability-gated, like RC2/RC4)
+- `/devflow autoplan` (RC-AUTO: Runs RC1→RC2→RC3→RC-SEC→RC4 sequentially; RC2/RC4/RC-SEC self-skip when not applicable)
 
 > [!CAUTION]
 > **HITL INVARIANT:** Ceremonies (including Autoplan) NEVER auto-promote the DEVFLOW state to the next mode (Planning, Coding, etc.). They always end in a STOP gate awaiting operator confirmation. This is the defining invariant of devflow — the operator controls mode transitions, not the agent.
@@ -676,11 +707,39 @@ Every great developer tool has a magical moment: the instant a developer goes fr
 
 ---
 
+### RC-SEC — Security & Data Review
+
+**Applicability:** Only when the plan touches a security- or data-sensitive surface. Auto-detect via keywords/signals: auth, login, session, token, permission, role, RLS/row-level, policy, grant, schema/migration, new table/column, PII / personal / health / financial data, secret/env var/key, file upload, external input, webhook, SQL/RPC/stored function, third-party API. If none detected, tell the operator and skip. **This is a PLAN-time review — it catches at design time what a code-time reviewer (RC5/RC6) would catch too late.**
+
+**Mindset:** You are a security & data-integrity reviewer. You assume inputs are hostile, identities are spoofable, and every new data surface is a liability until proven contained. You do not add ceremony for its own sake — you find the specific way *this* change leaks, corrupts, or over-exposes data.
+
+**Cognitive Patterns:**
+1. **Least privilege by default** — every new actor/role/grant gets the *minimum* access; anything broader must be justified line-by-line.
+2. **Trust boundaries are explicit** — name where untrusted data crosses into trusted execution (user input, LLM output, third-party payloads) and what validates it at the crossing.
+3. **Data classification first** — before access rules, classify what's flowing: public / internal / sensitive / regulated. The class dictates the controls.
+4. **Failure is adversarial** — not just "what breaks" but "what an attacker makes break": injection, IDOR/authorization bypass, enumeration, replay, privilege escalation.
+5. **Defense in depth** — never rely on a single control; app validation AND DB constraint AND access policy.
+
+**Review Passes (apply only those the change touches):**
+1. **AuthN / AuthZ** — who can call this, who *should*, and is that enforced server-side (not just UI)? Object-level checks (can user X act on resource Y)?
+2. **Access control at the data layer** — if the platform has row-level / policy-based access (e.g. RLS), is it enabled and correct for new tables? New grants follow least privilege?
+3. **Input & trust boundaries** — injection (SQL/command/template), SSRF on outbound fetch, unsafe deserialization, LLM-output written without validation, file-upload type/size/path checks.
+4. **Data exposure** — does the change widen what's returned/logged/cached? Sensitive fields in logs, error messages, analytics, or client payloads?
+5. **Secrets & config** — new secrets handled via the project's secret mechanism (not hardcoded, not committed); env fallbacks safe.
+6. **Privileged execution** — stored functions / elevated-privilege code: is privilege dropped where possible, search path / execution context pinned, callable only by intended roles?
+7. **Compliance surface** — if the data is regulated (health/financial/personal), name the obligation the change touches (retention, consent, audit trail) — flag, don't assume.
+
+**Project-specific security rules — use them, don't reinvent:** If the project documents its own security conventions (in CLAUDE.md/AGENTS.md, a security rule catalog, migration templates, or a DB-change preflight), **load and enforce those as the authority**. RC-SEC supplies the generic adversarial lens; the project's own catalog supplies the specifics. Do not invent rules the project hasn't adopted.
+
+**Output:** For each finding: surface touched · the specific risk · severity (Critical/High/Medium) · the concrete control to add. Critical/High security findings default to **ASK** (operator judgment) — never silently auto-resolve a security decision.
+
+---
+
 ### RC-AUTO — Autoplan Mode
 
 One command. Rough plan in, fully reviewed plan out.
 
-**Sequential execution:** RC1→RC2→RC3→RC4, in strict order. Each phase MUST complete fully before the next begins. Never run phases in parallel — each builds on the previous.
+**Sequential execution:** RC1→RC2→RC3→RC-SEC→RC4, in strict order. Each phase MUST complete fully before the next begins. Never run phases in parallel — each builds on the previous. RC2/RC4/RC-SEC self-skip when their applicability gate doesn't match.
 
 **The 6 Decision Principles (auto-answer intermediate questions):**
 1. **Choose completeness** — Ship the whole thing. Pick the approach that covers more edge cases.
@@ -836,6 +895,10 @@ Append to .agent/sessions/events.jsonl:
   {"timestamp": "...", "event": "planning_complete", "spec": "plans/EXEC_SPEC_X.md"}
 
 Write journal entry to .agent/memory/journal/YYYY-WWW.jsonl
+
+Specs index sync: if a specs index/README exists, update the spec's status row
+to `planned` in the SAME step (see S6 SPECS INDEX SYNC). Status transition without
+index update = drift.
 ```
 
 STOP. Awaiting Coding mode invocation.
@@ -1026,6 +1089,13 @@ Write output to plans/specs/NNN-feature-name/analysis.md.
      off-by-one. (Stack-specific checklist lives in a project rule, e.g. dosiq R-270 for DB+Zod.)
    A NEW function with an empty failure-mode table is suspect — re-derive it.
    Each row's "Covered?" MUST map to a negative-path test at C4 (not just happy-path).
+
+   USE THE PROJECT'S OWN FAILURE-MODE MANAGEMENT IF IT HAS ONE: if the project maintains an
+   internal catalog of failure modes / degenerate inputs / change-preflight (a dedicated rule,
+   an AP catalog, a preflight template, a checklist), LOAD IT and treat it as the authoritative
+   source for this table — extend the rows above with the project's documented modes rather than
+   only the generic ones. This generic list is the floor when the project has no such catalog;
+   the project's catalog is the ceiling when it does. (Same principle RC-SEC applies to security.)
 ```
 
 **Honesty rules (anti-rubber-stamp):**
@@ -1065,6 +1135,26 @@ For each file to be modified:
                          → Do NOT proceed until ADR status = "accepted"
     IF change is non-breaking (additive, optional fields only) → continue to gate below
 
+[CEREMONY COVERAGE CHECK — audit, do NOT auto-run anything (R-065 HITL invariant)]
+This enforces ceremonies by *surfacing a gap*, never by executing them. Two triggers:
+
+  A. TIER AUDIT (static): read state.json.session.ceremonies_run.
+     - Tier 2 with zero ceremonies run → WARN: "Tier 2 with no engineering review — run /devflow eng-review before C3?"
+     - Plan touches a security/data surface (auth, schema/migration, RLS/policy, grant, secret, PII,
+       external input, privileged function) AND RC-SEC not in ceremonies_run → WARN: "Security surface
+       touched, no security-review — run /devflow security-review?"
+     - UI surface + no design-review, or dev-facing surface + no devex-review → WARN likewise.
+
+  B. DIVERGENCE TRIGGER (dynamic — reality diverged from the plan): if, since the spec/ceremonies were done,
+     any of these emerged → HALT and suggest re-running the matching ceremony before continuing:
+       - Tier upgraded (e.g. a "small fix" revealed a needed migration → 1→2) → suggest eng-review (+ security-review if data).
+       - A contract broke that the spec didn't anticipate → suggest eng-review on the contract change.
+       - A new security/data surface appeared that wasn't in scope → suggest security-review.
+       - Blast radius exceeded what the spec assumed (files/systems beyond plan) → suggest ceo-review/eng-review.
+
+  Enforcement = mandatory STOP + suggestion; the operator decides whether to run the ceremony or proceed.
+  Do NOT trigger on Tier 0/1 work proceeding as planned — that is bloat. Triggers fire on gap or divergence only.
+
 [C2 GATE — always fires after contract check passes, breaking or non-breaking]
 Output this summary, then STOP and await go-ahead:
 
@@ -1077,6 +1167,7 @@ Output this summary, then STOP and await go-ahead:
   ║ Contracts touched : [CON-NNN list or "none"]    ║
   ║ Rules to apply    : [top R-NNN relevant to task]║
   ║ Watch-for AP-NNN  : [top AP-NNN relevant]       ║
+  ║ Ceremony coverage : [ok / gaps / divergence]    ║
   ║ Tasks source      : [tasks.md / TodoWrite only] ║
   ║ C3 order          : [brief implementation seq]  ║
   ║ C4 quality gates  : [lint / test / build cmds]  ║
@@ -1354,6 +1445,45 @@ Be terse. For each issue: one line for the problem, one line for the fix. No pre
 - Write journal entry with review summary
 
 If there are ASK items → STOP and await operator decision. (Do not proceed to R2).
+
+### RC6 — Independent AI Review (`/devflow ai-review`)
+
+**Context:** RC5 is the *author* reviewing their own diff — strong for fix-first cleanup, but it is **not independent** (same agent, same context, same blind spots). When the Gemini GitHub reviewer retires, the property that disappears is the *independent second opinion on the PR*. RC6 restores exactly that property and nothing else. **RC5 and RC6 are complementary, not redundant:** RC5 = self-check before PR (in-context, fix-first); RC6 = independent gate on the PR (fresh context, flag-only).
+
+**Invocation:** Solo, forceable at any time: `/devflow ai-review [<PR#>]`. Recommended trigger: after the PR is opened (manual `rtk ai-review <PR#>` or a local `post-push` hook). Tier 1+ (skip Tier 0).
+
+**Independence is the whole point — enforce it by construction:**
+- Run in a **fresh headless process**, NOT in the coding agent's session. Do **not** pass the coder's chat history, reasoning, or "what I intended" — only the diff + the rule catalogs. Cold-start is the feature, not a cost.
+- Engine (OAuth quota, **$0 marginal** — no metered API):
+  - **Primary: `agy` (Gemini 3.1)** — larger weekly quota, absorbs routine volume.
+  - **Fallback / escalation: `claude -p` (Opus 4.8 / Sonnet 4.6)** — stronger reasoning; use on architectural PRs or when `agy` is unavailable/weak.
+
+**Execution:**
+```
+1. Diff:    git diff $(git merge-base HEAD main)...HEAD, filtered to code files (.js/.jsx/.ts/.tsx).
+2. Context: attach CLAUDE.md + RULES_INDEX.md + ANTI_PATTERNS_INDEX.md (load detail files for R-NNN/AP-NNN
+            matching changed scope). ~100KB ≈ 25-30K tokens — fits; no RAG/embeddings needed, model self-filters.
+3. Prompt:  REUSE the RC5 "Pass 1 — CRITICAL Checklist" + "Verification of Claims (Anti-Rationalization)"
+            + "Suppressions" verbatim as the reviewer instruction. Add: "You are an INDEPENDENT auditor. You did
+            NOT write this code and have no context beyond the diff + catalogs below. Audit ONLY against the
+            listed R-NNN / AP-NNN + the CRITICAL checklist. Do not invent rules. Output strict JSON."
+4. Spawn:   agy -p (fallback claude -p) with the assembled prompt. Single SOTA pass — no Ollama.
+5. Publish: parse JSON → post inline comments on the PR via `gh api` (reuse the gemini-review.yml ingestion
+            pipeline with GEMINI_BOT_LOGIN swapped). Severity tags as Gemini did (critical/high/medium/low).
+```
+
+**No auto-fix.** Unlike RC5, RC6 **only flags** — an independent reviewer that also rewrites the code reintroduces the author-bias it exists to avoid. The coding agent applies fixes afterward (its own RC5/`check-review` cycle), then re-runs RC6 on the new diff.
+
+**Enforcement without paying for API:** the LLM runs locally on OAuth ($0); a tiny CI job (`ai-review-gate.yml`, **no LLM**) audits that an RC6 comment exists on the PR before merge is allowed. Recovers the non-bypassable property of a CI reviewer at ~zero CI cost. The human gate (R-060) remains final.
+
+**Fail-open:** if `agy` and `claude -p` are both unavailable or quota is exhausted, emit `⚠️ AI review unavailable — human review mandatory` and exit non-blocking. Never trap the push/merge permanently.
+
+**State & events:**
+- Update `state.json`: `"ai_review": {"engine": "agy|claude", "status": "clean|issues_found", "critical": N, "high": N, "pr": <num>}`
+- Append to `events.jsonl`: `{"event": "ai_review_complete", "engine": "...", "critical": N, "high": N, "pr": <num>}`
+- If a finding recurs (>2x same project) → propose AP-NNN to operator (same as RC5).
+
+If RC6 reports Critical/High → STOP and await operator decision. (Do not auto-fix, do not proceed.)
 
 ### R2 — Violation Scan
 ```
@@ -1680,6 +1810,7 @@ Next Session
 | Run at least RC3 (Eng Review) before coding Tier 2 work | Skip ceremonies to save time on Tier 2 work |
 | Challenge premises via RC1 when goal is ambiguous | Run all 4 ceremonies on Tier 0/1 work (anti-bloat) |
 | Run RC5 (code review) on every Tier 1+ PR before push | Push without RC5 on Tier 2 work (safety net against regression) |
+| Register/update the spec row in the specs index/README on creation AND every status change | Create a spec dir or change its status without updating the specs index (silent drift) |
 | Use check-review skill post-push if an external reviewer is configured | Skip RC5 just because an external reviewer exists (defense in depth) |
 
 ---
