@@ -91,5 +91,7 @@ Mudanças no arquivo de skill são mais críticas que mudanças em genes — afe
 
 | Versão | Data | Seção | Mudança | Evidência |
 |--------|------|-------|---------|-----------|
+| v2.1.0 | 2026-06-18 | Work Tiers, S4, Goal Alignment, C4, RC5, D1 | Goal-shaped delivery: Proof Obligations (`po` blocks) verificáveis-por-transcript; C4 fecha PO colando evidência; RC5 Pass 0 audita demonstrado-vs-afirmado; state.acceptance_criteria vira ponteiro; guard escala por tier; distila o conceito `/goal` provider-agnóstico | Modelos fracos (sonnet/gpt/gemini) declarando "done" prematuro — pulando AC/regressões |
+| v2.1.0 | 2026-06-18 | RC-SEC, RC3, RC2/RC4, C1 | Ceremonies absorvem PO: RC-SEC emite PO de segurança formal (+audit/evidence regulado), RC3 calibra Guard por blast-radius, RC2/RC4 emitem PO MANUAL via Ceremony Output; specs legadas pré-v2.1 com backfill lazy/oportunista no C1 (só AC tocadas; nunca big-bang) | Q1/Q2 da sessão de design v2.1: integrar conceito às ceremonies + migrar histórico sem desperdício |
 | v1.7.0 | 2026-04-26 | C1, C4 | Canonical path verification + file-by-file DoD | AP-117, incidente N1.5 (buildNotificationPayload) |
 | v1.7.0 | 2026-04-26 | Estrutura | Remoção de State Machine e Gene Reference para arquivos separados | Risco de context overflow em modelos menores |

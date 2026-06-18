@@ -8,7 +8,7 @@ description: >
   operate under DEVFLOW rules instead of an ad-hoc coding process.
 ---
 
-# DEVFLOW — Autonomous Software Development Agent (v2.0)
+# DEVFLOW — Autonomous Software Development Agent (v2.1)
 
 ## Role
 
@@ -80,6 +80,8 @@ a tier and produce **only** the artifacts that tier requires.
 | ADR | none | none | **new architectural decision** |
 | Platforms | one | one (or shared, non-breaking) | **cross (web+mobile+bot/core)** |
 | Data migration / RLS / security | none | none | **yes** |
+| Proof Obligation (PO) | optional (informal) | **mandatory** | **mandatory + formal** (+ `audit`/`evidence` when regulated) |
+| Guard (anti-regression) | none | **light**: changed tests stay green + no sibling test (same dir/module) regresses | **full**: relevant suite green + contract (CON-NNN) honored + migration reversible + audit trail |
 | Examples (dosiq) | typo, copy tweak, dep bump, lint fix, single-fn rename | a hook, a widget, a service method, a scoped bugfix+tests | dose_instances, líquidos (022/023/024), tz e2e |
 
 ### Required artifacts per tier
@@ -102,11 +104,17 @@ Tier 2 — Epic:       Suggest full autoplan (RC1→RC2→RC3→RC4) + RC5 criti
 ```
 
 > [!NOTE]
-> Na v2.0, Tier 2 usa o mesmo nível de review que Tier 1 (critical-only). O full checklist (Pass 2 INFORMATIONAL) é reservado para v2.1+ após validação prática.
+> Tier 2 usa o mesmo nível de review que Tier 1 (critical-only). O full checklist (Pass 2 INFORMATIONAL) permanece reservado para versão futura após validação prática — NÃO foi habilitado no bump v2.1 (que introduziu Proof Obligations + RC5 Pass 0, distintos do Pass 2).
 
 **Tier is recorded** in `state.json.session.tier` (`0` | `1` | `2`) and in the spec header
 (`**Tier**: N`). Re-evaluate the tier if scope grows mid-work (e.g. a "small fix" reveals a
 needed migration → upgrade to Tier 2 and tell the operator).
+
+> **Guard/PO rigor is declared once, here.** The `Proof Obligation` and `Guard` rows above are
+> the SINGLE source of truth for how strict each tier is. A `po` block (see *Proof Obligations*)
+> only fills in the concrete commands — it never re-declares the level. The tier is the **floor**:
+> C1.5 may override a Guard **up** when it finds real coupling/blast-radius beyond the tier norm;
+> it must **never** override down (R-065 spirit: no silent de-rigor).
 
 > **Anti-bloat rule:** more artifacts ≠ more safety. Each extra file is another surface that can
 > **drift** from the code and from the other files. Only Tier 2 earns the full bundle. Do not
@@ -426,17 +434,23 @@ Header MUST include: Feature Directory, Created, Status, **Tier**, Input.
 Tier 1 (lite) — keep it to one screen:
   - Context (why, short)
   - 1–3 User Stories (prioritized) each with Acceptance Scenarios (Given/When/Then)
+  - For EACH acceptance criterion, emit a `po` block (see Proof Obligations).
+    The Given/When/Then is already almost a test — the PO makes it executable
+    and citable. Tier 1+: an AC without a PO is INVALID.
   - Functional Requirements (FR-###)
-  - Success Criteria (SC-###)
+  - Success Criteria (SC-###) — include SC: "100% of ACs have a closed PO (status [x]) by end of C-mode"
   - Assumptions / Open Questions
 
 Tier 2 (full) — also:
   - Edge Cases
   - Key Entities (when data is involved)
   - Explicit data-migration scenarios when a schema/enum/format changes (see Reality note below)
+  - PO blocks are formal; regulated work adds `audit`/`evidence` fields (see Proof Obligations).
 
 Specifying focuses on WHAT and WHY. Do NOT choose stack, files, APIs,
 database tables, or implementation details here (those go in plan.md / C2).
+The `proof:` command names the CHECK (e.g. "the auth test passes"), not the
+implementation — naming a test file an AC must satisfy is WHAT, not HOW.
 
 Use `[NEEDS CLARIFICATION: ...]` for any ambiguity that changes scope, UX,
 security/privacy, ARCHITECTURE, DATA MODEL, or validation. Limit to 3 markers.
@@ -652,6 +666,13 @@ For each design dimension, rate the plan 0-10. If it's not a 10, explain what a 
 
 **Diagrams:** ASCII art for data flow, state machines, dependency graphs, and decision trees. Diagram maintenance is part of the change — stale diagrams are worse than no diagrams.
 
+**Guard calibration (Proof Obligations).** RC3's "blast radius instinct" is the natural place to set
+the **Guard level** of the spec's `po` blocks. The tier is the floor (see Work Tiers table); RC3 may
+override a Guard **up** when it sees coupling beyond the tier norm — e.g. a Tier 1 task touching a
+module with many dependents earns a Tier-2-style full-suite guard. Record the override and its reason
+in the ceremony output. Never override down (R-065 spirit: no silent de-rigor). RC3 does not emit POs
+itself — it calibrates how strict their guards must be.
+
 ---
 
 ### RC4 — DevEx Review
@@ -733,6 +754,21 @@ Every great developer tool has a magical moment: the instant a developer goes fr
 
 **Output:** For each finding: surface touched · the specific risk · severity (Critical/High/Medium) · the concrete control to add. Critical/High security findings default to **ASK** (operator judgment) — never silently auto-resolve a security decision.
 
+**Emit Proof Obligations (Tier 1+).** A security finding that "affirmado, não demonstrado" is the
+exact failure mode that hits weak models hardest ("RLS aplicada" with no proof). For each control
+you require, emit a formal `po` block into the spec so C4 must DEMONSTRATE it, not just claim it:
+```po PO-SEC-N
+ac:     <the control that must hold — e.g. unauthorized actor cannot read resource Y>
+proof:  <command that exercises the attack and shows it blocked>
+expect: <observable block — 403 / RLS denial / validation error in output>
+guard:  <no existing access path regresses>
+audit:    <action> → who / what / when / why / evidence captured   # regulated only
+evidence: <where the audit line appears in the proof output>        # regulated only
+status: [ ] open
+```
+Regulated data (health/financial/personal) MUST include `audit`/`evidence`. RC-SEC POs feed
+RC5 Pass 0 like any other PO.
+
 ---
 
 ### RC-AUTO — Autoplan Mode
@@ -767,6 +803,15 @@ One command. Rough plan in, fully reviewed plan out.
 ---
 
 ### Ceremony Output Persistence (Applicable to all RC1-RC4)
+
+**Findings → Proof Obligations (Tier 1+).** Before persisting, any ceremony finding that asserts a
+verifiable end-state should be surfaced as a `po` block in the spec, not left as prose that dies in
+the ceremony output. This is the absorption point — no per-ceremony PO field; a single common step:
+- RC-SEC: formal security POs (mandatory — see RC-SEC output).
+- RC2 (Design): visual/UX criteria that survive into final scope → `po` with `proof: MANUAL —` (screenshot/state).
+- RC4 (DevEx): TTHW / magical-moment targets → `po` with `proof: MANUAL —` (e.g. "command X runs in <2min").
+- RC1: none — scope/bet decisions are not verifiability claims.
+- RC3: emits no PO; it calibrates Guard level (see RC3 Guard calibration).
 
 1. **If `spec.md` exists:** Append findings and scope decisions to `spec.md` under a `## Ceremony: <type>` heading.
 2. **If `spec.md` DOES NOT exist:** Create `ceremony_<type>_XXXX.md` in `.agent/ceremonies/` (if `.agent/` exists) or `plans/` (fallback).
@@ -879,6 +924,9 @@ Write `tasks.md` (both tiers). Each task MUST:
   - Use `[US1]`, `[US2]`, etc. when tied to a user story
   - Use `[C4]` for validation tasks
   - Use `[C5]` for record/memory/state tasks
+  - Link the PO(s) it closes via `[PO-N]` (Tier 1+). A task with no linked PO has no
+    end criterion — it is undone work. Plan the ORDER in which POs are demonstrated:
+    which POs are checkpoints and when.
   - Cover every deliverable, acceptance criterion, quality gate, and C5 step
 ```
 
@@ -1015,6 +1063,16 @@ Verify before writing any code (do not skip):
           - Each criterion must be verified at C4 before proceeding to C5.
           - If a criterion is untestable, flag [DEVFLOW: UNVERIFIABLE CRITERION] and
             ask the human how to verify it before proceeding.
+
+        LEGACY SPEC — LAZY PO BACKFILL (pre-v2.1 specs without `po` blocks):
+          - Do NOT proactively rewrite the whole spec. Migration is opportunistic, not big-bang
+            (strangler fig — the same incremental principle RC3 prescribes for code).
+          - Tier 0 legacy spec: never backfill.
+          - Tier 1+ legacy spec: for ONLY the AC(s) this session's task actually touches,
+            generate a `po` block before C2. AC outside this task's scope stay as-is (leave them
+            marked `legacy — no PO`; do not derive proofs for AC nobody will re-execute now).
+          - Rationale: a proof is worth writing only if it will be PAID at this session's C4.
+            Token cost (your bottleneck) is spent on live work, not dead history.
 
         RISK FLAGS:
           - Note contracts to create/update, ADRs required, migrations needed.
@@ -1231,6 +1289,16 @@ Verify R-221 SQP release evidence independently from lint/tests:
   - CHANGELOG.md [Unreleased] updated in Portuguese
   - mobile store-note relevance recorded when Mobile is affected
 
+CLOSE EVERY PROOF OBLIGATION (Tier 1+). For each `po` block of the task whose status is `[ ] open`:
+  1. Run its `proof:` command (or perform the `MANUAL —` action).
+  2. Paste the actual output into the transcript.
+  3. Confirm the output shows `expect:`.
+  4. Run the `guard:` check and confirm no regression at the tier's required level.
+  5. ONLY THEN flip `status: [x] done`.
+  The turn does NOT close while any PO is still `[ ] open`. `[x]` without pasted evidence is a
+  protocol violation — it is the exact prematurely-"done" failure POs exist to prevent.
+  MANUAL POs require concrete pasted evidence too (screenshot/curl/output), not just a claim.
+
 Verify every acceptance criterion and DoD item extracted in C1 spec read.
 All gates must pass AND all DoD items must be checked before proceeding to C5.
 
@@ -1332,9 +1400,25 @@ For rules/APs/contracts relevant to the PR scope: load their detail files
 
 **RC5 Execution (Tier 1+ only; skip on Tier 0):**
 
-Compute the diff against the base branch (`git diff $(git merge-base HEAD main)`) and run the Pass 1 CRITICAL checklist. Pass 2 (Informational) is reserved for v2.1+ — do NOT run it in v2.0 even on Tier 2.
+Compute the diff against the base branch (`git diff $(git merge-base HEAD main)`) and run Pass 0 (PO audit) then the Pass 1 CRITICAL checklist. Pass 2 (Informational) remains reserved for a future version — do NOT run it even on Tier 2 (it was NOT enabled in v2.1).
 
 RC5 is also invocable standalone: `/devflow code-review` (runs without requiring the full Reviewing mode cycle).
+
+#### Pass 0 — Proof Obligation Audit (Tier 1+, run FIRST)
+
+Before judging quality, verify the proofs exist. This is mechanical and cheap — a weak model can
+do it without architectural judgment:
+
+```
+1. `rtk grep '```po' <spec files>` → list every PO.
+2. For each PO: is status `[x] done`? If any is still `[ ] open`, the work is INCOMPLETE — reject, return to C4.
+3. For each `[x]`: is there pasted evidence in the transcript showing `expect:`? A `[x]` with no
+   evidence is "affirmed, not demonstrated" — treat as a critical finding, return to C4.
+4. MANUAL POs: scrutinize harder — the evidence is human-judged, so confirm it actually shows the claim.
+5. Confirm each PO's `guard:` ran and showed no regression at the tier level.
+```
+
+Only after every PO is demonstrated (not merely claimed) proceed to Pass 1 quality review.
 
 #### Pass 1 — CRITICAL Checklist
 
@@ -1564,8 +1648,12 @@ For each event:
   "new_ap" event  → verify AP-NNN exists in ANTI_PATTERNS_INDEX.md, add if missing
   "new_fact" event → verify in KNOWLEDGE_INDEX.md, add if missing
   "new_adr" event → verify in DECISIONS_INDEX.md, add if missing
+  "po_unstable" event → a PO that looped/failed repeatedly (weak model could not prove it).
+    Capture the learning: this kind of AC is hard to prove-by-transcript at the chosen tier.
+    Feed back into tiering (decompose the AC, raise the tier, or rewrite the `proof:` to be
+    more directly observable) for future specs.
 Write compressed archive: memory/journal/archive/YYYY-WXX-WYY.json
-  {"period": "...", "sessions": N, "rules_added": [...], "aps_triggered": [...], "decisions_made": [...]}
+  {"period": "...", "sessions": N, "rules_added": [...], "aps_triggered": [...], "decisions_made": [...], "po_unstable": [...]}
 ```
 
 ### D2 — Rule Lifecycle Review
@@ -1732,14 +1820,73 @@ Every coding session has a typed goal stored in state.json:
   "id": "goal_<sprint>_<slug>",
   "type": "feature | fix | refactor | docs | chore",
   "title": "<human-readable title>",
-  "acceptance_criteria": ["<verifiable criterion>", "..."],
+  "acceptance_criteria": ["AC-1 → spec NNN PO-1", "AC-2 → spec NNN PO-2"],
   "linked_adrs": ["ADR-NNN"],
   "linked_contracts": ["CON-NNN"],
   "sprint": "YYYY-WWW"
 }
 ```
 
+**`acceptance_criteria[]` are POINTERS, not copies.** The durable, verifiable proof lives in
+the spec (`po` blocks — see below), under git. `state.json` is ephemeral and can be overwritten
+by parallel agents on different projects, so it must never hold the source of truth for a proof.
+Each entry points to its `po` block: `"AC-1 → spec 042 PO-1"`.
+
 **Goal alignment check:** Before each major implementation step, verify the change satisfies at least one acceptance criterion. If a change risks violating a criterion, flag `[DEVFLOW: GOAL DRIFT]` and surface to human before proceeding.
+
+---
+
+## Proof Obligations (PO) — make every AC verifiable-by-transcript
+
+A **Proof Obligation** is the bridge between an acceptance criterion (the desired *state*) and
+the evidence that demonstrates it *in the transcript* (the *proof*). DEVFLOW's defining risk is
+a weak/cheap model declaring "done" prematurely — skipping an AC, leaving a regression, writing
+sloppy code — because the model that did the work also judges completion (optimistic bias).
+
+POs move the burden from **judging** ("is this good enough?" — expensive, biased) to
+**demonstrating** ("run X, paste the output" — cheap, mechanical). The fixed-field block forces
+the model to reflect before acting: a missing slot is visible, not silent.
+
+**Hard rule (Tier 1+): an AC without a PO is invalid.** Tier 0 may use informal proof or skip it.
+
+### Syntax
+
+Each AC carries one fenced `po` block (grep-auditable via `​```po`):
+
+````
+```po PO-1
+ac:     <the acceptance criterion in one line>
+proof:  <exact command that demonstrates it>   # or  MANUAL — <observable action>
+expect: <positive signal observable in the output>
+guard:  <anti-regression check — level set by tier, see Work Tiers table>
+status: [ ] open
+```
+````
+
+Fixed fields, fixed order. A missing field = invalid block = gate failure.
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `ac` | always | the AC, one line (the *what*) |
+| `proof` | T1+ | exact command that demonstrates it, or `MANUAL — <action>` |
+| `expect` | T1+ | positive signal observable in the transcript output |
+| `guard` | T1+ (level per tier) | anti-regression; T0 omits, T1 light, T2 full |
+| `status` | always | `[ ] open` → `[x] done` (flipped only after evidence is pasted) |
+
+**T2 regulated** adds two fields (privacy/audit/compliance work):
+```
+audit:    <action> → who / what / when / why / evidence captured
+evidence: <where the audit line appears in the proof output>
+```
+
+**`MANUAL —` flag:** when an AC cannot become a runnable command (e.g. "UI hides internal
+comments"), `proof:` may be `MANUAL — <observable action>` (screenshot, curl showing field
+absent, etc.). MANUAL is an explicit signal that triggers **double-check** downstream: C4 must
+still paste concrete evidence, and RC5 inspects MANUAL POs with extra scrutiny.
+
+**`status` is the handshake.** It reflects the PO's state *in the transcript*, not just the file.
+C4 flips `[ ] → [x]` only after pasting the evidence. This is the observable contract between
+the executor (proves) and the auditor (RC5 — checks the proof exists, not just the claim).
 
 ---
 
@@ -1819,7 +1966,8 @@ Next Session
 > - `references/DEVFLOW-REFERENCE.md` — File map, gene defaults, state machine diagram
 > - `DEVFLOW-META.md` — Meta-evolution protocol, gene mutation approval process
 
-*DEVFLOW v2.0 — The filesystem is the orchestrator.*
+*DEVFLOW v2.1 — The filesystem is the orchestrator.*
+*v2.1: Goal-shaped delivery. Introduced **Proof Obligations (PO)** — every acceptance criterion (Tier 1+) carries a fenced `po` block (`ac`/`proof`/`expect`/`guard`/`status`) that makes it verifiable-by-transcript. Attacks the core failure of weak/cheap models: declaring "done" prematurely. C4 must close each PO by pasting evidence before flipping `status: [x]`; RC5 gains Pass 0 (PO audit — demonstrated vs merely affirmed) before quality review. `state.json.acceptance_criteria[]` becomes a POINTER to the spec's PO blocks (durable, git-versioned) instead of duplicating the proof. Guard rigor is declared once in the Work Tiers table and scales with tier (floor; C1.5 may override up, never down). Provider-agnostic: distills the `/goal` concept (external completion evaluator) without depending on any vendor feature. `proof: MANUAL —` flag triggers downstream double-check. Distillation captures `po_unstable` events for tiering feedback. Ceremonies absorb the concept: RC-SEC emits formal security POs (with `audit`/`evidence` when regulated), RC3 calibrates Guard level via blast-radius, RC2/RC4 surface MANUAL POs via the common Ceremony Output step. Legacy pre-v2.1 specs use lazy opportunistic PO backfill at C1 (only AC the current task touches; never big-bang rewrite).*
 *v2.0: Introduced Mode Ideation, RC1-RC4 Ceremonies (CEO, Design, Eng, DevEx) + RC-AUTO as pre-planning opt-in gates. Implemented RC5 Pre-Landing Code Review into R1, shifting the GitHub Gemini Code Assist dependency to a local, token-efficient, diff-only checklist with Fix-First protocol and cavecrew specialist dispatch.*
 *v1.9.1: C1.5 Reality Check gains item 5 — BEHAVIORAL FAILURE MODES (mandatory degenerate-input table per new/changed function: NULL/0/boundary/missing-join/wrong-case + negative-path test each). Structure checks prove a symbol exists; failure-mode checks prove it's robust — the class an external reviewer caught by instinct, now encoded in the gate. Lesson source: PR #650 (liquid-meds 022 Fase A), where the external reviewer found 7 behavioral defects the structural reality-check missed.*
 *v1.9.0: Work Tiers (right-size the artifact set: Tier 0 none / Tier 1 spec+tasks / Tier 2 full SDD) + hardened C1.5 Reality Check (analysis.md must be verified against the real repo with a populated evidence table; no rubber-stamp PASS) + architectural choices as `[NEEDS CLARIFICATION]` + mandatory data-migration deliverable on format/enum/schema changes. Lesson source: liquid-meds specs 022/023/024.*

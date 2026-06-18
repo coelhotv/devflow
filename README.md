@@ -2,7 +2,7 @@
 
 > **The filesystem is the orchestrator.**
 >
-> **Status: v1.8 — Spec-first workflow, Markdown memory, constitution-aware bootstrap, index-first loading.**
+> **Status: v2.1 — Goal-shaped delivery (Proof Obligations), spec-first workflow, Markdown memory, constitution-aware bootstrap, index-first loading.**
 
 DEVFLOW is a skill for autonomous AI agents working on long-term software projects. It provides persistent memory, goal alignment, numbered feature specs, durable task plans, contract-aware coding, and continuous learning without requiring a central orchestrator.
 
@@ -18,6 +18,7 @@ Each session reads project state from files, acts, and records outcomes back to 
 |---------|--------------|
 | **Assess → Execute → Record** | Every session follows this loop. Record is mandatory; a session that skips it consumed knowledge without contributing. |
 | **Spec-first delivery** | New feature work can start with `/devflow specifying`, producing `plans/specs/NNN-feature-name/spec.md` before technical planning. |
+| **Goal-shaped / Proof Obligations** | Every acceptance criterion (Tier 1+) carries a `po` block making it verifiable-by-transcript (`proof`/`expect`/`guard`). C4 closes each PO by pasting evidence; RC5 audits demonstrated-vs-affirmed. Stops weak/cheap models from declaring "done" prematurely. Provider-agnostic distillation of the `/goal` concept. |
 | **Index-first memory** | Rules, ADRs, contracts, anti-patterns, and knowledge are stored as Markdown by category. Index files provide fast lookup; detail files load on demand. |
 | **Constitution-aware bootstrap** | If `.agent/constitution.md` exists, DEVFLOW loads it before memory indexes and treats conflicts as critical. |
 | **Filesystem as orchestrator** | Agents coordinate through `.agent/`, `plans/specs/`, events, journal entries, locks, and durable task files. |
