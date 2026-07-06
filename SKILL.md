@@ -1539,35 +1539,108 @@ If there are ASK items → STOP and await operator decision. (Do not proceed to 
 **Independence is the whole point — enforce it by construction:**
 - Run in a **fresh headless process**, NOT in the coding agent's session. Do **not** pass the coder's chat history, reasoning, or "what I intended" — only the diff + the rule catalogs. Cold-start is the feature, not a cost.
 - Engine (OAuth quota, **$0 marginal** — no metered API):
-  - **Primary: `agy` (Gemini 3.1)** — larger weekly quota, absorbs routine volume.
-  - **Fallback / escalation: `claude -p` (Opus 4.8 / Sonnet 4.6)** — stronger reasoning; use on architectural PRs or when `agy` is unavailable/weak.
+  - **Primary: `agy -p` (Gemini 3.1)** — larger weekly quota, absorbs routine volume.
+  - **Fallback / escalation: `claude -p` (Opus 4.8 / Sonnet 4.6)** — stronger reasoning; use on architectural PRs or when `agy -p` is unavailable/weak.
 
 **Execution:**
 ```
 1. Diff:    git diff $(git merge-base HEAD main)...HEAD, filtered to code files (.js/.jsx/.ts/.tsx).
-2. Context: attach CLAUDE.md + RULES_INDEX.md + ANTI_PATTERNS_INDEX.md (load detail files for R-NNN/AP-NNN
-            matching changed scope). ~100KB ≈ 25-30K tokens — fits; no RAG/embeddings needed, model self-filters.
+2. Context: attach, in this order:
+              a. CLAUDE.md — HOIST its "Regras Críticas" section to the TOP; the per-hunk rule mapping
+                 in the Extensions (step 3) depends on the reviewer seeing these rules first.
+              b. RULES_INDEX.md + ANTI_PATTERNS_INDEX.md — load the R-NNN / AP-NNN detail files whose
+                 scope matches the changed files (e.g. AP-216 when Supabase auth / `{data,error}` is touched).
+              c. FULL file content (NOT just the diff hunk) for every file whose diff changes control flow,
+                 arithmetic, date/time handling, or exceeds ~20 changed lines. Diff-only context is RC6's
+                 #1 blind spot — latent bugs routinely live in the unchanged lines next to a change
+                 (RC6 field note 2026-07: the HeroDoseCard timezone bug was missed for exactly this reason).
+              ~100-150KB ≈ 25-40K tokens — fits; model self-filters, no RAG/embeddings needed.
 3. Prompt:  REUSE the RC5 "Pass 1 — CRITICAL Checklist" + "Verification of Claims (Anti-Rationalization)"
-            + "Suppressions" verbatim as the reviewer instruction. Add: "You are an INDEPENDENT auditor. You did
-            NOT write this code and have no context beyond the diff + catalogs below. Audit ONLY against the
-            listed R-NNN / AP-NNN + the CRITICAL checklist. Do not invent rules. Output strict JSON."
-4. Spawn:   agy -p (fallback claude -p) with the assembled prompt. Single SOTA pass — no Ollama.
-5. Publish: parse JSON → post inline comments on the PR via `gh api` (reuse the gemini-review.yml ingestion
-            pipeline with GEMINI_BOT_LOGIN swapped). Severity tags as Gemini did (critical/high/medium/low).
+            + "Suppressions" verbatim, THEN append the "RC6 Reviewer Extensions" below. Add: "You are an
+            INDEPENDENT auditor. You did NOT write this code and have no context beyond the diff + files +
+            catalogs below. Audit against the CRITICAL checklist + the RC6 Extensions + the listed
+            R-NNN / AP-NNN. Do not invent rules. Output strict JSON per the schema below."
+4. Spawn:   TIER-SCALED (see "RC6 Passes" below) — not always a single pass. Parse JSON → merge/dedupe.
+5. Publish: post inline comments on the PR via `gh api` (reuse the gemini-review.yml ingestion pipeline
+            with GEMINI_BOT_LOGIN swapped). Severity tags as Gemini did (critical/high/medium/low).
 ```
+
+#### RC6 Reviewer Extensions (append to the reused RC5 checklist)
+
+These close the gaps found when RC6 was benchmarked against the retiring Gemini reviewer (PR #721, 2026-07).
+
+**6. Language & Framework Footguns** — do NOT suppress these as "style"; they are correctness:
+- **ASI (Automatic Semicolon Insertion) hazards:** a line beginning with `(` or `[` after a mock cast —
+  e.g. `(x as jest.Mock)` / `(x as unknown as Mock)` — can silently merge with the previous statement.
+  Require `jest.mocked(x)` instead.
+- **Floating promises** — an un-awaited async call whose rejection is silently lost.
+- **`as any` on an I/O or parse boundary** (Supabase `{ data, error }`, `JSON.parse`, network response) —
+  hides the AP-216 null-destructure crash class. Flag and suggest a typed guard, not a blanket cast.
+- **Missing defensive default** on a destructured prop later consumed via `.length`, index, or spread
+  (e.g. `function F({ doses })` then `doses.length` → require `doses = []`).
+
+**7. Domain Rule Conformance** — for EACH changed hunk, map it against CLAUDE.md "Regras Críticas" and
+cite the rule id/name in the finding:
+- **Datas/Timezone:** `new Date('YYYY-MM-DD')` (UTC-midnight → previous-day bug in GMT-3), or
+  reconstructing a user-timezone schedule via `setHours(...)` on a device-local `getNow()` — must use
+  `parseLocalDate` / `parseISO` on the absolute timestamp. (This is the class RC6 missed on HeroDoseCard.)
+- **Zod:** `.optional()` without `.nullable()`; enum values in Portuguese; schema ↔ SQL CHECK sync.
+- **Dosage:** order validate → register → decrement stock; `quantity_taken` in pills, not mg.
+
+**8. Migration / Refactor Audit** — when the PR renames+edits (e.g. `.js → .ts`) or refactors:
+- For each touched function, compare OLD vs NEW semantics. Flag ANY changed arithmetic, conditional,
+  argument, or default — even one that "looks equivalent" — and state explicitly whether runtime behavior
+  is preserved. (`a - b` vs `a.getTime() - b.getTime()` IS preserved; a *dropped argument* is preserved
+  ONLY if the callee provably ignores it — verify by reading the callee, do not assume.)
+
+**Causation discipline (RC6's edge over a hunk-only reviewer):**
+Before asserting "change X causes bug Y", OPEN and read the definition of every symbol in the changed
+expression and cite the exact line proving the mechanism. If the callee ignores the changed argument, say
+so and reclassify the finding as **pre-existing** (present with OR without the diff). A hunk-only reviewer
+mis-attributes latent bugs to the PR and proposes fixes that don't actually work (Gemini on PR #721 did
+both on DoseListItem) — RC6 must not. Every finding MUST set `"introduced"` and `"causation"`.
+
+**Output schema (strict JSON):**
+```json
+{
+  "summary": "one paragraph",
+  "findings": [{
+    "file": "path", "line": 123, "severity": "critical|high|medium|low",
+    "introduced": true,
+    "rule": "R-NNN | AP-NNN | checklist#6 | none",
+    "causation": "mechanism + the exact line/definition that proves it",
+    "issue": "what is wrong", "fix": "concrete fix"
+  }]
+}
+```
+
+#### RC6 Passes (tier-scaled, multi-agent)
+
+Cost is $0 (OAuth), so extra passes are cheap — scale by risk:
+- **Tier 1** (small diff, no logic/migration): single pass — `agy` generalist vs CRITICAL + Extensions.
+- **Tier 2 / migration / logic-preserving PR:** TWO passes, UNION the findings:
+    - **Pass A** — `agy` generalist vs CRITICAL checklist + Extension #6 (footguns).
+    - **Pass B** — domain-rule specialist vs Extensions #7/#8, with FULL-file context. Run on `claude -p`
+      (Opus/Sonnet, stronger reasoning) for migration/architectural PRs; `agy` otherwise.
+    - Merge + dedupe by (file, line, issue-class); keep the higher severity on collision.
+- If `/cavecrew` exists locally, optionally fan Pass B into specialists (timezone, concurrency,
+  test-quality) per §1493.
 
 **No auto-fix.** Unlike RC5, RC6 **only flags** — an independent reviewer that also rewrites the code reintroduces the author-bias it exists to avoid. The coding agent applies fixes afterward (its own RC5/`check-review` cycle), then re-runs RC6 on the new diff.
 
 **Enforcement without paying for API:** the LLM runs locally on OAuth ($0); a tiny CI job (`ai-review-gate.yml`, **no LLM**) audits that an RC6 comment exists on the PR before merge is allowed. Recovers the non-bypassable property of a CI reviewer at ~zero CI cost. The human gate (R-060) remains final.
 
-**Fail-open:** if `agy` and `claude -p` are both unavailable or quota is exhausted, emit `⚠️ AI review unavailable — human review mandatory` and exit non-blocking. Never trap the push/merge permanently.
+**Fail-open:** if `agy -p` and `claude -p` are both unavailable or quota is exhausted, emit `⚠️ AI review unavailable — human review mandatory` and exit non-blocking. Never trap the push/merge permanently.
 
 **State & events:**
-- Update `state.json`: `"ai_review": {"engine": "agy|claude", "status": "clean|issues_found", "critical": N, "high": N, "pr": <num>}`
-- Append to `events.jsonl`: `{"event": "ai_review_complete", "engine": "...", "critical": N, "high": N, "pr": <num>}`
+- Update `state.json`: `"ai_review": {"engine": "agy|claude|agy+claude", "status": "clean|issues_found", "critical": N, "high": N, "introduced_critical": N, "introduced_high": N, "pr": <num>}`
+- Append to `events.jsonl`: `{"event": "ai_review_complete", "engine": "...", "critical": N, "high": N, "introduced": N, "pr": <num>}`
 - If a finding recurs (>2x same project) → propose AP-NNN to operator (same as RC5).
 
-If RC6 reports Critical/High → STOP and await operator decision. (Do not auto-fix, do not proceed.)
+If RC6 reports Critical/High with `introduced:true` → STOP and await operator decision (do not auto-fix,
+do not proceed). Findings with `introduced:false` (pre-existing latent bugs surfaced in touched code) are
+reported for triage but do NOT block THIS PR's merge — log them for a separate fix so the merge gate keys
+on regressions, not on debt the PR merely stood next to.
 
 ### R2 — Violation Scan
 ```
