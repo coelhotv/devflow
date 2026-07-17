@@ -20,7 +20,10 @@
 #     --dry-run   (DEFAULT) print merged JSON to stdout. NO PR mutation, NO
 #                 state/journal writes. Safe to run repeatedly.
 #     --post      the "for real" run: publish inline comments to the PR AND
-#                 update state.json.session.ai_review + journal. Opt-in only.
+#                 append ai_review_complete to events.jsonl + journal. Opt-in
+#                 only. NEVER writes state.json (ADR-069 §20 / EM2: state.json
+#                 is read-modify-write and the coder session owns it — two
+#                 writers without a lock lose one write silently).
 #     --tier1/2   force pass strategy; default is auto-detected from the diff.
 #
 # Exit: 0 clean or issues_found (non-blocking by design — human gate R-060 is
@@ -268,11 +271,22 @@ PROMPT
 PASSB_FOCUS=$'\nFOCUS FOR THIS PASS: Extensions #7 (Domain Rule Conformance) and #8 (Migration/Refactor Audit). Use the FULL FILES to reason about unchanged lines around each change. Weight timezone/date-math and dropped-argument regressions highest.'
 
 # ---- run an engine: $1=engine(agy|claude) $2=prompt-file $3=out-json --------
+# SC-SEC1 / ADR-069 §16: the reviewer reads an UNTRUSTED diff, so it must run
+# text->JSON with NO tool access (no shell/file-write/MCP). A prompt-injected
+# diff can otherwise coerce execution.
+#   claude: --tools "" disables all built-in tools; --strict-mcp-config with no
+#           --mcp-config disables every MCP server. Prompt via STDIN (argv would
+#           risk ARG_MAX on fat tier-2 contexts).
+#   agy:    has no explicit no-tools flag (checked 2026-07-16); closest is
+#           --sandbox (terminal restrictions) + --mode plan (no edits). Prompt
+#           must be argv (-p requires an argument; no stdin support).
 run_engine() {
   local engine="$1" pf="$2" out="$3"
   case "$engine" in
-    agy) agy --model 'Gemini 3.5 Flash (High)' -p "$(cat "$pf")" > "$out" 2>"$WORKDIR/${engine}.err" || return 1 ;;
-    claude) claude --permission-mode auto --model sonnet -p "$(cat "$pf")" > "$out" 2>"$WORKDIR/${engine}.err" || return 1 ;;
+    agy) agy --sandbox --mode plan --model 'Gemini 3.1 Pro (High)' -p "$(cat "$pf")" \
+           > "$out" 2>"$WORKDIR/${engine}.err" || return 1 ;;
+    claude) claude --model sonnet --tools "" --strict-mcp-config -p < "$pf" \
+           > "$out" 2>"$WORKDIR/${engine}.err" || return 1 ;;
   esac
 }
 
@@ -340,6 +354,9 @@ for p in paths:
     if not obj: continue
     if obj.get("summary"): summaries.append(obj["summary"])
     for f in obj.get("findings", []) or []:
+        if f.get("severity") not in sev_rank:
+            print("[rc6] WARN: finding without valid severity (%r) in %s — coercing to low: %s"
+                  % (f.get("severity"), p, (f.get("issue","") or "")[:80]), file=sys.stderr)
         key = (f.get("file"), f.get("line"), (f.get("issue","")[:60]).lower())
         cur = merged.get(key)
         if cur is None or sev_rank.get(f.get("severity","low"),1) > sev_rank.get(cur.get("severity","low"),1):
@@ -422,22 +439,32 @@ while True:
     print("gh api failed:", err, file=sys.stderr); sys.exit(1)
 PY
 
-# persist state.json.session.ai_review + journal entry
+# persist ai_review_complete -> events.jsonl + journal entry (both append-only;
+# ADR-069 §20/EM2: RC6 must NEVER write state.json — read-modify-write races
+# with the live coder session; the gate reads the PR, not project state)
 python3 - "$MERGED" "$PR" "$REPO_ROOT" <<'PY'
 import sys, json, os, datetime
 merged, pr, root = json.load(open(sys.argv[1])), int(sys.argv[2]), sys.argv[3]
 c = merged["counts"]
 status = "issues_found" if (c["introduced_critical"] or c["introduced_high"]) else "clean"
-sp = os.path.join(root, ".agent/state.json")
-d = json.load(open(sp))
-d.setdefault("session", {})["ai_review"] = {
-    "engine": merged["engine"], "status": status, "pr": pr,
-    "critical": c["critical"], "high": c["high"],
-    "introduced_critical": c["introduced_critical"], "introduced_high": c["introduced_high"],
-}
-json.dump(d, open(sp,"w"), ensure_ascii=False, indent=2); open(sp,"a").write("\n")
+now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
-sprint = d.get("sprint") or datetime.date.today().strftime("%Y-W%V")
+ep = os.path.join(root, ".agent/memory/events.jsonl")
+os.makedirs(os.path.dirname(ep), exist_ok=True)
+event = {"event": "ai_review_complete", "ts": now, "pr": pr,
+         "engine": merged["engine"], "status": status,
+         "critical": c["critical"], "high": c["high"],
+         "introduced_critical": c["introduced_critical"],
+         "introduced_high": c["introduced_high"]}
+with open(ep, "a") as f: f.write(json.dumps(event, ensure_ascii=False)+"\n")
+
+# sprint label read-only from state.json (never written)
+sprint = None
+try:
+    sprint = json.load(open(os.path.join(root, ".agent/state.json"))).get("sprint")
+except Exception:
+    pass
+sprint = sprint or datetime.date.today().strftime("%Y-W%V")
 jp = os.path.join(root, ".agent/memory/journal", f"{sprint}.jsonl")
 os.makedirs(os.path.dirname(jp), exist_ok=True)
 entry = {"session":"rc6","date":datetime.date.today().isoformat(),"type":"ai_review",
@@ -445,7 +472,7 @@ entry = {"session":"rc6","date":datetime.date.today().isoformat(),"type":"ai_rev
          "summary": (merged["summary"][:500]),
          "counts": c}
 with open(jp,"a") as f: f.write(json.dumps(entry, ensure_ascii=False)+"\n")
-print("state.json + journal updated (status=%s)" % status)
+print("events.jsonl + journal appended (status=%s)" % status)
 PY
 
 log "RC6 --post complete"
