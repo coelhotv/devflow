@@ -181,17 +181,29 @@ if [ -d "$REPO_ROOT/.agent/memory" ]; then
 fi
 
 # ---- assemble shared context -----------------------------------------------
+# EMPIRICAL ENGINE LIMIT (2026-07-17, bisected with needle-at-the-end probes):
+# agy answers correctly at 160KB of argv prompt and degrades by 200KB (returns
+# "no diff provided" / garbage while exiting 0). Keep TOTAL context well under
+# that: dedupe CLAUDE.md (was included twice) and clamp each index line — the
+# head of an R/AP line states the pattern; the tail is case history the
+# reviewer doesn't need (detail files for ids present in the diff still attach
+# in full below).
+IDX_LINE_MAX="${RC6_IDX_LINE_MAX:-230}"
+CTX_TOTAL_MAX="${RC6_CTX_TOTAL_MAX:-150000}"
+clamp_index() { cut -c1-"$IDX_LINE_MAX" "$1"; }
 CTX="$WORKDIR/context.txt"
 {
   echo "===== PROJECT CRITICAL RULES (CLAUDE.md — Regras Críticas hoisted; read FIRST) ====="
   if [ -f "$CLAUDE_MD" ]; then
-    # hoist the "Regras Críticas" section to the top, then the rest of the file
+    # hoist the "Regras Críticas" section to the top, then the rest ONCE
     awk '/^## Regras Críticas/{f=1} f{print}' "$CLAUDE_MD"
-    echo; echo "----- (rest of CLAUDE.md) -----"
-    cat "$CLAUDE_MD"
+    echo; echo "----- (rest of CLAUDE.md, critical section omitted above) -----"
+    awk '/^## Regras Críticas/{f=1;next} f&&/^## /{f=0} !f{print}' "$CLAUDE_MD"
   fi
-  echo; echo "===== RULES_INDEX ====="; [ -f "$RULES_IDX" ] && cat "$RULES_IDX"
-  echo; echo "===== ANTI_PATTERNS_INDEX ====="; [ -f "$AP_IDX" ] && cat "$AP_IDX"
+  echo; echo "===== RULES_INDEX (lines clamped to ${IDX_LINE_MAX}c — pattern head only) ====="
+  [ -f "$RULES_IDX" ] && clamp_index "$RULES_IDX"
+  echo; echo "===== ANTI_PATTERNS_INDEX (lines clamped to ${IDX_LINE_MAX}c) ====="
+  [ -f "$AP_IDX" ] && clamp_index "$AP_IDX"
   for df in "${DETAIL_FILES[@]:-}"; do
     [ -n "${df:-}" ] && [ -f "$df" ] && { echo; echo "===== DETAIL $(basename "$df") ====="; cat "$df"; }
   done
@@ -201,7 +213,12 @@ CTX="$WORKDIR/context.txt"
   done
   echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="; cat "$WORKDIR/diff.txt"
 } > "$CTX"
-log "context bytes: $(wc -c < "$CTX")"
+CTX_BYTES="$(wc -c < "$CTX")"
+log "context bytes: $CTX_BYTES (engine-safe max: $CTX_TOTAL_MAX)"
+if [ "$CTX_BYTES" -gt "$CTX_TOTAL_MAX" ]; then
+  log "⚠️ context exceeds engine-safe budget — agy degrades silently past ~160KB;"
+  log "   shrink RC6_IDX_LINE_MAX / RC6_CTX_BUDGET or split the PR. Proceeding anyway."
+fi
 
 # ---- reviewer instruction (mirrors SKILL.md §1533) --------------------------
 read -r -d '' RC6_INSTRUCTION <<'PROMPT' || true
@@ -283,7 +300,7 @@ PASSB_FOCUS=$'\nFOCUS FOR THIS PASS: Extensions #7 (Domain Rule Conformance) and
 run_engine() {
   local engine="$1" pf="$2" out="$3"
   case "$engine" in
-    agy) agy --sandbox --mode plan --model 'Gemini 3.1 Pro (High)' -p "$(cat "$pf")" \
+    agy) agy --sandbox --mode plan --print-timeout 8m --model 'Gemini 3.1 Pro (High)' -p "$(cat "$pf")" \
            > "$out" 2>"$WORKDIR/${engine}.err" || return 1 ;;
     claude) claude --model sonnet --tools "" --strict-mcp-config -p < "$pf" \
            > "$out" 2>"$WORKDIR/${engine}.err" || return 1 ;;
