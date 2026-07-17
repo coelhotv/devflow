@@ -1422,11 +1422,17 @@ Only after every PO is demonstrated (not merely claimed) proceed to Pass 1 quali
 
 #### Pass 1 — CRITICAL Checklist
 
+> **Checklist is stack-agnostic BY DESIGN.** The bullets below name bug CLASSES with
+> illustrative examples from various stacks — the examples teach the shape of the bug, they
+> are NOT an allowlist of what to look for. Concrete, project-specific instances come from
+> item 6 (Domain Rule Conformance), which materializes them from the PROJECT's own catalogs
+> loaded in R1. Do not hardcode any single project's stack here.
+
 **1. SQL & Data Safety:**
-- String interpolation in SQL (even if values are `.to_i`/`.to_f` — use parameterized queries)
-- TOCTOU races: check-then-set patterns that should be atomic `WHERE` + `update_all`
-- Bypassing model validations for direct DB writes (Rails: `update_column`; Prisma: raw queries)
-- N+1 queries: Missing eager loading (Rails: `.includes()`; Prisma: `include`) for associations used in loops/views
+- String interpolation in SQL (even if values look numeric — use parameterized queries)
+- TOCTOU races: check-then-set patterns that should be a single atomic conditional write
+- Bypassing the project's validation/service layer for direct DB writes (e.g. Rails `update_column`, Prisma raw queries, calling the DB client directly from UI code when a service owns that table)
+- N+1 queries: missing eager loading / batched fetch for associations used in loops/views
 
 **2. Race Conditions & Concurrency:**
 - Read-check-write without uniqueness constraint or duplicate key error handling
@@ -1450,6 +1456,22 @@ When the diff introduces a new enum value, status string, tier name, or type con
 - **Trace it through every consumer.** Read (don't just grep — READ) each file that switches on, filters by, or displays that value. If any consumer doesn't handle the new value, flag it.
 - **Check allowlists/filter arrays.** Search for arrays containing sibling values and verify the new value is included.
 - **Check `case`/`if-elsif` chains.** If existing code branches on the enum, does the new value fall through to a wrong default?
+
+**6. Domain Rule Conformance (project-sourced — this is where the project's stack enters):**
+The catalogs loaded in R1 (project `CLAUDE.md` critical-rules section, `hot`/`warm` R-NNN and
+AP-NNN, contracts) ARE the concrete checklist for this project. For EACH changed hunk:
+- Map it against the loaded rules/APs and **cite the id** (`R-NNN`/`AP-NNN`/`CON-NNN`) when
+  flagging — a finding grounded in the project's own catalog outranks a generic hunch.
+- Pay special attention to the classes that generic linters/reviewers miss because they are
+  project contracts, not language errors: domain value semantics (units, enum values that must
+  match DB CHECK constraints verbatim), mandated call order between operations, date/timezone
+  handling rules, and which layer is allowed to write which table.
+- If a hunk touches a domain the catalog covers, review it AGAINST the catalog, not from
+  first principles.
+
+Optional per-project overlay: if `.agent/memory/rc5-domain.md` exists, load it as additional
+Pass 1 items — projects use it for worked examples too verbose for their rule index. Absence
+is normal (the indexes alone are sufficient).
 
 #### Verification of Claims (Anti-Rationalization Rules)
 
@@ -1579,13 +1601,17 @@ These close the gaps found when RC6 was benchmarked against the retiring Gemini 
 - **Missing defensive default** on a destructured prop later consumed via `.length`, index, or spread
   (e.g. `function F({ doses })` then `doses.length` → require `doses = []`).
 
-**7. Domain Rule Conformance** — for EACH changed hunk, map it against CLAUDE.md "Regras Críticas" and
-cite the rule id/name in the finding:
-- **Datas/Timezone:** `new Date('YYYY-MM-DD')` (UTC-midnight → previous-day bug in GMT-3), or
-  reconstructing a user-timezone schedule via `setHours(...)` on a device-local `getNow()` — must use
-  `parseLocalDate` / `parseISO` on the absolute timestamp. (This is the class RC6 missed on HeroDoseCard.)
-- **Zod:** `.optional()` without `.nullable()`; enum values in Portuguese; schema ↔ SQL CHECK sync.
-- **Dosage:** order validate → register → decrement stock; `quantity_taken` in pills, not mg.
+**7. Domain Rule Conformance** — the project catalogs in the assembled context (project `CLAUDE.md`
+critical-rules section + rule/AP indexes) ARE the concrete checklist. For EACH changed hunk, map it
+against them and cite the rule id/name in the finding. Weight highest the classes generic review
+misses because they are project contracts, not language errors:
+- **Date/timezone handling rules** (e.g. a date-only string parsed as UTC midnight shifting a day in
+  the user's timezone — the class RC6 once missed on a dashboard card precisely because it reviewed
+  diff-only without the project's date rules in context).
+- **Schema ↔ DB-constraint sync** (validation-layer enum/nullable rules must match the DB CHECK
+  constraints verbatim — value, accent, case).
+- **Domain value semantics and mandated call order** (units a field is denominated in; operations the
+  project requires in a fixed sequence; which layer may write which table).
 
 **8. Migration / Refactor Audit** — when the PR renames+edits (e.g. `.js → .ts`) or refactors:
 - For each touched function, compare OLD vs NEW semantics. Flag ANY changed arithmetic, conditional,

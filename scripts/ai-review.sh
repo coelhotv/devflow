@@ -232,13 +232,13 @@ RC6 Extensions:
      network) — hides the AP-216 null-destructure crash class; want a typed guard.
    - Missing defensive default on a destructured prop later consumed via .length,
      index, or spread (function F({ doses }) then doses.length -> require doses=[]).
-7. Domain Rule Conformance — for EACH changed hunk, map it against the project
-   CRITICAL RULES and cite the rule id/name:
-   - Datas/Timezone: new Date('YYYY-MM-DD') (UTC-midnight bug), or rebuilding a
-     user-timezone schedule via setHours(...) on a device-local now() — must use
-     parseLocalDate / parseISO on the absolute timestamp.
-   - Zod: .optional() without .nullable(); Portuguese enum values; schema<->SQL sync.
-   - Dosage: order validate->register->decrement; quantity_taken in pills not mg.
+7. Domain Rule Conformance — the PROJECT CRITICAL RULES + rule/AP catalogs at the
+   top of this context ARE the concrete checklist. For EACH changed hunk, map it
+   against them and cite the rule id/name. Weight highest the classes generic
+   review misses because they are project contracts, not language errors:
+   date/timezone handling rules, schema<->DB-constraint sync (enum values must
+   match CHECK constraints verbatim), domain value semantics (units), mandated
+   call order between operations, and which layer may write which table.
 8. Migration / Refactor Audit — when the PR renames+edits (.js->.ts) or refactors:
    for each touched function compare OLD vs NEW semantics; flag ANY changed
    arithmetic/conditional/argument/default even if it "looks equivalent", and
