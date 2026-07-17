@@ -86,6 +86,22 @@ if [ ! -s "$WORKDIR/diff.txt" ]; then
   exit 0
 fi
 
+# ---- egress guard (SC-SEC5/T039): the diff leaves the machine to an external
+# LLM. A health-app diff must only ever carry SYNTHETIC fixtures — scan added
+# lines for real-PII shapes (email, BR CPF/phone) and stop unless overridden.
+# Heuristic, not proof: the operator override is the documented accountability.
+PII_HITS="$(grep -E '^\+' "$WORKDIR/diff.txt" \
+  | grep -EIv 'example\.(com|org)|@(test|dummy|fixture)\.|lorem' \
+  | grep -oEc '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|[0-9]{3}\.[0-9]{3}\.[0-9]{3}-[0-9]{2}|\(?[0-9]{2}\)?[[:space:]-]?9[0-9]{4}-[0-9]{4}' \
+  || true)"
+if [ "${PII_HITS:-0}" -gt 0 ] && [ "${RC6_ALLOW_SENSITIVE:-0}" != 1 ]; then
+  echo "⛔ egress guard: $PII_HITS linha(s) adicionada(s) com formato de e-mail/CPF/telefone no diff." >&2
+  echo "   Diffs vão a LLM externo (SC-SEC5) — só fixtures SINTÉTICAS podem sair." >&2
+  echo "   Inspecione: git diff $BASE...HEAD | grep -nE '@|[0-9]{3}\\.[0-9]{3}'" >&2
+  echo "   Se for sintético, re-rode com RC6_ALLOW_SENSITIVE=1." >&2
+  exit 3
+fi
+
 CHANGED=()
 while IFS= read -r _l; do [ -n "$_l" ] && CHANGED+=("$_l"); done \
   < <(git diff "$BASE"...HEAD --name-only --diff-filter=d -- "${CODE_GLOBS[@]}")
