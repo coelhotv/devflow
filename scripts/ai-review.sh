@@ -76,7 +76,12 @@ if [ -z "$PR" ] && [ "$HAVE_GH" = 1 ]; then
 fi
 
 # ---- compute diff -----------------------------------------------------------
-BASE="$(git merge-base HEAD "$MAIN_BRANCH")"
+# Base against ORIGIN's main, not the local ref: a stale local main silently
+# reviews the WRONG diff (bit us on dosiq#756 — the run reviewed the previous
+# hotfix). Fall back to the local ref offline.
+git fetch -q origin "$MAIN_BRANCH" 2>/dev/null || log "fetch failed — using LOCAL $MAIN_BRANCH (may be stale)"
+BASE_REF="origin/$MAIN_BRANCH"; git rev-parse -q --verify "$BASE_REF" >/dev/null 2>&1 || BASE_REF="$MAIN_BRANCH"
+BASE="$(git merge-base HEAD "$BASE_REF")"
 HEAD_SHA="$(git rev-parse HEAD)"
 log "base=$BASE head=$HEAD_SHA pr=${PR:-<none>} post=$POST"
 
@@ -207,7 +212,7 @@ fi
 IDX_LINE_MAX="${RC6_IDX_LINE_MAX:-230}"
 CTX_TOTAL_MAX="${RC6_CTX_TOTAL_MAX:-150000}"
 clamp_index() { cut -c1-"$IDX_LINE_MAX" "$1"; }
-CTX="$WORKDIR/context.txt"
+PREAMBLE="$WORKDIR/preamble.txt"
 {
   echo "===== PROJECT CRITICAL RULES (CLAUDE.md — Regras Críticas hoisted; read FIRST) ====="
   if [ -f "$CLAUDE_MD" ]; then
@@ -220,21 +225,93 @@ CTX="$WORKDIR/context.txt"
   [ -f "$RULES_IDX" ] && clamp_index "$RULES_IDX"
   echo; echo "===== ANTI_PATTERNS_INDEX (lines clamped to ${IDX_LINE_MAX}c) ====="
   [ -f "$AP_IDX" ] && clamp_index "$AP_IDX"
+  # DETAIL files are capped in TOTAL: a diff citing many R/AP ids attached ~80KB
+  # of details and the preamble alone blew the engine budget (smoke 2026-07-18).
+  # The clamped index lines above already carry every pattern head.
+  DETAIL_MAX="${RC6_DETAIL_MAX:-24000}"; dacc=0
   for df in "${DETAIL_FILES[@]:-}"; do
-    [ -n "${df:-}" ] && [ -f "$df" ] && { echo; echo "===== DETAIL $(basename "$df") ====="; cat "$df"; }
+    [ -n "${df:-}" ] && [ -f "$df" ] || continue
+    dsz="$(wc -c < "$df")"; dacc=$((dacc + dsz))
+    [ "$dacc" -gt "$DETAIL_MAX" ] && { echo; echo "(further R/AP detail files omitted — budget; see clamped indexes above)"; break; }
+    echo; echo "===== DETAIL $(basename "$df") ====="; cat "$df"
   done
-  echo; echo "===== FULL FILES (post-change content — audit unchanged lines too) ====="
-  for f in "${FULLFILES[@]:-}"; do
-    [ -n "${f:-}" ] && [ -f "$REPO_ROOT/$f" ] && { echo; echo "----- FILE $f -----"; cat "$REPO_ROOT/$f"; }
-  done
-  echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="; cat "$WORKDIR/diff.txt"
-} > "$CTX"
-CTX_BYTES="$(wc -c < "$CTX")"
-log "context bytes: $CTX_BYTES (engine-safe max: $CTX_TOTAL_MAX)"
-if [ "$CTX_BYTES" -gt "$CTX_TOTAL_MAX" ]; then
-  log "⚠️ context exceeds engine-safe budget — agy degrades silently past ~160KB;"
-  log "   shrink RC6_IDX_LINE_MAX / RC6_CTX_BUDGET or split the PR. Proceeding anyway."
+} > "$PREAMBLE"
+PRE_BYTES="$(wc -c < "$PREAMBLE")"
+[ "$PRE_BYTES" -gt $(( CTX_TOTAL_MAX * 6 / 10 )) ] && \
+  log "⚠️ preamble ${PRE_BYTES}B eats >60% of the engine budget — indexes/details too fat; consider RC6_IDX_LINE_MAX lower"
+
+# ---- split the diff into engine-safe chunks (map-reduce — dosiq#757) --------
+# Above the ~160KB budget agy doesn't fail loudly: it SAMPLES the input. Three
+# runs on the same commit returned three nearly-disjoint finding sets, one with
+# a fabricated critical. Chunking by file keeps EVERY agy call deterministic
+# (under budget); the merge step already consolidates multiple outputs.
+CHUNK_BUDGET=$(( CTX_TOTAL_MAX - PRE_BYTES - 8000 ))
+[ "$CHUNK_BUDGET" -lt 30000 ] && CHUNK_BUDGET=30000
+printf '%s\n' "${FULLFILES[@]:-}" > "$WORKDIR/fullfiles.txt"
+python3 - "$WORKDIR/diff.txt" "$WORKDIR" "$CHUNK_BUDGET" "$REPO_ROOT" <<'PY'
+import sys, os, re
+diff_path, workdir, budget, root = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
+fullfiles = set(l.strip() for l in open(os.path.join(workdir, "fullfiles.txt")) if l.strip())
+
+blocks = []  # (path, text, cost)
+cur = []
+for line in open(diff_path, errors='replace'):
+    if line.startswith('diff --git') and cur:
+        blocks.append(cur); cur = []
+    cur.append(line)
+if cur: blocks.append(cur)
+
+def block_info(buf):
+    text = ''.join(buf)
+    path = None
+    for l in buf:
+        if l.startswith('+++ b/'): path = l[6:].rstrip('\n'); break
+    cost = len(text)
+    if path in fullfiles:
+        try: cost += os.path.getsize(os.path.join(root, path))
+        except OSError: pass
+    return path, text, cost
+
+chunks, cur_files, cur_texts, acc = [], [], [], 0
+for buf in blocks:
+    path, text, cost = block_info(buf)
+    if acc and acc + cost > budget:
+        chunks.append((cur_files, cur_texts)); cur_files, cur_texts, acc = [], [], 0
+    cur_files.append(path or ''); cur_texts.append(text); acc += cost
+    if cost > budget:  # single oversized file: ships alone, flagged
+        sys.stderr.write("[rc6] WARN: %s alone exceeds chunk budget (%dB) — its pass is advisory\n" % (path, cost))
+if cur_texts: chunks.append((cur_files, cur_texts))
+
+for i, (files, texts) in enumerate(chunks):
+    open(os.path.join(workdir, "chunk_%d.diff" % i), "w").write(''.join(texts))
+    open(os.path.join(workdir, "chunk_%d.files" % i), "w").write('\n'.join(f for f in files if f) + '\n')
+# stdout is the script's JSON contract — chunk count is derived via ls, nothing printed here
+PY
+NCHUNKS="$(ls "$WORKDIR"/chunk_*.diff 2>/dev/null | wc -l | tr -d ' ')"
+log "preamble ${PRE_BYTES}B · chunk budget ${CHUNK_BUDGET}B · diff split into $NCHUNKS chunk(s)"
+# Wall-clock/quota cap: each chunk is one engine call (minutes each). Past the
+# cap, coverage goes PARTIAL with a loud warning — the honest fix is splitting
+# the PR, not an hour-long review that burns the week's quota.
+MAX_CHUNKS="${RC6_MAX_CHUNKS:-6}"
+if [ "$NCHUNKS" -gt "$MAX_CHUNKS" ]; then
+  log "⚠️ $NCHUNKS chunks > cap $MAX_CHUNKS — reviewing FIRST $MAX_CHUNKS only (PARTIAL COVERAGE)."
+  log "   This PR is too large for a reliable RC6 — split it. (Override: RC6_MAX_CHUNKS)"
+  NCHUNKS="$MAX_CHUNKS"
 fi
+
+# builds one engine payload: preamble + the chunk's full files + the chunk's diff
+build_chunk_ctx() { # $1=chunk-index $2=outfile
+  local i="$1" out="$2" f
+  {
+    cat "$PREAMBLE"
+    echo; echo "===== FULL FILES (post-change content — audit unchanged lines too) ====="
+    while IFS= read -r f; do
+      [ -n "$f" ] && grep -qxF "$f" "$WORKDIR/fullfiles.txt" && [ -f "$REPO_ROOT/$f" ] \
+        && { echo; echo "----- FILE $f -----"; cat "$REPO_ROOT/$f"; }
+    done < "$WORKDIR/chunk_${i}.files"
+    echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="; cat "$WORKDIR/chunk_${i}.diff"
+  } > "$out"
+}
 
 # ---- reviewer instruction (mirrors SKILL.md §1533) --------------------------
 read -r -d '' RC6_INSTRUCTION <<'PROMPT' || true
@@ -322,37 +399,74 @@ PASSB_FOCUS=$'\nFOCUS FOR THIS PASS: Extensions #7 (Domain Rule Conformance) and
 run_engine() {
   local engine="$1" pf="$2" out="$3"
   case "$engine" in
+    # stdin closed (</dev/null): headless agy must never block waiting for input
     agy) agy --sandbox --mode plan --print-timeout 8m --model 'Gemini 3.1 Pro (High)' -p "$(cat "$pf")" \
-           > "$out" 2>"$WORKDIR/${engine}.err" || return 1 ;;
-    claude) claude --model sonnet --tools "" --strict-mcp-config -p < "$pf" \
-           > "$out" 2>"$WORKDIR/${engine}.err" || return 1 ;;
+           > "$out" 2>"$WORKDIR/agy.err" < /dev/null || return 1 ;;
+    # --setting-sources "": do NOT load user/project settings (CLAUDE.md, skills,
+    # plugins). The reviewer's context is 100% the explicit prompt — cheaper per
+    # run (no duplicate project payload) AND stronger independence (SC-007).
+    claude) claude --model sonnet --tools "" --strict-mcp-config --setting-sources "" -p < "$pf" \
+           > "$out" 2>"$WORKDIR/claude.err" || return 1 ;;
   esac
+  # exit 0 with empty/whitespace output = engine degraded, not success
+  [ -s "$out" ] && grep -q '[^[:space:]]' "$out"
 }
 
-build_prompt() { # $1=instruction-extra $2=outfile
-  { printf '%s' "$RC6_INSTRUCTION"; printf '%s' "$1"; echo; echo; cat "$CTX"; } > "$2"
+build_prompt() { # $1=instruction-extra $2=ctx-file $3=outfile
+  { printf '%s' "$RC6_INSTRUCTION"; printf '%s' "$1"; echo; echo; cat "$2"; } > "$3"
 }
 
 OUTS=(); ENGINES=()
 
-# Pass A — agy generalist (CRITICAL + footguns)
-build_prompt "" "$WORKDIR/promptA.txt"
-if [ "$HAVE_AGY" = 1 ] && run_engine agy "$WORKDIR/promptA.txt" "$WORKDIR/outA.json"; then
-  OUTS+=("$WORKDIR/outA.json"); ENGINES+=("agy")
-  log "pass A (agy) ok"
-else
-  log "pass A (agy) unavailable/failed"
-fi
+# Pass A — agy generalist (CRITICAL + footguns), one engine call PER CHUNK so
+# every call stays under the empirical budget (dosiq#757: over-budget runs are
+# non-deterministic — re-running for "confirmation" burns quota for noise).
+i=0
+while [ "$i" -lt "$NCHUNKS" ]; do
+  build_chunk_ctx "$i" "$WORKDIR/ctxA_$i.txt"
+  EXTRA=""
+  [ "$NCHUNKS" -gt 1 ] && EXTRA=$'\n'"NOTE: this payload carries part $((i+1))/$NCHUNKS of the PR's diff (split by file to fit the engine context budget). Audit ONLY the files present here; other parts are reviewed separately."
+  build_prompt "$EXTRA" "$WORKDIR/ctxA_$i.txt" "$WORKDIR/promptA_$i.txt"
+  PAYLOAD_BYTES="$(wc -c < "$WORKDIR/promptA_$i.txt")"
+  if [ "$PAYLOAD_BYTES" -gt "$CTX_TOTAL_MAX" ]; then
+    log "⚠️ chunk $((i+1))/$NCHUNKS payload ${PAYLOAD_BYTES}B > ${CTX_TOTAL_MAX}B — result is ADVISORY (oversized single file)"
+  fi
+  if [ "$HAVE_AGY" = 1 ] && run_engine agy "$WORKDIR/promptA_$i.txt" "$WORKDIR/outA_$i.json"; then
+    OUTS+=("$WORKDIR/outA_$i.json"); ENGINES+=("agy")
+    log "pass A chunk $((i+1))/$NCHUNKS (agy, ${PAYLOAD_BYTES}B) ok"
+  else
+    log "pass A chunk $((i+1))/$NCHUNKS (agy) unavailable/failed"
+  fi
+  i=$((i+1))
+done
 
-# Pass B — domain-rule specialist on tier2 (prefer claude -p for reasoning)
+# Pass B — domain-rule specialist on tier2. claude first: its context window
+# takes the WHOLE diff in one call (no chunking needed for correctness there);
+# fallback agy runs chunked like pass A.
 if [ "$TIER" = 2 ]; then
-  build_prompt "$PASSB_FOCUS" "$WORKDIR/promptB.txt"
+  CTXB="$WORKDIR/ctxB.txt"
+  {
+    cat "$PREAMBLE"
+    echo; echo "===== FULL FILES (post-change content — audit unchanged lines too) ====="
+    for f in "${FULLFILES[@]:-}"; do
+      [ -n "${f:-}" ] && [ -f "$REPO_ROOT/$f" ] && { echo; echo "----- FILE $f -----"; cat "$REPO_ROOT/$f"; }
+    done
+    echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="; cat "$WORKDIR/diff.txt"
+  } > "$CTXB"
+  build_prompt "$PASSB_FOCUS" "$CTXB" "$WORKDIR/promptB.txt"
   if [ "$HAVE_CLAUDE" = 1 ] && run_engine claude "$WORKDIR/promptB.txt" "$WORKDIR/outB.json"; then
     OUTS+=("$WORKDIR/outB.json"); ENGINES+=("claude")
-    log "pass B (claude) ok"
-  elif [ "$HAVE_AGY" = 1 ] && run_engine agy "$WORKDIR/promptB.txt" "$WORKDIR/outB.json"; then
-    OUTS+=("$WORKDIR/outB.json"); ENGINES+=("agy")
-    log "pass B (agy fallback) ok"
+    log "pass B (claude, full-context $(wc -c < "$WORKDIR/promptB.txt")B) ok"
+  elif [ "$HAVE_AGY" = 1 ]; then
+    i=0
+    while [ "$i" -lt "$NCHUNKS" ]; do
+      build_prompt "$PASSB_FOCUS" "$WORKDIR/ctxA_$i.txt" "$WORKDIR/promptB_$i.txt"
+      if run_engine agy "$WORKDIR/promptB_$i.txt" "$WORKDIR/outB_$i.json"; then
+        OUTS+=("$WORKDIR/outB_$i.json"); ENGINES+=("agy")
+        log "pass B chunk $((i+1))/$NCHUNKS (agy fallback) ok"
+      fi
+      i=$((i+1))
+    done
   else
     log "pass B unavailable — tier2 ran with pass A only"
   fi
@@ -365,7 +479,8 @@ if [ "${#OUTS[@]}" = 0 ]; then
 fi
 
 # ---- merge + dedupe + render (python) ---------------------------------------
-ENGINE_LABEL="$(IFS=+; echo "${ENGINES[*]}")"
+ENGINE_LABEL="$(printf '%s\n' "${ENGINES[@]}" | sort -u | paste -sd+ -)"
+[ "$NCHUNKS" -gt 1 ] && ENGINE_LABEL="${ENGINE_LABEL} (${NCHUNKS} chunks)"
 MERGED="$WORKDIR/merged.json"
 python3 - "$MERGED" "$ENGINE_LABEL" "${OUTS[@]}" <<'PY'
 import sys, json, re
