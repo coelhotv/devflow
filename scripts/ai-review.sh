@@ -293,6 +293,7 @@ log "preamble ${PRE_BYTES}B · chunk budget ${CHUNK_BUDGET}B · diff split into 
 # cap, coverage goes PARTIAL with a loud warning — the honest fix is splitting
 # the PR, not an hour-long review that burns the week's quota.
 MAX_CHUNKS="${RC6_MAX_CHUNKS:-6}"
+NPLANNED="$NCHUNKS"
 if [ "$NCHUNKS" -gt "$MAX_CHUNKS" ]; then
   log "⚠️ $NCHUNKS chunks > cap $MAX_CHUNKS — reviewing FIRST $MAX_CHUNKS only (PARTIAL COVERAGE)."
   log "   This PR is too large for a reliable RC6 — split it. (Override: RC6_MAX_CHUNKS)"
@@ -482,10 +483,20 @@ fi
 ENGINE_LABEL="$(printf '%s\n' "${ENGINES[@]}" | sort -u | paste -sd+ -)"
 [ "$NCHUNKS" -gt 1 ] && ENGINE_LABEL="${ENGINE_LABEL} (${NCHUNKS} chunks)"
 MERGED="$WORKDIR/merged.json"
-python3 - "$MERGED" "$ENGINE_LABEL" "${OUTS[@]}" <<'PY'
+python3 - "$MERGED" "$ENGINE_LABEL" "$NCHUNKS" "$NPLANNED" "${OUTS[@]}" <<'PY'
 import sys, json, re
 out_path, engine_label = sys.argv[1], sys.argv[2]
-paths = sys.argv[3:]
+n_reviewed, n_planned = int(sys.argv[3]), int(sys.argv[4])
+paths = sys.argv[5:]
+
+def pass_label(p):
+    # outA_3.json -> "pass A · chunk 4" · outB.json -> "pass B (full)" · outB_2.json -> "pass B · chunk 3"
+    import os as _os
+    b = _os.path.basename(p).replace(".json", "")
+    m = re.match(r'out([AB])(?:_(\d+))?$', b)
+    if not m: return b
+    which, idx = m.group(1), m.group(2)
+    return "pass %s · chunk %d" % (which, int(idx)+1) if idx is not None else "pass %s (full)" % which
 
 def extract(text):
     text = text.strip()
@@ -506,7 +517,7 @@ for p in paths:
     except Exception: continue
     obj = extract(raw)
     if not obj: continue
-    if obj.get("summary"): summaries.append(obj["summary"])
+    if obj.get("summary"): summaries.append("**%s:** %s" % (pass_label(p), obj["summary"]))
     for f in obj.get("findings", []) or []:
         if f.get("severity") not in sev_rank:
             print("[rc6] WARN: finding without valid severity (%r) in %s — coercing to low: %s"
@@ -523,9 +534,12 @@ def cnt(sev, introduced=None):
     return sum(1 for f in findings
                if f.get("severity")==sev and (introduced is None or bool(f.get("introduced",True))==introduced))
 
+coverage = {"chunks_reviewed": n_reviewed, "chunks_planned": n_planned,
+            "partial": n_reviewed < n_planned}
 result = {
     "engine": engine_label,
-    "summary": " | ".join(summaries) if summaries else "(no summary)",
+    "coverage": coverage,
+    "summary": "\n".join("- " + s for s in summaries) if summaries else "(no summary)",
     "counts": {
         "critical": cnt("critical"), "high": cnt("high"),
         "medium": cnt("medium"), "low": cnt("low"),
@@ -568,8 +582,16 @@ for f in merged["findings"]:
         orphan.append(body)
 
 c = merged["counts"]
+cov = merged.get("coverage") or {}
+cov_line = ""
+if cov:
+    cov_line = "**Coverage:** %d/%d chunks reviewed" % (cov.get("chunks_reviewed",0), cov.get("chunks_planned",0))
+    if cov.get("partial"):
+        cov_line += " — ⚠️ **PARTIAL: files beyond the cap were NOT reviewed. Split this PR.**"
+    cov_line += "\n"
 head = (f"## 🤖 RC6 — Independent AI Review (`{merged['engine']}`)\n\n"
         f"{merged['summary']}\n\n"
+        f"{cov_line}"
         f"**Introduced:** {c['introduced_critical']} critical · {c['introduced_high']} high "
         f"(total {c['critical']}c/{c['high']}h/{c['medium']}m/{c['low']}l). "
         f"Findings marked _pre-existing_ do not block this PR.\n")
@@ -607,6 +629,7 @@ ep = os.path.join(root, ".agent/memory/events.jsonl")
 os.makedirs(os.path.dirname(ep), exist_ok=True)
 event = {"event": "ai_review_complete", "ts": now, "pr": pr,
          "engine": merged["engine"], "status": status,
+         "coverage": merged.get("coverage"),
          "critical": c["critical"], "high": c["high"],
          "introduced_critical": c["introduced_critical"],
          "introduced_high": c["introduced_high"]}
