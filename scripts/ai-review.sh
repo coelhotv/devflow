@@ -69,6 +69,11 @@ command -v git >/dev/null || { echo "git required" >&2; exit 2; }
 HAVE_AGY=0;    command -v agy    >/dev/null && HAVE_AGY=1
 HAVE_CLAUDE=0; command -v claude >/dev/null && HAVE_CLAUDE=1
 HAVE_GH=0;     command -v gh     >/dev/null && HAVE_GH=1
+# Quota guard: claude is BOTH the pass-B domain engine AND the coder-agent engine,
+# and it has a tighter 5h/weekly quota than agy's Gemini pool. Set RC6_ENGINE_CLAUDE=0
+# when the claude quota is low to keep RC6 off it entirely — pass B then falls back to
+# agy chunked (existing path), so tier2 keeps full coverage on the roomier engine.
+[ "${RC6_ENGINE_CLAUDE:-1}" = 0 ] && { HAVE_CLAUDE=0; log "RC6_ENGINE_CLAUDE=0 — claude disabled; pass B will use agy"; }
 
 # ---- resolve PR (optional; not required for --dry-run) ----------------------
 if [ -z "$PR" ] && [ "$HAVE_GH" = 1 ]; then
@@ -209,25 +214,87 @@ fi
 # head of an R/AP line states the pattern; the tail is case history the
 # reviewer doesn't need (detail files for ids present in the diff still attach
 # in full below).
-IDX_LINE_MAX="${RC6_IDX_LINE_MAX:-230}"
+IDX_LINE_MAX="${RC6_IDX_LINE_MAX:-110}"       # 056/US2: 230→110 (medido #756/#766: preamble -40%, chunk sob budget)
 CTX_TOTAL_MAX="${RC6_CTX_TOTAL_MAX:-150000}"
 clamp_index() { cut -c1-"$IDX_LINE_MAX" "$1"; }
-PREAMBLE="$WORKDIR/preamble.txt"
+
+# ---- pack filter (spec 056) -------------------------------------------------
+# The preamble ships the WHOLE rule/AP catalogs (~115KB clamped) for EVERY review
+# and is re-sent per chunk. Filtering to the packs of the changed files cuts that
+# to the touched domain. The pack is already in the link at the END of each index
+# line (`anti-patterns/<pack>/AP-NNN.md`) — filtering is a grep, no parser/RAG.
+#
+# DEFAULT OFF (opt-in): spec 056 A4 — turn on per PR (RC6_PACK_FILTER=1), flip to
+# default only after >=2 PRs prove no non-intended finding is lost (PO-5).
+PACK_FILTER="${RC6_PACK_FILTER:-0}"
+# Real pack taxonomy — the vocabulary of the index links (verified 2026-07-22,
+# post-consolidation 91ee82e3). NOT the SKILL.md:174 "Pack inference" names
+# (react-hooks/schema-data/telegram…) — those map to NOTHING in the links and
+# would make every filter a silent no-op (FR-001). rules/ has 6; AP has these 8.
+KNOWN_PACKS='data_and_schema react_and_ui mobile_and_platform infra_and_deploy process_and_testing notifications test_hygiene tooling_and_build'
+
+# path -> pack(s): a file may emit several packs (union is safe; a missing pack is
+# the failure mode we fear, an extra one only costs bytes). EMPTY output = unmapped
+# path => caller triggers fail-safe (whole catalog). Generous on purpose.
+map_path_to_packs() {
+  local p="$1" hit=0
+  case "$p" in apps/mobile/*|*/mobile/*)                 echo mobile_and_platform; hit=1 ;; esac
+  case "$p" in server/bot/*|*/notifications/*|*/telegram/*) echo notifications;    hit=1 ;; esac
+  case "$p" in api/*)                                     echo infra_and_deploy;    hit=1 ;; esac
+  case "$p" in */schemas/*|*Schema.ts|*/services/*|packages/core/*) echo data_and_schema; hit=1 ;; esac
+  case "$p" in *.test.*|*.spec.*|*/__tests__/*|*/__mocks__/*) echo process_and_testing; hit=1 ;; esac
+  case "$p" in scripts/*|*.config.js|*.config.ts|*/config/*)  echo tooling_and_build;   hit=1 ;; esac
+  # UI catch: web features/views/components/hooks and any .tsx not already domain-typed
+  case "$p" in apps/web/src/features/*|apps/web/src/views/*|apps/web/src/shared/*|*.tsx) echo react_and_ui; hit=1 ;; esac
+  [ "$hit" = 1 ] || return 1
+}
+
+# reads a file list on stdin -> space-joined dedup pack set, or EMPTY (fail-safe)
+# if ANY changed file is unmapped (FR-003: on doubt, whole catalog, never blind).
+packs_for_files() {
+  local f fp acc="" any_unmapped=0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    if fp="$(map_path_to_packs "$f")"; then acc="$acc $fp"; else any_unmapped=1; break; fi
+  done
+  [ "$any_unmapped" = 1 ] && { echo ""; return; }
+  printf '%s\n' $acc | grep -v '^$' | sort -u | paste -sd' ' -
+}
+
+# $1=index file $2=catalog(anti-patterns|rules) $3=space-packs ("" => whole).
+# CRITICAL ORDER: filter the FULL line by its trailing link, THEN clamp — the link
+# sits past ${IDX_LINE_MAX}c, so clamping first would delete the very field we key on.
+# FR-003: a non-empty pack set that matches ZERO catalog lines also falls back to whole.
+filtered_index() {
+  local idx="$1" cat="$2" packs="$3" pat tmp
+  if [ -z "$packs" ]; then cut -c1-"$IDX_LINE_MAX" "$idx"; return; fi
+  pat="$(printf '%s\n' $packs | sed "s#^#$cat/#; s#\$#/#" | paste -sd'|' -)"
+  tmp="$(awk -v pat="$pat" -v max="$IDX_LINE_MAX" '
+    { islink = ($0 ~ /(anti-patterns|rules)\/[a-z_]+\//) }
+    !islink { print substr($0,1,max); next }   # headers/notes/section titles — always kept
+    $0 ~ pat { print substr($0,1,max) }        # matching pack line — kept, then clamped
+  ' "$idx")"
+  if ! printf '%s' "$tmp" | grep -qE "$cat/[a-z_]+/"; then   # zero matches -> fail-safe whole
+    cut -c1-"$IDX_LINE_MAX" "$idx"; return
+  fi
+  printf '%s\n' "$tmp"
+}
+
+# CLAUDE.md (Regras Críticas hoisted) — ALWAYS whole, NEVER filtered (FR-004): the
+# transversal rules (R-295/R-299/R-282…) reach every review through here.
+PREAMBLE_HEAD="$WORKDIR/preamble_head.txt"
 {
   echo "===== PROJECT CRITICAL RULES (CLAUDE.md — Regras Críticas hoisted; read FIRST) ====="
   if [ -f "$CLAUDE_MD" ]; then
-    # hoist the "Regras Críticas" section to the top, then the rest ONCE
     awk '/^## Regras Críticas/{f=1} f{print}' "$CLAUDE_MD"
     echo; echo "----- (rest of CLAUDE.md, critical section omitted above) -----"
     awk '/^## Regras Críticas/{f=1;next} f&&/^## /{f=0} !f{print}' "$CLAUDE_MD"
   fi
-  echo; echo "===== RULES_INDEX (lines clamped to ${IDX_LINE_MAX}c — pattern head only) ====="
-  [ -f "$RULES_IDX" ] && clamp_index "$RULES_IDX"
-  echo; echo "===== ANTI_PATTERNS_INDEX (lines clamped to ${IDX_LINE_MAX}c) ====="
-  [ -f "$AP_IDX" ] && clamp_index "$AP_IDX"
-  # DETAIL files are capped in TOTAL: a diff citing many R/AP ids attached ~80KB
-  # of details and the preamble alone blew the engine budget (smoke 2026-07-18).
-  # The clamped index lines above already carry every pattern head.
+} > "$PREAMBLE_HEAD"
+
+# DETAIL files: capped in TOTAL and never filtered (they are cited-in-diff by id).
+PREAMBLE_DETAIL="$WORKDIR/preamble_detail.txt"
+{
   DETAIL_MAX="${RC6_DETAIL_MAX:-24000}"; dacc=0
   for df in "${DETAIL_FILES[@]:-}"; do
     [ -n "${df:-}" ] && [ -f "$df" ] || continue
@@ -235,10 +302,37 @@ PREAMBLE="$WORKDIR/preamble.txt"
     [ "$dacc" -gt "$DETAIL_MAX" ] && { echo; echo "(further R/AP detail files omitted — budget; see clamped indexes above)"; break; }
     echo; echo "===== DETAIL $(basename "$df") ====="; cat "$df"
   done
-} > "$PREAMBLE"
+} > "$PREAMBLE_DETAIL"
+
+# emit_preamble $1=space-packs("" => whole catalogs). HEAD + filtered indexes + DETAIL.
+emit_preamble() {
+  local packs="$1"
+  cat "$PREAMBLE_HEAD"
+  echo; echo "===== RULES_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
+  [ -f "$RULES_IDX" ] && filtered_index "$RULES_IDX" rules "$packs"
+  echo; echo "===== ANTI_PATTERNS_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
+  [ -f "$AP_IDX" ] && filtered_index "$AP_IDX" anti-patterns "$packs"
+  cat "$PREAMBLE_DETAIL"
+}
+
+# Global UNFILTERED preamble — worst case, used for chunk-budget planning, the
+# >60% warning, tier2 pass B default, and the MEASURE baseline. Per-chunk contexts
+# below re-emit filtered when PACK_FILTER=1.
+PREAMBLE="$WORKDIR/preamble.txt"
+emit_preamble "" > "$PREAMBLE"
 PRE_BYTES="$(wc -c < "$PREAMBLE")"
 [ "$PRE_BYTES" -gt $(( CTX_TOTAL_MAX * 6 / 10 )) ] && \
   log "⚠️ preamble ${PRE_BYTES}B eats >60% of the engine budget — indexes/details too fat; consider RC6_IDX_LINE_MAX lower"
+
+# FR-009: taxonomy-regression guard. Any pack in the index links that the map
+# doesn't know = the divergence this spec exists to kill, coming back invisible.
+if [ "$PACK_FILTER" = 1 ]; then
+  UNKNOWN="$(grep -hoE '(anti-patterns|rules)/[a-z_]+/' "$RULES_IDX" "$AP_IDX" 2>/dev/null \
+    | sed -E 's#(anti-patterns|rules)/##; s#/##' | sort -u \
+    | grep -vxF -f <(printf '%s\n' $KNOWN_PACKS) || true)"
+  [ -n "$UNKNOWN" ] && { echo "⛔ FR-009: pack(s) desconhecido(s) no índice, fora do mapa caminho→pack: $UNKNOWN" >&2
+    echo "   Atualize KNOWN_PACKS + map_path_to_packs em ai-review.sh, ou a taxonomia diverge em silêncio." >&2; exit 4; }
+fi
 
 # ---- split the diff into engine-safe chunks (map-reduce — dosiq#757) --------
 # Above the ~160KB budget agy doesn't fail loudly: it SAMPLES the input. Three
@@ -302,9 +396,23 @@ fi
 
 # builds one engine payload: preamble + the chunk's full files + the chunk's diff
 build_chunk_ctx() { # $1=chunk-index $2=outfile
-  local i="$1" out="$2" f
+  local i="$1" out="$2" f packs="" pre_file="$PREAMBLE"
+  # FR-005: per-chunk pack filter — each chunk carries only the packs of the files
+  # IT contains (the preamble is re-sent per chunk, so this is where waste multiplies).
+  if [ "$PACK_FILTER" = 1 ]; then
+    packs="$(packs_for_files < "$WORKDIR/chunk_${i}.files")"
+    pre_file="$WORKDIR/preamble_c${i}.txt"
+    emit_preamble "$packs" > "$pre_file"
+    # FR-007: audit trail — without it the degradation goes invisible again.
+    if [ -z "$packs" ]; then
+      log "chunk $((i+1)) pack-filter OFF (fail-safe: unmapped path) — full catalog, $(wc -c < "$pre_file")B"
+    else
+      local omitted; omitted="$(comm -23 <(printf '%s\n' $KNOWN_PACKS | sort) <(printf '%s\n' $packs | sort) | paste -sd' ' -)"
+      log "chunk $((i+1)) packs: [${packs}] omit: [${omitted:-<none>}] preamble $(wc -c < "$PREAMBLE")B→$(wc -c < "$pre_file")B"
+    fi
+  fi
   {
-    cat "$PREAMBLE"
+    cat "$pre_file"
     echo; echo "===== FULL FILES (post-change content — audit unchanged lines too) ====="
     while IFS= read -r f; do
       [ -n "$f" ] && grep -qxF "$f" "$WORKDIR/fullfiles.txt" && [ -f "$REPO_ROOT/$f" ] \
@@ -397,6 +505,22 @@ PASSB_FOCUS=$'\nFOCUS FOR THIS PASS: Extensions #7 (Domain Rule Conformance) and
 #   agy:    has no explicit no-tools flag (checked 2026-07-16); closest is
 #           --sandbox (terminal restrictions) + --mode plan (no edits). Prompt
 #           must be argv (-p requires an argument; no stdin support).
+# Portable wall-clock bound (no `timeout`/`gtimeout` on macOS). Runs "$@" and kills
+# it after $1 seconds. Guards against an engine that HANGS instead of erroring —
+# critical for claude, which (unlike agy's --print-timeout) has no built-in cap and
+# could otherwise wedge the whole RC6 while waiting on quota to free up.
+run_bounded() {
+  local secs="$1"; shift
+  "$@" & local cmd_pid=$!
+  ( sleep "$secs"; kill -TERM "$cmd_pid" 2>/dev/null ) & local wd_pid=$!
+  wait "$cmd_pid" 2>/dev/null; local rc=$?
+  kill "$wd_pid" 2>/dev/null; wait "$wd_pid" 2>/dev/null
+  [ "$rc" -ge 124 ] && log "engine killed after ${secs}s wall-clock (hang guard)"
+  return "$rc"
+}
+
+PASSB_TIMEOUT="${RC6_PASSB_TIMEOUT:-480}"   # seconds; mirrors agy's --print-timeout 8m
+
 run_engine() {
   local engine="$1" pf="$2" out="$3"
   case "$engine" in
@@ -406,8 +530,11 @@ run_engine() {
     # --setting-sources "": do NOT load user/project settings (CLAUDE.md, skills,
     # plugins). The reviewer's context is 100% the explicit prompt — cheaper per
     # run (no duplicate project payload) AND stronger independence (SC-007).
-    claude) claude --model sonnet --tools "" --strict-mcp-config --setting-sources "" -p < "$pf" \
-           > "$out" 2>"$WORKDIR/claude.err" || return 1 ;;
+    # Wrapped in run_bounded: a rate-limited claude that hangs is killed after
+    # PASSB_TIMEOUT and treated as failed -> pass B falls back to agy (no wedge).
+    claude) run_bounded "$PASSB_TIMEOUT" \
+              claude --model sonnet --tools "" --strict-mcp-config --setting-sources "" -p \
+              < "$pf" > "$out" 2>"$WORKDIR/claude.err" || return 1 ;;
   esac
   # exit 0 with empty/whitespace output = engine degraded, not success
   [ -s "$out" ] && grep -q '[^[:space:]]' "$out"
@@ -416,6 +543,30 @@ run_engine() {
 build_prompt() { # $1=instruction-extra $2=ctx-file $3=outfile
   { printf '%s' "$RC6_INSTRUCTION"; printf '%s' "$1"; echo; echo; cat "$2"; } > "$3"
 }
+
+# ---- MEASURE mode (spec 056 FR-010): assemble everything, print the byte
+# accounting, and STOP before any engine call. --dry-run still spends agy/claude
+# quota (minutes per run); the PO proofs need a cheap measurement, not a review.
+if [ "${RC6_MEASURE:-0}" = 1 ]; then
+  log "MEASURE: PACK_FILTER=$PACK_FILTER IDX_LINE_MAX=$IDX_LINE_MAX preamble(unfiltered)=${PRE_BYTES}B chunks=$NCHUNKS"
+  i=0; total=0
+  while [ "$i" -lt "$NCHUNKS" ]; do
+    build_chunk_ctx "$i" "$WORKDIR/measure_$i.txt"   # emits the FR-007 per-chunk pack log to stderr
+    csz="$(wc -c < "$WORKDIR/measure_$i.txt")"; total=$((total + csz))
+    over=""; [ "$csz" -gt "$CTX_TOTAL_MAX" ] && over=" ⚠️OVER-BUDGET"
+    log "  chunk $((i+1))/$NCHUNKS payload=${csz}B${over}"
+    i=$((i+1))
+  done
+  log "MEASURE: total payload across ${NCHUNKS} chunk(s) = ${total}B"
+  # FR-010/PO-2: persist chunk-0 preamble past the exit trap so a grep can prove
+  # CLAUDE.md rules survive the filter.
+  if [ "${RC6_KEEP_PREAMBLE:-0}" = 1 ]; then
+    KEEP="${RC6_KEEP_PREAMBLE_PATH:-${TMPDIR:-/tmp}/rc6_preamble.txt}"
+    cp "${WORKDIR}/preamble_c0.txt" "$KEEP" 2>/dev/null || cp "$PREAMBLE" "$KEEP"
+    log "preamble dump: $KEEP"
+  fi
+  exit 0
+fi
 
 OUTS=(); ENGINES=()
 
@@ -446,8 +597,15 @@ done
 # fallback agy runs chunked like pass A.
 if [ "$TIER" = 2 ]; then
   CTXB="$WORKDIR/ctxB.txt"
+  PREB="$PREAMBLE"
+  if [ "$PACK_FILTER" = 1 ]; then
+    # pass B takes the WHOLE diff in one call -> pack set = ALL changed files
+    packsB="$(printf '%s\n' "${CHANGED[@]:-}" | packs_for_files)"
+    PREB="$WORKDIR/preamble_B.txt"; emit_preamble "$packsB" > "$PREB"
+    log "pass B packs: [${packsB:-<fail-safe: whole>}] preamble $(wc -c < "$PREAMBLE")B→$(wc -c < "$PREB")B"
+  fi
   {
-    cat "$PREAMBLE"
+    cat "$PREB"
     echo; echo "===== FULL FILES (post-change content — audit unchanged lines too) ====="
     for f in "${FULLFILES[@]:-}"; do
       [ -n "${f:-}" ] && [ -f "$REPO_ROOT/$f" ] && { echo; echo "----- FILE $f -----"; cat "$REPO_ROOT/$f"; }
@@ -567,7 +725,7 @@ fi
 
 log "posting RC6 review to PR #$PR"
 python3 - "$MERGED" "$PR" "$HEAD_SHA" <<'PY'
-import sys, json, subprocess
+import sys, json, subprocess, time, os
 merged, pr, sha = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3]
 sev_emoji = {"critical":"🟥","high":"🟧","medium":"🟨","low":"🟦"}
 comments, orphan = [], []
@@ -599,7 +757,17 @@ if orphan:
     head += "\n### Un-anchorable findings\n" + "\n\n---\n\n".join(orphan)
 
 payload = {"commit_id": sha, "event": "COMMENT", "body": head, "comments": comments}
-# retry, dropping inline comments GitHub rejects (lines outside the diff)
+
+def is_rate_limited(err):
+    e = (err or "").lower()
+    return ("403" in e or "429" in e) and ("rate limit" in e or "abuse" in e or "secondary" in e)
+
+# Two DIFFERENT failure modes, two different reactions (dosiq#768):
+#  - invalid line (422): GitHub rejects one comment -> drop it and retry (original behavior).
+#  - rate limit (403 secondary): the request itself was refused. Dropping comments is WRONG —
+#    the old loop stripped every finding one-by-one while hammering a limited endpoint, then
+#    exited 1 with the whole review lost. Back off, then persist the JSON so nothing is thrown away.
+attempts = 0
 while True:
     p = subprocess.run(["gh","api","repos/:owner/:repo/pulls/%s/reviews"%pr,
                         "--input","-"], input=json.dumps(payload), text=True,
@@ -608,7 +776,20 @@ while True:
         print("posted RC6 review to PR #%s (%d inline, %d orphan)" % (pr, len(payload["comments"]), len(orphan)))
         break
     err = p.stderr
-    # GitHub reports the bad line; drop that comment and retry, else give up to a body-only review
+    if is_rate_limited(err):
+        attempts += 1
+        if attempts <= 3:
+            wait = 30 * attempts
+            print("gh api rate-limited (attempt %d/3) — backing off %ds (comments PRESERVED)" % (attempts, wait),
+                  file=sys.stderr)
+            time.sleep(wait); continue
+        dump = os.path.join(os.environ.get("TMPDIR","/tmp"), "rc6_review_pr%s.json" % pr)
+        json.dump(merged, open(dump,"w"), ensure_ascii=False, indent=2)
+        print("⛔ gh api rate-limited after 3 retries — review NOT posted, findings preserved at:\n   %s\n"
+              "   Publique manualmente ou re-rode --post mais tarde (NÃO re-rode o review: 034-D.1)." % dump,
+              file=sys.stderr)
+        sys.exit(1)
+    # invalid-line rejection: drop the offending comment and retry, else body-only review
     if payload["comments"]:
         payload["comments"] = payload["comments"][:-1]
         continue
