@@ -246,9 +246,21 @@ clamp_index() { cut -c1-"$IDX_LINE_MAX" "$1"; }
 # to the touched domain. The pack is already in the link at the END of each index
 # line (`anti-patterns/<pack>/AP-NNN.md`) — filtering is a grep, no parser/RAG.
 #
-# DEFAULT OFF (opt-in): spec 056 A4 — turn on per PR (RC6_PACK_FILTER=1), flip to
-# default only after >=2 PRs prove no non-intended finding is lost (PO-5).
-PACK_FILTER="${RC6_PACK_FILTER:-0}"
+# MODES (spec 056 A4 + P4/2026-07-29):
+#   0     never filter (reproduces pre-056 behavior; use as the A/B baseline)
+#   1     always filter
+#   auto  DEFAULT — filter a chunk ONLY when its unfiltered payload would cross
+#         the silent-sampling threshold. Rationale: the wait for the PO-5 A/B
+#         (>=2 PRs proving no non-intended finding is lost) cost a whole wave
+#         while #775 proved the filter is already what keeps a big PR under
+#         budget (chunk6 167157B unfiltered -> 129507B filtered). "auto" refuses
+#         the false choice: below the threshold nothing is cut (recall untouched,
+#         no unproven claim), above it the alternative is not "full catalog" —
+#         it is a full catalog the engine SAMPLES IN SILENCE, which loses far
+#         more recall than any pack ever could. PO-5 still gates mode 1.
+PACK_FILTER="${RC6_PACK_FILTER:-auto}"
+# Payload above which agy starts sampling in silence (empirical ~160K; margin).
+AUTO_FILTER_ABOVE="${RC6_AUTO_FILTER_ABOVE:-$CTX_TOTAL_MAX}"
 # Real pack taxonomy — the vocabulary of the index links (verified 2026-07-22,
 # post-consolidation 91ee82e3). NOT the SKILL.md:174 "Pack inference" names
 # (react-hooks/schema-data/telegram…) — those map to NOTHING in the links and
@@ -357,7 +369,7 @@ PRE_BYTES="$(wc -c < "$PREAMBLE")"
 
 # FR-009: taxonomy-regression guard. Any pack in the index links that the map
 # doesn't know = the divergence this spec exists to kill, coming back invisible.
-if [ "$PACK_FILTER" = 1 ]; then
+if [ "$PACK_FILTER" != 0 ]; then
   UNKNOWN="$(grep -hoE '(anti-patterns|rules)/[a-z_]+/' "$RULES_IDX" "$AP_IDX" 2>/dev/null \
     | sed -E 's#(anti-patterns|rules)/##; s#/##' | sort -u \
     | grep -vxF -f <(printf '%s\n' $KNOWN_PACKS) || true)"
@@ -427,10 +439,33 @@ fi
 
 # builds one engine payload: preamble + the chunk's full files + the chunk's diff
 build_chunk_ctx() { # $1=chunk-index $2=outfile
-  local i="$1" out="$2" f packs="" pre_file="$PREAMBLE"
+  local i="$1" out="$2" f packs="" pre_file="$PREAMBLE" use_filter=0
+  # Body first: its size is what decides the auto mode, and it is identical
+  # whether or not the catalog gets filtered.
+  local body="$WORKDIR/body_${i}.txt"
+  {
+    echo; echo "===== FULL FILES (post-change content — audit unchanged lines too) ====="
+    while IFS= read -r f; do
+      [ -n "$f" ] && grep -qxF "$f" "$WORKDIR/fullfiles.txt" && [ -f "$REPO_ROOT/$f" ] \
+        && { echo; echo "----- FILE $f -----"; cat "$REPO_ROOT/$f"; }
+    done < "$WORKDIR/chunk_${i}.files"
+    echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="; cat "$WORKDIR/chunk_${i}.diff"
+  } > "$body"
+
+  case "$PACK_FILTER" in
+    1) use_filter=1 ;;
+    auto)
+      # P4: engage ONLY where the alternative is a silently sampled payload.
+      local unfiltered=$(( PRE_BYTES + $(wc -c < "$body") ))
+      if [ "$unfiltered" -gt "$AUTO_FILTER_ABOVE" ]; then
+        use_filter=1
+        log "chunk $((i+1)) auto-filter ON: unfiltered payload ${unfiltered}B > ${AUTO_FILTER_ABOVE}B (agy samples in silence above this)"
+      fi ;;
+  esac
+
   # FR-005: per-chunk pack filter — each chunk carries only the packs of the files
   # IT contains (the preamble is re-sent per chunk, so this is where waste multiplies).
-  if [ "$PACK_FILTER" = 1 ]; then
+  if [ "$use_filter" = 1 ]; then
     packs="$(packs_for_files < "$WORKDIR/chunk_${i}.files")"
     pre_file="$WORKDIR/preamble_c${i}.txt"
     emit_preamble "$packs" > "$pre_file"
@@ -442,15 +477,7 @@ build_chunk_ctx() { # $1=chunk-index $2=outfile
       log "chunk $((i+1)) packs: [${packs}] omit: [${omitted:-<none>}] preamble $(wc -c < "$PREAMBLE")B→$(wc -c < "$pre_file")B"
     fi
   fi
-  {
-    cat "$pre_file"
-    echo; echo "===== FULL FILES (post-change content — audit unchanged lines too) ====="
-    while IFS= read -r f; do
-      [ -n "$f" ] && grep -qxF "$f" "$WORKDIR/fullfiles.txt" && [ -f "$REPO_ROOT/$f" ] \
-        && { echo; echo "----- FILE $f -----"; cat "$REPO_ROOT/$f"; }
-    done < "$WORKDIR/chunk_${i}.files"
-    echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="; cat "$WORKDIR/chunk_${i}.diff"
-  } > "$out"
+  cat "$pre_file" "$body" > "$out"
 }
 
 # ---- reviewer instruction (mirrors SKILL.md §1533) --------------------------
@@ -653,6 +680,9 @@ done
 if [ "$TIER" = 2 ]; then
   CTXB="$WORKDIR/ctxB.txt"
   PREB="$PREAMBLE"
+  # NOTE: "auto" deliberately does NOT apply here. This payload only ever goes to
+  # claude, whose window swallows the whole diff without sampling; and if claude
+  # is unavailable the agy fallback below re-uses ctxA_$i (already auto-filtered).
   if [ "$PACK_FILTER" = 1 ]; then
     # pass B takes the WHOLE diff in one call -> pack set = ALL changed files
     packsB="$(printf '%s\n' "${CHANGED[@]:-}" | packs_for_files)"
