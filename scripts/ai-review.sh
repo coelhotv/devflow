@@ -33,7 +33,8 @@
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
-MAIN_BRANCH="${RC6_MAIN:-main}"
+MAIN_BRANCH="${RC6_MAIN:-}"                   # empty => auto-derive from the PR's base branch (see below)
+MAIN_BRANCH_SRC="RC6_MAIN"
 MAX_FULLFILE_LINES="${RC6_FULLFILE_LINES:-20}"
 TIER2_FILE_THRESHOLD="${RC6_TIER2_FILES:-8}"
 MAX_FULLFILES="${RC6_MAX_FULLFILES:-14}"      # cap full-file attachments (migration PRs match ~everything)
@@ -80,15 +81,36 @@ if [ -z "$PR" ] && [ "$HAVE_GH" = 1 ]; then
   PR="$(gh pr view --json number -q .number 2>/dev/null || true)"
 fi
 
+# ---- resolve the base BRANCH ------------------------------------------------
+# A hardcoded `main` default is WRONG whenever the PR targets an integration
+# branch: the run then reviews a diff that is not the PR's, and says nothing.
+# Measured 3x on dosiq (#756, #772, near-miss #774) => the default was the bug,
+# not the operator. Order of truth: RC6_MAIN (explicit) > the PR's own
+# baseRefName (authoritative — it IS what GitHub will merge into) > `main`.
+if [ -n "$MAIN_BRANCH" ]; then
+  MAIN_BRANCH_SRC="RC6_MAIN (explicit)"
+else
+  if [ -n "$PR" ] && [ "$HAVE_GH" = 1 ]; then
+    MAIN_BRANCH="$(gh pr view "$PR" --json baseRefName -q .baseRefName 2>/dev/null || true)"
+    [ -n "$MAIN_BRANCH" ] && MAIN_BRANCH_SRC="PR #$PR baseRefName"
+  fi
+  [ -z "$MAIN_BRANCH" ] && { MAIN_BRANCH="main"; MAIN_BRANCH_SRC="fallback default"; }
+fi
+
 # ---- compute diff -----------------------------------------------------------
-# Base against ORIGIN's main, not the local ref: a stale local main silently
+# Base against ORIGIN's branch, not the local ref: a stale local ref silently
 # reviews the WRONG diff (bit us on dosiq#756 — the run reviewed the previous
 # hotfix). Fall back to the local ref offline.
 git fetch -q origin "$MAIN_BRANCH" 2>/dev/null || log "fetch failed — using LOCAL $MAIN_BRANCH (may be stale)"
 BASE_REF="origin/$MAIN_BRANCH"; git rev-parse -q --verify "$BASE_REF" >/dev/null 2>&1 || BASE_REF="$MAIN_BRANCH"
 BASE="$(git merge-base HEAD "$BASE_REF")"
 HEAD_SHA="$(git rev-parse HEAD)"
+log "base-branch=$MAIN_BRANCH (via $MAIN_BRANCH_SRC) ref=$BASE_REF"
 log "base=$BASE head=$HEAD_SHA pr=${PR:-<none>} post=$POST"
+# Loud when the default had to be guessed on a PR we could not read: that is
+# exactly the #756/#772 setup — silent review of the wrong diff.
+[ "$MAIN_BRANCH_SRC" = "fallback default" ] && [ -n "$PR" ] && \
+  log "⚠️ could not read PR #$PR baseRefName — assuming 'main'. If this PR targets an integration branch, RERUN with RC6_MAIN=<branch>"
 
 git diff "$BASE"...HEAD --diff-filter=d -- "${CODE_GLOBS[@]}" > "$WORKDIR/diff.txt" || true
 if [ ! -s "$WORKDIR/diff.txt" ]; then
