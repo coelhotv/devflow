@@ -593,7 +593,16 @@ PASSB_FOCUS=$'\nFOCUS FOR THIS PASS: Extensions #7 (Domain Rule Conformance) and
 # could otherwise wedge the whole RC6 while waiting on quota to free up.
 run_bounded() {
   local secs="$1"; shift
-  "$@" & local cmd_pid=$!
+  # 🔴 `cmd &` num script NÃO-INTERATIVO redireciona o stdin do filho para /dev/null
+  # (POSIX: sem job control, background job herda /dev/null). Sem o `<&3` abaixo, o
+  # `< "$pf"` que o chamador aplica a run_bounded é engolido e o claude recebe entrada
+  # vazia -> "Input must be provided either through stdin or as a prompt argument when
+  # using --print" -> pass B falha SEMPRE. Ficou invisível enquanto o agy esteve
+  # saudável (o fallback cobria); só apareceu quando o agy caiu. Preservar o fd é o que
+  # torna o hang-guard compatível com engine que lê prompt do stdin.
+  exec 3<&0
+  "$@" <&3 & local cmd_pid=$!
+  exec 3<&-
   ( sleep "$secs"; kill -TERM "$cmd_pid" 2>/dev/null ) & local wd_pid=$!
   wait "$cmd_pid" 2>/dev/null; local rc=$?
   kill "$wd_pid" 2>/dev/null; wait "$wd_pid" 2>/dev/null
@@ -620,6 +629,18 @@ run_engine() {
   esac
   # exit 0 with empty/whitespace output = engine degraded, not success
   [ -s "$out" ] && grep -q '[^[:space:]]' "$out"
+}
+
+# Primeira linha útil do stderr do motor, para o log de falha dizer POR QUE caiu.
+# Sem isto, "unavailable/failed" cobre indistintamente: binário ausente, quota
+# estourada, hang morto pelo guard e erro de invocação — e o WORKDIR é apagado no
+# EXIT, então a evidência morre junto. Diagnosticar exigia reexecutar o script com o
+# trap desarmado (foi o que custou 3 runs no PR dosiq#782, onde a causa real era o
+# stdin comido pelo `&` e nada no log apontava para lá).
+engine_err_hint() { # $1=engine
+  local ef="$WORKDIR/$1.err"
+  [ -s "$ef" ] || { printf 'no stderr'; return; }
+  grep -m1 '[^[:space:]]' "$ef" 2>/dev/null | cut -c1-160
 }
 
 build_prompt() { # $1=instruction-extra $2=ctx-file $3=outfile
@@ -668,8 +689,10 @@ while [ "$i" -lt "$NCHUNKS" ]; do
   if [ "$HAVE_AGY" = 1 ] && run_engine agy "$WORKDIR/promptA_$i.txt" "$WORKDIR/outA_$i.json"; then
     OUTS+=("$WORKDIR/outA_$i.json"); ENGINES+=("agy")
     log "pass A chunk $((i+1))/$NCHUNKS (agy, ${PAYLOAD_BYTES}B) ok"
+  elif [ "$HAVE_AGY" = 0 ]; then
+    log "pass A chunk $((i+1))/$NCHUNKS skipped — agy not on PATH"
   else
-    log "pass A chunk $((i+1))/$NCHUNKS (agy) unavailable/failed"
+    log "pass A chunk $((i+1))/$NCHUNKS (agy) FAILED — $(engine_err_hint agy)"
   fi
   i=$((i+1))
 done
@@ -702,17 +725,25 @@ if [ "$TIER" = 2 ]; then
     OUTS+=("$WORKDIR/outB.json"); ENGINES+=("claude")
     log "pass B (claude, full-context $(wc -c < "$WORKDIR/promptB.txt")B) ok"
   elif [ "$HAVE_AGY" = 1 ]; then
+    # Chegar aqui com claude no PATH significa que ele FALHOU — dizer isso alto, senão
+    # o fallback silencioso faz o run inteiro parecer "agy-only por escolha".
+    # `|| true`: sob `set -e` um `[ ] && log` com condição falsa derruba o script inteiro.
+    { [ "$HAVE_CLAUDE" = 1 ] && log "pass B (claude) FAILED — $(engine_err_hint claude); caindo p/ agy chunked"; } || true
     i=0
     while [ "$i" -lt "$NCHUNKS" ]; do
       build_prompt "$PASSB_FOCUS" "$WORKDIR/ctxA_$i.txt" "$WORKDIR/promptB_$i.txt"
       if run_engine agy "$WORKDIR/promptB_$i.txt" "$WORKDIR/outB_$i.json"; then
         OUTS+=("$WORKDIR/outB_$i.json"); ENGINES+=("agy")
         log "pass B chunk $((i+1))/$NCHUNKS (agy fallback) ok"
+      else
+        log "pass B chunk $((i+1))/$NCHUNKS (agy fallback) FAILED — $(engine_err_hint agy)"
       fi
       i=$((i+1))
     done
+  elif [ "$HAVE_CLAUDE" = 1 ]; then
+    log "pass B (claude) FAILED — $(engine_err_hint claude); sem agy p/ fallback"
   else
-    log "pass B unavailable — tier2 ran with pass A only"
+    log "pass B unavailable — nenhum engine no PATH; tier2 ran with pass A only"
   fi
 fi
 
