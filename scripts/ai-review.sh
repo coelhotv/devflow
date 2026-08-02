@@ -76,6 +76,14 @@ HAVE_GH=0;     command -v gh     >/dev/null && HAVE_GH=1
 # agy chunked (existing path), so tier2 keeps full coverage on the roomier engine.
 [ "${RC6_ENGINE_CLAUDE:-1}" = 0 ] && { HAVE_CLAUDE=0; log "RC6_ENGINE_CLAUDE=0 — claude disabled; pass B will use agy"; }
 
+# ---- engine capability probe (no API call, no quota) ------------------------
+# Feature-detect instead of assuming: an older binary rejects a flag it does not
+# know and would fail EVERY chunk, turning an enhancement into a total blackout.
+AGY_NOSLASH=0
+if [ "$HAVE_AGY" = 1 ]; then
+  case "$(agy --help 2>&1 || true)" in *--disable-slash-commands*) AGY_NOSLASH=1 ;; esac
+fi
+
 # ---- resolve PR (optional; not required for --dry-run) ----------------------
 if [ -z "$PR" ] && [ "$HAVE_GH" = 1 ]; then
   PR="$(gh pr view --json number -q .number 2>/dev/null || true)"
@@ -671,6 +679,30 @@ if [ "${RC6_MEASURE:-0}" = 1 ]; then
   exit 0
 fi
 
+# ---- engine liveness gate ---------------------------------------------------
+# `command -v agy` proves the binary EXISTS, not that it ANSWERS. On 2026-08-02 a
+# wedged MCP server made every headless agy call block until --print-timeout: the
+# CLI ignores `"disabled": true` in mcp_config.json and then never aborts a
+# connection that hangs (upstream antigravity-cli#657). Cost: 8 min burned PER
+# CHUNK, every chunk failing, and the log said only "(agy) FAILED" — nothing
+# named MCP. Presence and liveness answer the SAME question for RC6 ("can I send
+# this chunk to agy?"), so there is ONE gate and the log distinguishes the two
+# reasons. Deliberately placed AFTER the MEASURE early-exit: MEASURE exists to
+# cost no engine quota, and a probe is an engine call.
+PROBE_TIMEOUT="${RC6_PROBE_TIMEOUT:-30s}"
+if [ "$HAVE_AGY" = 1 ] && [ "${RC6_SKIP_PROBE:-0}" != 1 ]; then
+  PROBE_ARGS=(--sandbox --mode plan --print-timeout "$PROBE_TIMEOUT" --model 'gemini-3.6-flash-high')
+  [ "$AGY_NOSLASH" = 1 ] && PROBE_ARGS+=(--disable-slash-commands)
+  if agy "${PROBE_ARGS[@]}" -p 'Reply with exactly: ok' \
+       </dev/null 2>"$WORKDIR/agy.probe.err" | grep -q '[^[:space:]]'; then
+    log "agy liveness ok (probe $PROBE_TIMEOUT)"
+  else
+    HAVE_AGY=0
+    log "⚠️ agy no PATH mas NÃO responde (probe $PROBE_TIMEOUT) — tratando como ausente; $(engine_err_hint agy.probe)"
+    log "   se o log do agy disser 'server(s) still connecting', é MCP travado: remova a entry do mcp_config.json (disabled:true não basta)"
+  fi
+fi
+
 OUTS=(); ENGINES=()
 
 # Pass A — agy generalist (CRITICAL + footguns), one engine call PER CHUNK so
@@ -690,7 +722,7 @@ while [ "$i" -lt "$NCHUNKS" ]; do
     OUTS+=("$WORKDIR/outA_$i.json"); ENGINES+=("agy")
     log "pass A chunk $((i+1))/$NCHUNKS (agy, ${PAYLOAD_BYTES}B) ok"
   elif [ "$HAVE_AGY" = 0 ]; then
-    log "pass A chunk $((i+1))/$NCHUNKS skipped — agy not on PATH"
+    log "pass A chunk $((i+1))/$NCHUNKS skipped — agy indisponível (ausente do PATH ou reprovado no probe)"
   else
     log "pass A chunk $((i+1))/$NCHUNKS (agy) FAILED — $(engine_err_hint agy)"
   fi
