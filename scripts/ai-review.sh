@@ -867,6 +867,97 @@ fi
 
 OUTS=(); ENGINES=()
 
+# ---- A/B capture for spec 056 PO-5 (T014) -----------------------------------
+# WHY THIS LIVES IN THE SCRIPT AND NOT IN A DOC: the 034-D protocol already told
+# the agent to append a measurement line at C5. It failed 5 PRs in a row
+# (#777–#781, backfilled with bytes/time lost for good), and the whole PO-5 A/B
+# never happened across an 11-PR wave. A rule that depends on someone
+# remembering is the same silent degradation spec 056 exists to kill. Everything
+# mechanical (measure, qualify, run the pair, append the row) belongs here, where
+# it runs on every RC6 regardless of which agent or session drives it. The ONE
+# irreducibly human step — triaging real finding vs false positive — is what the
+# appended row leaves marked PENDENTE.
+#
+# The pair is captured, NEVER merged into OUTS: what gets posted to the PR must
+# be the normal review, not an experiment's union.
+AB_MODE="${RC6_AB:-auto}"
+AB_MIN_PACKS="${RC6_AB_MIN_PACKS:-3}"
+AB_LOG="${RC6_AB_LOG:-$REPO_ROOT/plans/specs/034-gemini-sunset/measurement.md}"
+AB_ARMED=0; AB_SKIP=""
+
+# c/h/m/l counts across a set of engine outputs; "-" when nothing parsed.
+ab_counts() {
+  python3 - "$@" <<'PY'
+import sys, json
+sev = {"critical":0,"high":0,"medium":0,"low":0}
+for p in sys.argv[1:]:
+    try: d = json.load(open(p))
+    except Exception: continue
+    for f in (d.get("findings") or []):
+        s = str(f.get("severity","")).lower()
+        if s in sev: sev[s] += 1
+print("%d/%d/%d/%d" % (sev["critical"],sev["high"],sev["medium"],sev["low"]))
+PY
+}
+ab_total() { printf '%s' "$1" | tr '/' '+' | bc; }
+
+if [ "$AB_MODE" != 0 ]; then
+  # Qualification is computed BEFORE any engine call, so a PR that doesn't
+  # qualify costs exactly zero extra quota.
+  if [ -z "${PR:-}" ]; then AB_SKIP="sem PR (a linha de medição é indexada por PR#)"
+  elif [ ! -f "$AB_LOG" ]; then AB_SKIP="log de medição ausente ($AB_LOG)"
+  elif [ "$PACK_FILTER" = 1 ]; then AB_SKIP="RC6_PACK_FILTER=1 forçado — não há baseline não-filtrado para comparar"
+  elif [ "$HAVE_AGY" != 1 ]; then AB_SKIP="agy indisponível — o par exige o MESMO motor nos dois lados"
+  else
+    # Auto-disarm: PO-5 needs 2 triaged pairs. Rows still marked PENDENTE don't
+    # count — capturing a third pair while two sit untriaged just burns quota.
+    # `grep -c` PRINTS 0 and EXITS 1 on no match: a trailing `|| echo 0` would
+    # append a SECOND zero and blow up the arithmetic below (caught in smoke —
+    # the A/B then died silently, which is the very failure class this guards).
+    ab_done="$( { grep -c 'AB-PAIR' "$AB_LOG" || true; } 2>/dev/null | tr -dc '0-9')"
+    ab_pend="$( { grep 'AB-PAIR' "$AB_LOG" 2>/dev/null | grep -c 'triagem: PENDENTE' || true; } | tr -dc '0-9')"
+    ab_done="${ab_done:-0}"; ab_pend="${ab_pend:-0}"
+    ab_triaged=$(( ab_done - ab_pend ))
+    # Worst-case UNFILTERED payload per chunk, computed from the pieces that
+    # build_chunk_ctx would concatenate. Above the sampling threshold an
+    # unfiltered baseline is not a baseline: agy samples it in silence
+    # (034-D.1), so the pair would compare a filtered run against noise. That
+    # regime is also not what PO-5 gates — mode `auto` already filters there;
+    # what PO-5 still owes an answer on is mode 1 (filter even when it fits).
+    ab_worst=0; i=0
+    while [ "$i" -lt "$NCHUNKS" ]; do
+      b="$(wc -c < "$WORKDIR/chunk_${i}.diff")"
+      while IFS= read -r f; do
+        [ -n "$f" ] && grep -qxF "$f" "$WORKDIR/fullfiles.txt" 2>/dev/null && [ -f "$REPO_ROOT/$f" ] \
+          && b=$(( b + $(wc -c < "$REPO_ROOT/$f") ))
+      done < "$WORKDIR/chunk_${i}.files"
+      b=$(( b + PRE_BYTES ))
+      [ "$b" -gt "$ab_worst" ] && ab_worst="$b"
+      i=$((i+1))
+    done
+    AB_PACKS="$(printf '%s\n' "${CHANGED[@]:-}" | packs_for_files)"
+    ab_npacks="$(printf '%s' "$AB_PACKS" | wc -w | tr -d ' ')"
+
+    if [ "$ab_triaged" -ge 2 ] && [ "$AB_MODE" != 1 ]; then
+      AB_SKIP="PO-5 já tem $ab_triaged pares triados — captura desarmada (RC6_AB=1 força)"
+    elif [ "$ab_pend" -ge 1 ] && [ "$AB_MODE" != 1 ]; then
+      AB_SKIP="$ab_pend par(es) aguardando triagem em $(basename "$AB_LOG") — trie antes de capturar outro"
+    elif [ "$ab_npacks" -lt "$AB_MIN_PACKS" ] && [ "$AB_MODE" != 1 ]; then
+      AB_SKIP="só $ab_npacks pack(s) [${AB_PACKS:-<fail-safe>}] — abaixo de $AB_MIN_PACKS, o filtro omitiria pouco e o A/B não teria contraste"
+    elif [ "$ab_worst" -gt "$AUTO_FILTER_ABOVE" ] && [ "$AB_MODE" != 1 ]; then
+      AB_SKIP="pior chunk não-filtrado ${ab_worst}B > ${AUTO_FILTER_ABOVE}B — baseline seria amostrado em silêncio, não é baseline"
+    else
+      AB_ARMED=1
+      # Below the threshold, forcing 0 is byte-identical to `auto` (auto only
+      # engages above it), so the review that gets posted is unchanged.
+      PACK_FILTER=0
+      log "🔬 A/B armado (056/PO-5): packs [$AB_PACKS] · pior chunk não-filtrado ${ab_worst}B · pass A vira baseline (filtro OFF)"
+    fi
+  fi
+  [ "$AB_ARMED" = 0 ] && [ -n "$AB_SKIP" ] && log "A/B não capturado: $AB_SKIP"
+fi
+AB_T0="$(date +%s)"
+
 # Pass A — agy generalist (CRITICAL + footguns), one engine call PER CHUNK so
 # every call stays under the empirical budget (dosiq#757: over-budget runs are
 # non-deterministic — re-running for "confirmation" burns quota for noise).
@@ -890,6 +981,63 @@ while [ "$i" -lt "$NCHUNKS" ]; do
   fi
   i=$((i+1))
 done
+
+# ---- A/B: the paired filtered run (only when the baseline found something) --
+# Ordered on purpose: the decision to spend the second run is made AFTER the
+# baseline returns, on the same frozen commit. That kills the #767 failure mode
+# (a fix landed between the two runs, contaminating the pair) by construction —
+# there is no window in which anyone can touch the tree.
+if [ "$AB_ARMED" = 1 ]; then
+  AB_OFF_OUTS=(); i=0
+  while [ "$i" -lt "$NCHUNKS" ]; do
+    [ -f "$WORKDIR/outA_$i.json" ] && AB_OFF_OUTS+=("$WORKDIR/outA_$i.json")
+    i=$((i+1))
+  done
+  AB_OFF="$(ab_counts "${AB_OFF_OUTS[@]:-/dev/null}")"
+  if [ "${#AB_OFF_OUTS[@]}" -lt "$NCHUNKS" ]; then
+    log "A/B abortado: baseline cobriu ${#AB_OFF_OUTS[@]}/$NCHUNKS chunks — par sobre cobertura parcial mede recall contra régua torta (SC-008)"
+  elif [ "$(ab_total "$AB_OFF")" -lt 1 ]; then
+    log "A/B abortado: baseline 0 findings ($AB_OFF) — sem significância (foi o que invalidou a 057). Segundo run NÃO gasto."
+  else
+    log "🔬 A/B: baseline $AB_OFF — qualificou; rodando o par filtrado no mesmo commit"
+    PACK_FILTER=1
+    AB_ON_OUTS=(); i=0
+    while [ "$i" -lt "$NCHUNKS" ]; do
+      build_chunk_ctx "$i" "$WORKDIR/ctxAB_$i.txt"
+      EXTRA=""
+      [ "$NCHUNKS" -gt 1 ] && EXTRA=$'\n'"NOTE: this payload carries part $((i+1))/$NCHUNKS of the PR's diff (split by file to fit the engine context budget). Audit ONLY the files present here; other parts are reviewed separately."
+      build_prompt "$EXTRA" "$WORKDIR/ctxAB_$i.txt" "$WORKDIR/promptAB_$i.txt"
+      if run_engine agy "$WORKDIR/promptAB_$i.txt" "$WORKDIR/outAB_$i.json"; then
+        AB_ON_OUTS+=("$WORKDIR/outAB_$i.json")
+        log "A/B chunk $((i+1))/$NCHUNKS (filtrado, $(wc -c < "$WORKDIR/promptAB_$i.txt")B) ok"
+      else
+        log "A/B chunk $((i+1))/$NCHUNKS (filtrado) FAILED — $(engine_err_hint agy)"
+      fi
+      i=$((i+1))
+    done
+    PACK_FILTER=0
+    AB_ON="$(ab_counts "${AB_ON_OUTS[@]:-/dev/null}")"
+    # Survive the trap rm -rf: the triage happens after this process is gone.
+    AB_KEEP="${TMPDIR:-/tmp}/rc6_ab_pr${PR}"
+    cp "${AB_OFF_OUTS[@]}" "$AB_KEEP.off.json" 2>/dev/null || \
+      python3 -c 'import sys,json;print(json.dumps([json.load(open(p)) for p in sys.argv[1:]]))' "${AB_OFF_OUTS[@]}" > "$AB_KEEP.off.json"
+    [ "${#AB_ON_OUTS[@]}" -gt 0 ] && { cp "${AB_ON_OUTS[@]}" "$AB_KEEP.on.json" 2>/dev/null || \
+      python3 -c 'import sys,json;print(json.dumps([json.load(open(p)) for p in sys.argv[1:]]))' "${AB_ON_OUTS[@]}" > "$AB_KEEP.on.json"; }
+    AB_OFF_B="$(cat "$WORKDIR"/promptA_*.txt 2>/dev/null | wc -c | tr -d ' ')"
+    AB_ON_B="$(cat "$WORKDIR"/promptAB_*.txt 2>/dev/null | wc -c | tr -d ' ')"
+    AB_OMIT="$(comm -23 <(printf '%s\n' $KNOWN_PACKS | sort) <(printf '%s\n' $AB_PACKS | sort) | paste -sd' ' -)"
+    if [ "${#AB_ON_OUTS[@]}" -lt "$NCHUNKS" ]; then
+      log "⚠️ A/B: lado filtrado cobriu ${#AB_ON_OUTS[@]}/$NCHUNKS chunks — registrado, mas a comparação é PARCIAL"
+    fi
+    printf '| %s | %s | %s | %s | off `%s` · on `%s` | PENDENTE | **PENDENTE** | PENDENTE | PENDENTE | %ss | off %sB · on %sB | %s | 🔬 **AB-PAIR (056/PO-5, capturado pelo script — %s/%s chunks no lado filtrado)** — packs [%s] omit [%s]; JSONs preservados em `%s.{off,on}.json`. **triagem: PENDENTE** — comparar os conjuntos TRIADOS e classificar cada divergência como {real perdido \\| FP descartado \\| novo}; "real perdido" = 0 é o que fecha SC-003. |\n' \
+      "$PR" "$(date +%Y-%m-%d)" "$TIER" "${#CHANGED[@]}" "$AB_OFF" "$AB_ON" \
+      "$(( $(date +%s) - AB_T0 ))" "$AB_OFF_B" "$AB_ON_B" \
+      "$([ "$AB_OFF_B" -le "$CTX_TOTAL_MAX" ] && echo sim || echo não)" \
+      "${#AB_ON_OUTS[@]}" "$NCHUNKS" "$AB_PACKS" "${AB_OMIT:-<none>}" "$AB_KEEP" >> "$AB_LOG"
+    log "🔬 A/B capturado: off $AB_OFF (${AB_OFF_B}B) vs on $AB_ON (${AB_ON_B}B)"
+    log "⚠️ TRIAGEM PENDENTE — linha appendada em $AB_LOG (última linha da tabela). O par NÃO conta pro PO-5 enquanto estiver PENDENTE."
+  fi
+fi
 
 # Pass B — domain-rule specialist on tier2. claude first: its context window
 # takes the WHOLE diff in one call (no chunking needed for correctness there);
