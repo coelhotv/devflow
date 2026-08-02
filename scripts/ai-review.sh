@@ -77,11 +77,21 @@ HAVE_GH=0;     command -v gh     >/dev/null && HAVE_GH=1
 [ "${RC6_ENGINE_CLAUDE:-1}" = 0 ] && { HAVE_CLAUDE=0; log "RC6_ENGINE_CLAUDE=0 — claude disabled; pass B will use agy"; }
 
 # ---- engine capability probe (no API call, no quota) ------------------------
-# Feature-detect instead of assuming: an older binary rejects a flag it does not
-# know and would fail EVERY chunk, turning an enhancement into a total blackout.
-AGY_NOSLASH=0
+# Structured output (--output-format json + --json-schema) landed in agy 1.1.8
+# and is present in claude 2.x. Feature-detect instead of assuming: an older
+# binary would reject the flag and fail EVERY chunk, turning an enhancement into
+# a total blackout. When absent we fall back to the legacy text invocation, which
+# still works — just without the schema guarantees.
+AGY_SCHEMA=0; AGY_NOSLASH=0; CLAUDE_SCHEMA=0
 if [ "$HAVE_AGY" = 1 ]; then
-  case "$(agy --help 2>&1 || true)" in *--disable-slash-commands*) AGY_NOSLASH=1 ;; esac
+  AGY_HELP="$(agy --help 2>&1 || true)"
+  case "$AGY_HELP" in *--json-schema*)            AGY_SCHEMA=1 ;; esac
+  case "$AGY_HELP" in *--disable-slash-commands*) AGY_NOSLASH=1 ;; esac
+  [ "$AGY_SCHEMA" = 0 ] && log "agy sem --json-schema (pre-1.1.8) — usando invocação legada em texto"
+fi
+if [ "$HAVE_CLAUDE" = 1 ]; then
+  case "$(claude --help 2>&1 || true)" in *--json-schema*) CLAUDE_SCHEMA=1 ;; esac
+  [ "$CLAUDE_SCHEMA" = 0 ] && log "claude sem --json-schema — usando invocação legada em texto"
 fi
 
 # ---- resolve PR (optional; not required for --dry-run) ----------------------
@@ -592,8 +602,10 @@ PASSB_FOCUS=$'\nFOCUS FOR THIS PASS: Extensions #7 (Domain Rule Conformance) and
 #   claude: --tools "" disables all built-in tools; --strict-mcp-config with no
 #           --mcp-config disables every MCP server. Prompt via STDIN (argv would
 #           risk ARG_MAX on fat tier-2 contexts).
-#   agy:    has no explicit no-tools flag (checked 2026-07-16); closest is
-#           --sandbox (terminal restrictions) + --mode plan (no edits). Prompt
+#   agy:    has no explicit no-tools flag (re-checked 2026-08-02); closest is
+#           --sandbox (terminal restrictions) + --mode plan (no edits) +
+#           --disable-slash-commands (1.1.9 made print mode expand slash commands
+#           and skills — an untrusted diff must not reach that expander). Prompt
 #           must be argv (-p requires an argument; no stdin support).
 # Portable wall-clock bound (no `timeout`/`gtimeout` on macOS). Runs "$@" and kills
 # it after $1 seconds. Guards against an engine that HANGS instead of erroring —
@@ -619,21 +631,164 @@ run_bounded() {
 }
 
 PASSB_TIMEOUT="${RC6_PASSB_TIMEOUT:-480}"   # seconds; mirrors agy's --print-timeout 8m
+AGY_TIMEOUT="${RC6_AGY_TIMEOUT:-8m}"        # agy's own --print-timeout (per chunk)
+
+# ---- structured output contract ---------------------------------------------
+# MIRRORS the OUTPUT schema inside $RC6_INSTRUCTION above — keep the two in sync.
+# Enforcing it engine-side removes a whole failure class: before this, an engine
+# that answered with prose or a fenced blob still exited 0 with non-empty output,
+# so run_engine called it SUCCESS; the merge's extract() then returned None and
+# dropped it — yet the chunk STILL counted in coverage.chunks_reviewed. A run
+# could report full coverage having reviewed less, with nothing in the log.
+# `snippet` and `severity` are required/enumerated because they are load-bearing
+# downstream: snippet re-anchors the inline comment when `line` drifts
+# (dosiq#768), and an out-of-enum severity was silently coerced to "low" — the
+# worst possible direction for what might be a critical.
+SCHEMA="$WORKDIR/rc6_schema.json"
+cat > "$SCHEMA" <<'JSON'
+{
+  "type": "object",
+  "required": ["summary", "findings"],
+  "properties": {
+    "summary": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["file","line","snippet","severity","introduced","rule","causation","issue","fix"],
+        "properties": {
+          "file":       { "type": "string" },
+          "line":       { "type": "integer" },
+          "snippet":    { "type": "string" },
+          "severity":   { "type": "string", "enum": ["critical","high","medium","low"] },
+          "introduced": { "type": "boolean" },
+          "rule":       { "type": "string" },
+          "causation":  { "type": "string" },
+          "issue":      { "type": "string" },
+          "fix":        { "type": "string" }
+        }
+      }
+    }
+  }
+}
+JSON
+
+# Engine argv. --disable-slash-commands: agy 1.1.9 made print mode EXPAND slash
+# commands and skills, and the RC6 payload is an UNTRUSTED diff — the same reason
+# SC-SEC1 already forbids tools. Note --json-schema makes claude expose a
+# `StructuredOutput` tool despite --tools "": that is the delivery mechanism for
+# the structured answer (no shell/file/MCP reach), so the SC-SEC1 property holds,
+# but the `init` event will list one tool. Do not read that as a broken guard.
+AGY_ARGS=(--sandbox --mode plan --print-timeout "$AGY_TIMEOUT" --model 'gemini-3.6-flash-high')
+[ "$AGY_NOSLASH" = 1 ] && AGY_ARGS+=(--disable-slash-commands)
+[ "$AGY_SCHEMA"  = 1 ] && AGY_ARGS+=(--output-format json --json-schema "$SCHEMA")
+# --setting-sources "": do NOT load user/project settings (CLAUDE.md, skills,
+# plugins). The reviewer's context is 100% the explicit prompt — cheaper per run
+# (no duplicate project payload) AND stronger independence (SC-007).
+CLAUDE_ARGS=(--model sonnet --tools "" --strict-mcp-config --setting-sources "")
+[ "$CLAUDE_SCHEMA" = 1 ] && CLAUDE_ARGS+=(--output-format json --json-schema "$(cat "$SCHEMA")")
+
+# Normalize an engine's structured envelope down to the bare review object.
+# The two engines agree on the payload and disagree on the wrapper:
+#   agy:    {"status":"SUCCESS", "structured_output":{...}, "response":"..."}
+#   claude: [ ..., {"type":"result","subtype":"success","structured_output":{...}} ]
+# Both converge on structured_output, so the merge step stops guessing the wire
+# format. Non-zero exit on a FAILED or malformed envelope is the point: it makes
+# run_engine report failure, which excludes the chunk from coverage instead of
+# letting it count as reviewed while contributing nothing.
+unwrap_structured() { # $1=engine $2=raw-envelope $3=out-json
+  python3 - "$1" "$2" "$3" <<'PY'
+import sys, json, re
+eng, src, dst = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    d = json.load(open(src))
+except Exception as e:
+    print("envelope is not JSON: %s" % e, file=sys.stderr); sys.exit(1)
+
+if eng == "claude":
+    events = d if isinstance(d, list) else [d]
+    results = [x for x in events if isinstance(x, dict) and x.get("type") == "result"]
+    if not results:
+        print("no result event in claude envelope", file=sys.stderr); sys.exit(1)
+    r = results[-1]
+    ok = r.get("subtype") == "success" and not r.get("is_error")
+    text = r.get("result")
+    why = r.get("subtype") or r.get("stop_reason") or "unknown"
+else:
+    r = d if isinstance(d, dict) else {}
+    ok = r.get("status") == "SUCCESS"
+    text = r.get("response")
+    why = r.get("error") or r.get("status") or "unknown"
+
+if not ok:
+    print("engine reported failure: %s" % why, file=sys.stderr); sys.exit(1)
+
+obj = r.get("structured_output")
+if not isinstance(obj, dict):
+    # Schema not honored (engine ignored it, or answered with prose): recover from
+    # the text field with the legacy fence-stripping heuristic before giving up.
+    t = re.sub(r'^```(?:json)?\s*|\s*```$', '', (text or "").strip(), flags=re.S)
+    try:
+        obj = json.loads(t)
+    except Exception:
+        i, j = t.find('{'), t.rfind('}')
+        obj = None
+        if i >= 0 and j > i:
+            try: obj = json.loads(t[i:j+1])
+            except Exception: obj = None
+if not isinstance(obj, dict) or "findings" not in obj:
+    print("envelope carried no usable review object (no structured_output, unparseable text)",
+          file=sys.stderr)
+    sys.exit(1)
+json.dump(obj, open(dst, "w"), ensure_ascii=False)
+
+# Token accounting to STDOUT for the caller to log. The envelope is the only place
+# it exists and $WORKDIR dies in the EXIT trap, so not surfacing it here loses it.
+# Required by the 034-D measurement protocol v2 (`tok=` in the Nota column) and by
+# the open question of whether input_tokens stops tracking payload bytes above the
+# ~160KB budget — which would finally MEASURE the silent sampling of Achado
+# 034-D.1 instead of inferring it from divergent runs (056/T038).
+u = r.get("usage") or {}
+if isinstance(u, dict) and u:
+    ins = u.get("input_tokens", "?")
+    outs = u.get("output_tokens", "?")
+    cache = u.get("cache_read_tokens", u.get("cache_read_input_tokens"))
+    bits = ["input=%s" % ins, "output=%s" % outs]
+    if cache not in (None, ""): bits.append("cache_read=%s" % cache)
+    cost = r.get("total_cost_usd")
+    if cost not in (None, ""): bits.append("cost=$%.4f" % cost)
+    print(" ".join(bits))
+PY
+}
 
 run_engine() {
-  local engine="$1" pf="$2" out="$3"
+  local engine="$1" pf="$2" out="$3" raw="$3.raw"
   case "$engine" in
     # stdin closed (</dev/null): headless agy must never block waiting for input
-    agy) agy --sandbox --mode plan --print-timeout 8m --model 'gemini-3.6-flash-high' -p "$(cat "$pf")" \
-           > "$out" 2>"$WORKDIR/agy.err" < /dev/null || return 1 ;;
-    # --setting-sources "": do NOT load user/project settings (CLAUDE.md, skills,
-    # plugins). The reviewer's context is 100% the explicit prompt — cheaper per
-    # run (no duplicate project payload) AND stronger independence (SC-007).
+    agy)
+      if [ "$AGY_SCHEMA" = 1 ]; then
+        agy "${AGY_ARGS[@]}" -p "$(cat "$pf")" \
+          > "$raw" 2>"$WORKDIR/agy.err" < /dev/null || return 1
+        local usage_agy
+        usage_agy="$(unwrap_structured agy "$raw" "$out" 2>>"$WORKDIR/agy.err")" || return 1
+        [ -n "$usage_agy" ] && log "  agy usage: $usage_agy"
+      else
+        agy "${AGY_ARGS[@]}" -p "$(cat "$pf")" \
+          > "$out" 2>"$WORKDIR/agy.err" < /dev/null || return 1
+      fi ;;
     # Wrapped in run_bounded: a rate-limited claude that hangs is killed after
     # PASSB_TIMEOUT and treated as failed -> pass B falls back to agy (no wedge).
-    claude) run_bounded "$PASSB_TIMEOUT" \
-              claude --model sonnet --tools "" --strict-mcp-config --setting-sources "" -p \
-              < "$pf" > "$out" 2>"$WORKDIR/claude.err" || return 1 ;;
+    claude)
+      if [ "$CLAUDE_SCHEMA" = 1 ]; then
+        run_bounded "$PASSB_TIMEOUT" claude "${CLAUDE_ARGS[@]}" -p \
+          < "$pf" > "$raw" 2>"$WORKDIR/claude.err" || return 1
+        local usage_claude
+        usage_claude="$(unwrap_structured claude "$raw" "$out" 2>>"$WORKDIR/claude.err")" || return 1
+        [ -n "$usage_claude" ] && log "  claude usage: $usage_claude"
+      else
+        run_bounded "$PASSB_TIMEOUT" claude "${CLAUDE_ARGS[@]}" -p \
+          < "$pf" > "$out" 2>"$WORKDIR/claude.err" || return 1
+      fi ;;
   esac
   # exit 0 with empty/whitespace output = engine degraded, not success
   [ -s "$out" ] && grep -q '[^[:space:]]' "$out"
@@ -693,8 +848,15 @@ PROBE_TIMEOUT="${RC6_PROBE_TIMEOUT:-30s}"
 if [ "$HAVE_AGY" = 1 ] && [ "${RC6_SKIP_PROBE:-0}" != 1 ]; then
   PROBE_ARGS=(--sandbox --mode plan --print-timeout "$PROBE_TIMEOUT" --model 'gemini-3.6-flash-high')
   [ "$AGY_NOSLASH" = 1 ] && PROBE_ARGS+=(--disable-slash-commands)
+  if [ "$AGY_SCHEMA" = 1 ]; then
+    # structured envelope: SUCCESS is asserted, not inferred from "output looked non-empty"
+    PROBE_ARGS+=(--output-format json)
+    PROBE_OK='"status"[[:space:]]*:[[:space:]]*"SUCCESS"'
+  else
+    PROBE_OK='[^[:space:]]'
+  fi
   if agy "${PROBE_ARGS[@]}" -p 'Reply with exactly: ok' \
-       </dev/null 2>"$WORKDIR/agy.probe.err" | grep -q '[^[:space:]]'; then
+       </dev/null 2>"$WORKDIR/agy.probe.err" | grep -q "$PROBE_OK"; then
     log "agy liveness ok (probe $PROBE_TIMEOUT)"
   else
     HAVE_AGY=0
