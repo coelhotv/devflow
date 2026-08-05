@@ -213,6 +213,10 @@ for line in open(sys.argv[1], errors='replace'):
         if DROP.search(line): rem_ma+=1
 flush()
 PY
+# The parser output is ALSO the risk signal used to rank chunks before the cap
+# truncates them (see risk_score below), so persist it instead of consuming it
+# once — it is computed per file for every file in the diff, not just candidates.
+python3 "$WORKDIR/parse_cands.py" "$WORKDIR/diff.txt" > "$WORKDIR/cands.tsv"
 CANDS=()   # "priority<TAB>size<TAB>path"
 while IFS="$TAB" read -r drops changed logic path; do
   [ -n "$path" ] || continue
@@ -221,7 +225,7 @@ while IFS="$TAB" read -r drops changed logic path; do
     sz="$(wc -c < "$REPO_ROOT/$path" | tr -d ' ')"
     CANDS+=("${drops}${TAB}${sz}${TAB}${path}")
   fi
-done < <(python3 "$WORKDIR/parse_cands.py" "$WORKDIR/diff.txt")
+done < "$WORKDIR/cands.tsv"
 # priority (dropped args/props) desc, then smallest-first; capped by count + budget
 # (a 137-rename migration must not attach every file — blows ARG_MAX, drowns signal).
 FULLFILES=(); acc=0
@@ -449,10 +453,48 @@ log "preamble ${PRE_BYTES}B · chunk budget ${CHUNK_BUDGET}B · diff split into 
 # the PR, not an hour-long review that burns the week's quota.
 MAX_CHUNKS="${RC6_MAX_CHUNKS:-6}"
 NPLANNED="$NCHUNKS"
+# CHUNK_IDS is what the passes iterate: the ORIGINAL indices that survive the cap.
+CHUNK_IDS=(); i=0
+while [ "$i" -lt "$NCHUNKS" ]; do CHUNK_IDS+=("$i"); i=$((i+1)); done
+DROPPED_FILES=""
+
+# ---- risk ranking of chunks (spec 056/T040) ---------------------------------
+# Truncating at the cap used to keep the FIRST N chunks — i.e. whichever files
+# sort earliest by path in `git diff`. Measured on dosiq#794 (98 files, 6/13
+# covered): chunk 1 was `_dev/screens/DevHubScreen.tsx`, dev tooling, reviewed
+# only because `_dev` sorts early, while 7 chunks of production code were never
+# looked at. Coverage was not just partial, it was ARBITRARILY partial.
+#
+# The signal is already computed above (drops/changed/logic per file), so
+# ranking costs no extra engine call and stays deterministic — testable offline.
+# Chunk composition is deliberately NOT reordered: files keep travelling with
+# their neighbours, because pass A is already blind across chunk boundaries and
+# scattering a feature would spend the last locality we have. Only WHICH chunks
+# survive changes.
 if [ "$NCHUNKS" -gt "$MAX_CHUNKS" ]; then
-  log "⚠️ $NCHUNKS chunks > cap $MAX_CHUNKS — reviewing FIRST $MAX_CHUNKS only (PARTIAL COVERAGE)."
+  log "⚠️ $NCHUNKS chunks > cap $MAX_CHUNKS — PARTIAL COVERAGE."
   log "   This PR is too large for a reliable RC6 — split it. (Override: RC6_MAX_CHUNKS)"
+  # Heredoc inside a command substitution leaks its body to the shell (same
+  # trap already documented for parse_cands.py) — parser lives in its own file.
+  # Ranker is a versioned file, not a heredoc: it carries a regression corpus
+  # (tests/test-rank-chunks.sh) frozen on the dosiq#794 diff. A ranking without
+  # a test is a belief, not a behavior.
+  if RANK="$(python3 "$SELF_DIR/rank_chunks.py" "$WORKDIR" "$NPLANNED" "$MAX_CHUNKS" "$MAX_FULLFILE_LINES" 2>>"$WORKDIR/rank.err")"; then
+    # NO `mapfile`: macOS ships bash 3.2 and the script runs under it.
+    read -r -a CHUNK_IDS <<< "$(printf '%s' "$RANK" | sed -n 1p)"
+    log "   ranking de risco: $(printf '%s' "$RANK" | sed -n 2p)"
+    log "   mantidos: [${CHUNK_IDS[*]}] de 0..$((NPLANNED-1)) (score desc; composição dos chunks inalterada)"
+    DROPPED_FILES="$(printf '%s' "$RANK" | sed -n 3p)"
+  else
+    # Fail-safe: a broken ranking that silently drops the hot chunk is WORSE
+    # than the honest alphabetical order it replaced. Say so, then degrade.
+    log "   ⚠️ ranking de risco FALHOU — caindo nos $MAX_CHUNKS PRIMEIROS chunks (ordem do diff)"
+    CHUNK_IDS=(); i=0
+    while [ "$i" -lt "$MAX_CHUNKS" ]; do CHUNK_IDS+=("$i"); i=$((i+1)); done
+    DROPPED_FILES=""
+  fi
   NCHUNKS="$MAX_CHUNKS"
+  [ -n "$DROPPED_FILES" ] && log "   NÃO revisados: $(printf '%s' "$DROPPED_FILES" | tr '|' ' ')"
 fi
 
 # builds one engine payload: preamble + the chunk's full files + the chunk's diff
@@ -815,13 +857,12 @@ build_prompt() { # $1=instruction-extra $2=ctx-file $3=outfile
 # quota (minutes per run); the PO proofs need a cheap measurement, not a review.
 if [ "${RC6_MEASURE:-0}" = 1 ]; then
   log "MEASURE: PACK_FILTER=$PACK_FILTER IDX_LINE_MAX=$IDX_LINE_MAX preamble(unfiltered)=${PRE_BYTES}B chunks=$NCHUNKS"
-  i=0; total=0
-  while [ "$i" -lt "$NCHUNKS" ]; do
+  total=0
+  for i in "${CHUNK_IDS[@]}"; do
     build_chunk_ctx "$i" "$WORKDIR/measure_$i.txt"   # emits the FR-007 per-chunk pack log to stderr
     csz="$(wc -c < "$WORKDIR/measure_$i.txt")"; total=$((total + csz))
     over=""; [ "$csz" -gt "$CTX_TOTAL_MAX" ] && over=" ⚠️OVER-BUDGET"
-    log "  chunk $((i+1))/$NCHUNKS payload=${csz}B${over}"
-    i=$((i+1))
+    log "  chunk $((i+1))/$NPLANNED payload=${csz}B${over}"
   done
   log "MEASURE: total payload across ${NCHUNKS} chunk(s) = ${total}B"
   # FR-010/PO-2: persist chunk-0 preamble past the exit trap so a grep can prove
@@ -924,8 +965,8 @@ if [ "$AB_MODE" != 0 ]; then
     # (034-D.1), so the pair would compare a filtered run against noise. That
     # regime is also not what PO-5 gates — mode `auto` already filters there;
     # what PO-5 still owes an answer on is mode 1 (filter even when it fits).
-    ab_worst=0; i=0
-    while [ "$i" -lt "$NCHUNKS" ]; do
+    ab_worst=0
+    for i in "${CHUNK_IDS[@]}"; do
       b="$(wc -c < "$WORKDIR/chunk_${i}.diff")"
       while IFS= read -r f; do
         [ -n "$f" ] && grep -qxF "$f" "$WORKDIR/fullfiles.txt" 2>/dev/null && [ -f "$REPO_ROOT/$f" ] \
@@ -933,7 +974,6 @@ if [ "$AB_MODE" != 0 ]; then
       done < "$WORKDIR/chunk_${i}.files"
       b=$(( b + PRE_BYTES ))
       [ "$b" -gt "$ab_worst" ] && ab_worst="$b"
-      i=$((i+1))
     done
     AB_PACKS="$(printf '%s\n' "${CHANGED[@]:-}" | packs_for_files)"
     ab_npacks="$(printf '%s' "$AB_PACKS" | wc -w | tr -d ' ')"
@@ -961,25 +1001,25 @@ AB_T0="$(date +%s)"
 # Pass A — agy generalist (CRITICAL + footguns), one engine call PER CHUNK so
 # every call stays under the empirical budget (dosiq#757: over-budget runs are
 # non-deterministic — re-running for "confirmation" burns quota for noise).
-i=0
-while [ "$i" -lt "$NCHUNKS" ]; do
+for i in "${CHUNK_IDS[@]}"; do
   build_chunk_ctx "$i" "$WORKDIR/ctxA_$i.txt"
   EXTRA=""
-  [ "$NCHUNKS" -gt 1 ] && EXTRA=$'\n'"NOTE: this payload carries part $((i+1))/$NCHUNKS of the PR's diff (split by file to fit the engine context budget). Audit ONLY the files present here; other parts are reviewed separately."
+  # Label with the ORIGINAL index out of NPLANNED: under a cap, "part 3/6" when
+  # the diff really has 13 parts would misrepresent coverage to the reviewer.
+  [ "$NPLANNED" -gt 1 ] && EXTRA=$'\n'"NOTE: this payload carries part $((i+1))/$NPLANNED of the PR's diff (split by file to fit the engine context budget). Audit ONLY the files present here; other parts are reviewed separately."
   build_prompt "$EXTRA" "$WORKDIR/ctxA_$i.txt" "$WORKDIR/promptA_$i.txt"
   PAYLOAD_BYTES="$(wc -c < "$WORKDIR/promptA_$i.txt")"
   if [ "$PAYLOAD_BYTES" -gt "$CTX_TOTAL_MAX" ]; then
-    log "⚠️ chunk $((i+1))/$NCHUNKS payload ${PAYLOAD_BYTES}B > ${CTX_TOTAL_MAX}B — result is ADVISORY (oversized single file)"
+    log "⚠️ chunk $((i+1))/$NPLANNED payload ${PAYLOAD_BYTES}B > ${CTX_TOTAL_MAX}B — result is ADVISORY (oversized single file)"
   fi
   if [ "$HAVE_AGY" = 1 ] && run_engine agy "$WORKDIR/promptA_$i.txt" "$WORKDIR/outA_$i.json"; then
     OUTS+=("$WORKDIR/outA_$i.json"); ENGINES+=("agy")
-    log "pass A chunk $((i+1))/$NCHUNKS (agy, ${PAYLOAD_BYTES}B) ok"
+    log "pass A chunk $((i+1))/$NPLANNED (agy, ${PAYLOAD_BYTES}B) ok"
   elif [ "$HAVE_AGY" = 0 ]; then
-    log "pass A chunk $((i+1))/$NCHUNKS skipped — agy indisponível (ausente do PATH ou reprovado no probe)"
+    log "pass A chunk $((i+1))/$NPLANNED skipped — agy indisponível (ausente do PATH ou reprovado no probe)"
   else
-    log "pass A chunk $((i+1))/$NCHUNKS (agy) FAILED — $(engine_err_hint agy)"
+    log "pass A chunk $((i+1))/$NPLANNED (agy) FAILED — $(engine_err_hint agy)"
   fi
-  i=$((i+1))
 done
 
 # ---- A/B: the paired filtered run (only when the baseline found something) --
@@ -988,10 +1028,9 @@ done
 # (a fix landed between the two runs, contaminating the pair) by construction —
 # there is no window in which anyone can touch the tree.
 if [ "$AB_ARMED" = 1 ]; then
-  AB_OFF_OUTS=(); i=0
-  while [ "$i" -lt "$NCHUNKS" ]; do
+  AB_OFF_OUTS=()
+  for i in "${CHUNK_IDS[@]}"; do
     [ -f "$WORKDIR/outA_$i.json" ] && AB_OFF_OUTS+=("$WORKDIR/outA_$i.json")
-    i=$((i+1))
   done
   AB_OFF="$(ab_counts "${AB_OFF_OUTS[@]:-/dev/null}")"
   if [ "${#AB_OFF_OUTS[@]}" -lt "$NCHUNKS" ]; then
@@ -1001,19 +1040,18 @@ if [ "$AB_ARMED" = 1 ]; then
   else
     log "🔬 A/B: baseline $AB_OFF — qualificou; rodando o par filtrado no mesmo commit"
     PACK_FILTER=1
-    AB_ON_OUTS=(); i=0
-    while [ "$i" -lt "$NCHUNKS" ]; do
+    AB_ON_OUTS=()
+    for i in "${CHUNK_IDS[@]}"; do
       build_chunk_ctx "$i" "$WORKDIR/ctxAB_$i.txt"
       EXTRA=""
-      [ "$NCHUNKS" -gt 1 ] && EXTRA=$'\n'"NOTE: this payload carries part $((i+1))/$NCHUNKS of the PR's diff (split by file to fit the engine context budget). Audit ONLY the files present here; other parts are reviewed separately."
+      [ "$NPLANNED" -gt 1 ] && EXTRA=$'\n'"NOTE: this payload carries part $((i+1))/$NPLANNED of the PR's diff (split by file to fit the engine context budget). Audit ONLY the files present here; other parts are reviewed separately."
       build_prompt "$EXTRA" "$WORKDIR/ctxAB_$i.txt" "$WORKDIR/promptAB_$i.txt"
       if run_engine agy "$WORKDIR/promptAB_$i.txt" "$WORKDIR/outAB_$i.json"; then
         AB_ON_OUTS+=("$WORKDIR/outAB_$i.json")
-        log "A/B chunk $((i+1))/$NCHUNKS (filtrado, $(wc -c < "$WORKDIR/promptAB_$i.txt")B) ok"
+        log "A/B chunk $((i+1))/$NPLANNED (filtrado, $(wc -c < "$WORKDIR/promptAB_$i.txt")B) ok"
       else
-        log "A/B chunk $((i+1))/$NCHUNKS (filtrado) FAILED — $(engine_err_hint agy)"
+        log "A/B chunk $((i+1))/$NPLANNED (filtrado) FAILED — $(engine_err_hint agy)"
       fi
-      i=$((i+1))
     done
     PACK_FILTER=0
     AB_ON="$(ab_counts "${AB_ON_OUTS[@]:-/dev/null}")"
@@ -1071,16 +1109,14 @@ if [ "$TIER" = 2 ]; then
     # o fallback silencioso faz o run inteiro parecer "agy-only por escolha".
     # `|| true`: sob `set -e` um `[ ] && log` com condição falsa derruba o script inteiro.
     { [ "$HAVE_CLAUDE" = 1 ] && log "pass B (claude) FAILED — $(engine_err_hint claude); caindo p/ agy chunked"; } || true
-    i=0
-    while [ "$i" -lt "$NCHUNKS" ]; do
+    for i in "${CHUNK_IDS[@]}"; do
       build_prompt "$PASSB_FOCUS" "$WORKDIR/ctxA_$i.txt" "$WORKDIR/promptB_$i.txt"
       if run_engine agy "$WORKDIR/promptB_$i.txt" "$WORKDIR/outB_$i.json"; then
         OUTS+=("$WORKDIR/outB_$i.json"); ENGINES+=("agy")
-        log "pass B chunk $((i+1))/$NCHUNKS (agy fallback) ok"
+        log "pass B chunk $((i+1))/$NPLANNED (agy fallback) ok"
       else
-        log "pass B chunk $((i+1))/$NCHUNKS (agy fallback) FAILED — $(engine_err_hint agy)"
+        log "pass B chunk $((i+1))/$NPLANNED (agy fallback) FAILED — $(engine_err_hint agy)"
       fi
-      i=$((i+1))
     done
   elif [ "$HAVE_CLAUDE" = 1 ]; then
     log "pass B (claude) FAILED — $(engine_err_hint claude); sem agy p/ fallback"
@@ -1099,11 +1135,12 @@ fi
 ENGINE_LABEL="$(printf '%s\n' "${ENGINES[@]}" | sort -u | paste -sd+ -)"
 [ "$NCHUNKS" -gt 1 ] && ENGINE_LABEL="${ENGINE_LABEL} (${NCHUNKS} chunks)"
 MERGED="$WORKDIR/merged.json"
-python3 - "$MERGED" "$ENGINE_LABEL" "$NCHUNKS" "$NPLANNED" "${OUTS[@]}" <<'PY'
+python3 - "$MERGED" "$ENGINE_LABEL" "$NCHUNKS" "$NPLANNED" "$DROPPED_FILES" "${OUTS[@]}" <<'PY'
 import sys, json, re
 out_path, engine_label = sys.argv[1], sys.argv[2]
 n_reviewed, n_planned = int(sys.argv[3]), int(sys.argv[4])
-paths = sys.argv[5:]
+dropped_files = [f for f in sys.argv[5].split("|") if f]
+paths = sys.argv[6:]
 
 def pass_label(p):
     # outA_3.json -> "pass A · chunk 4" · outB.json -> "pass B (full)" · outB_2.json -> "pass B · chunk 3"
@@ -1151,7 +1188,10 @@ def cnt(sev, introduced=None):
                if f.get("severity")==sev and (introduced is None or bool(f.get("introduced",True))==introduced))
 
 coverage = {"chunks_reviewed": n_reviewed, "chunks_planned": n_planned,
-            "partial": n_reviewed < n_planned}
+            "partial": n_reviewed < n_planned,
+            # Naming what was NOT looked at is the point: an unnamed gap reads as
+            # "reviewed" to everyone downstream.
+            "not_reviewed": dropped_files}
 result = {
     "engine": engine_label,
     "coverage": coverage,
@@ -1253,7 +1293,12 @@ cov_line = ""
 if cov:
     cov_line = "**Coverage:** %d/%d chunks reviewed" % (cov.get("chunks_reviewed",0), cov.get("chunks_planned",0))
     if cov.get("partial"):
-        cov_line += " — ⚠️ **PARTIAL: files beyond the cap were NOT reviewed. Split this PR.**"
+        cov_line += " — ⚠️ **PARTIAL: split this PR.** Chunks kept are the highest-risk ones (dropped args > logic/date > hot paths; `_dev`/tests deprioritized), NOT the first N."
+        nr = cov.get("not_reviewed") or []
+        if nr:
+            shown = ", ".join("`%s`" % f for f in nr[:20])
+            more = "" if len(nr) <= 20 else " … +%d" % (len(nr) - 20)
+            cov_line += "\n\n<details><summary>⚠️ %d file(s) NOT reviewed</summary>\n\n%s%s\n\n</details>" % (len(nr), shown, more)
     cov_line += "\n"
 head = (f"## 🤖 RC6 — Independent AI Review (`{merged['engine']}`)\n\n"
         f"{merged['summary']}\n\n"

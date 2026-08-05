@@ -1,0 +1,15 @@
+apps/mobile/src/features/profile/screens/ProfileScreen.tsx
+apps/mobile/src/features/stock/components/PurchaseCard.tsx
+apps/mobile/src/features/stock/components/StockIndicators.tsx
+apps/mobile/src/features/stock/components/StockItem.tsx
+apps/mobile/src/features/stock/components/StockLevelBadge.tsx
+apps/mobile/src/features/stock/screens/PurchaseFormScreen.tsx
+apps/mobile/src/features/stock/screens/PurchaseHistoryScreen.tsx
+apps/mobile/src/features/stock/screens/StockAdjustmentScreen.tsx
+apps/mobile/src/features/stock/screens/StockDetailScreen.tsx
+apps/mobile/src/features/stock/screens/StockScreen.tsx
+apps/mobile/src/features/stock/services/stockService.ts
+apps/mobile/src/features/treatments/components/MedicineSelectorRow.tsx
+apps/mobile/src/features/treatments/components/MedicineSelectorSheet.tsx
+apps/mobile/src/features/treatments/components/PlanSelectField.tsx
+apps/mobile/src/features/treatments/components/ProtocolDeleteSheet.tsx

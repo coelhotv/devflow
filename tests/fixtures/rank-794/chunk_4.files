@@ -1,0 +1,8 @@
+apps/mobile/src/features/medications/screens/MedicineFormScreen.tsx
+apps/mobile/src/features/medications/screens/MedicinesListScreen.tsx
+apps/mobile/src/features/medications/services/medicineService.ts
+apps/mobile/src/features/notifications/screens/NotificationInboxScreen.tsx
+apps/mobile/src/features/onboarding/screens/OnboardingMedicineStep.tsx
+apps/mobile/src/features/onboarding/screens/OnboardingWelcomeStep.tsx
+apps/mobile/src/features/profile/components/PrivacyConsentSection.tsx
+apps/mobile/src/features/profile/screens/ProfileEditScreen.tsx

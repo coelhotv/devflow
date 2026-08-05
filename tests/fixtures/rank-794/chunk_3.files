@@ -1,0 +1,9 @@
+apps/mobile/src/features/dose/components/DoseRegisterModal.tsx
+apps/mobile/src/features/dose/components/__tests__/buildBulkOutcome.test.ts
+apps/mobile/src/features/dose/components/__tests__/buildConfirmLogs.test.ts
+apps/mobile/src/features/dose/hooks/usePlanProtocols.ts
+apps/mobile/src/features/dose/services/doseService.ts
+apps/mobile/src/features/dose/utils/bulkDoseHelpers.ts
+apps/mobile/src/features/measures/components/ScatterTrend.tsx
+apps/mobile/src/features/measures/screens/MeasuresScreen.tsx
+apps/mobile/src/features/medications/components/MedicineDeleteBlockedSheet.tsx
