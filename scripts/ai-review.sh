@@ -1395,17 +1395,22 @@ event = {"event": "ai_review_complete", "ts": now, "pr": pr,
          "introduced_high": c["introduced_high"]}
 with open(ep, "a") as f: f.write(json.dumps(event, ensure_ascii=False)+"\n")
 
-# sprint label read-only from state.json (never written)
+# O ARQUIVO do journal e a SEMANA CORRENTE — nunca o rotulo de sprint do state.json.
+# Bug corrigido em 2026-08-19: o script usava state.json.sprint como nome de arquivo, e esse
+# campo envelhece (estava em "2026-W31" com a semana corrente em W34). O registro do RC6 caia
+# num journal de 3 semanas atras, onde a distill e a reconciliacao D5 nao o encontram.
+# O sprint continua registrado, mas como CAMPO da entrada, nao como caminho.
+week = datetime.date.today().strftime("%Y-W%V")
 sprint = None
 try:
     sprint = json.load(open(os.path.join(root, ".agent/state.json"))).get("sprint")
 except Exception:
     pass
-sprint = sprint or datetime.date.today().strftime("%Y-W%V")
-jp = os.path.join(root, ".agent/memory/journal", f"{sprint}.jsonl")
+jp = os.path.join(root, ".agent/memory/journal", f"{week}.jsonl")
 os.makedirs(os.path.dirname(jp), exist_ok=True)
 entry = {"session":"rc6","date":datetime.date.today().isoformat(),"type":"ai_review",
          "ceremony":"RC6","pr":pr,"engine":merged["engine"],"status":status,
+         "week": week, "sprint": sprint,
          "summary": (merged["summary"][:500]),
          "counts": c}
 with open(jp,"a") as f: f.write(json.dumps(entry, ensure_ascii=False)+"\n")
