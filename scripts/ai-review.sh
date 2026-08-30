@@ -40,7 +40,10 @@ TIER2_FILE_THRESHOLD="${RC6_TIER2_FILES:-8}"
 MAX_FULLFILES="${RC6_MAX_FULLFILES:-14}"      # cap full-file attachments (migration PRs match ~everything)
 CTX_BUDGET="${RC6_CTX_BUDGET:-150000}"        # byte budget for FULL-FILE attachments only (base ctx ~300KB;
                                               # keep total argv well under ARG_MAX ~1MB)
-CODE_GLOBS=('*.js' '*.jsx' '*.ts' '*.tsx')
+# .mjs/.cjs entram desde 2026-08-30: eram um ponto cego total do RC6 — 33 arquivos no dosiq,
+# incluindo .github/scripts/*.cjs, que é a automação que gateia os PRs. Um PR só de .mjs
+# recebia "No code changes" e passava como CLEAN sem uma linha revisada (falso negativo).
+CODE_GLOBS=('*.js' '*.jsx' '*.mjs' '*.cjs' '*.ts' '*.tsx')
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -132,7 +135,7 @@ log "base=$BASE head=$HEAD_SHA pr=${PR:-<none>} post=$POST"
 
 git diff "$BASE"...HEAD --diff-filter=d -- "${CODE_GLOBS[@]}" > "$WORKDIR/diff.txt" || true
 if [ ! -s "$WORKDIR/diff.txt" ]; then
-  echo '{"summary":"No code changes (.js/.jsx/.ts/.tsx) vs base.","findings":[]}'
+  echo '{"summary":"No code changes (.js/.jsx/.mjs/.cjs/.ts/.tsx) vs base.","findings":[]}'
   exit 0
 fi
 
