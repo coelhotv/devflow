@@ -1234,8 +1234,55 @@ result = {
     "findings": findings,
 }
 json.dump(result, open(out_path,"w"), ensure_ascii=False, indent=2)
-print(json.dumps(result, ensure_ascii=False, indent=2))
 PY
+
+# ---- 058: gate de reflexão --------------------------------------------------
+# Roda DEPOIS do merge e ANTES do --post, então o dry-run também é filtrado: quem
+# lê o JSON local vê a mesma coisa que iria para o PR. Determinístico, sem LLM,
+# sem quota. Default `annotate` — marca, não remove.
+#
+# O gate é o único ponto do script que pode APAGAR sinal, então ele falha aberto:
+# qualquer erro dele preserva o $MERGED original e o review segue como antes.
+REFLECT_GATE="${RC6_REFLECT_GATE:-$SELF_DIR/reflect-gate.sh}"
+if [ "${RC6_REFLECT:-annotate}" != "0" ] && [ -x "$REFLECT_GATE" ]; then
+  if "$REFLECT_GATE" < "$MERGED" > "$MERGED.reflected" 2>>"$WORKDIR/reflect.log"; then
+    if python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$MERGED.reflected" 2>/dev/null; then
+      mv "$MERGED.reflected" "$MERGED"
+      # T009: refutado não conta como sinal de STOP. `introduced_critical`/`introduced_high`
+      # são o que o operador lê para travar merge; um finding que uma ferramenta acabou de
+      # contradizer não pode ocupar essa linha. O finding continua publicado (annotate),
+      # só deixa de bloquear.
+      python3 - "$MERGED" <<'PYR'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p, encoding='utf-8'))
+fs = d.get("findings", [])
+def cnt(sev, intro=False):
+    return sum(1 for f in fs
+               if f.get("severity") == sev
+               and not f.get("refuted", False)
+               and (f.get("introduced") is True or not intro))
+c = d.setdefault("counts", {})
+n_ref = sum(1 for f in fs if f.get("refuted", False))
+if n_ref:
+    c["refuted"] = n_ref
+    c["introduced_critical"] = cnt("critical", True)
+    c["introduced_high"] = cnt("high", True)
+json.dump(d, open(p, "w", encoding='utf-8'), ensure_ascii=False, indent=2)
+print("refuted=%d" % n_ref)
+PYR
+    else
+      log "reflect: saída inválida — $MERGED preservado sem filtro"
+      rm -f "$MERGED.reflected"
+    fi
+  else
+    log "reflect: gate falhou (rc=$?) — $MERGED preservado sem filtro; ver $WORKDIR/reflect.log"
+    rm -f "$MERGED.reflected"
+  fi
+  [ -s "$WORKDIR/reflect.log" ] && sed 's/^/  /' "$WORKDIR/reflect.log" >&2
+fi
+
+cat "$MERGED"
 
 # ---- dry-run stops here (no PR / state mutation) ----------------------------
 if [ "$POST" = 0 ]; then
