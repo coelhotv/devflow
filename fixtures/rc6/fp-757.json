@@ -1,0 +1,23 @@
+{
+  "id": "fp-757",
+  "kind": "fp",
+  "class": "schema",
+  "expect": "refuted",
+  "pr": 757,
+  "date": "2026-07-18",
+  "source": "plans/specs/034-gemini-sunset/measurement.md — linha do PR 757 (029 F4)",
+  "provenance": "Run 2 de 3 no MESMO commit inventou um critical: alegou que titration_steps.started_at nao existe. A coluna EXISTE (conferida no information_schema). Alucinacao pura — os 3 runs devolveram conjuntos quase disjuntos (Achado 034-D.1).",
+  "counter_evidence_expected": "information_schema.columns devolve linha para titration_steps.started_at",
+  "line_provenance": "packages/core/src/utils/titrationUtils.ts:39 — declaracao do campo no tipo; o measurement nao registrou file:line do finding, esta e a ancora real da coluna no codigo. O gate NAO usa `line`.",
+  "finding": {
+    "file": "packages/core/src/utils/titrationUtils.ts",
+    "line": 39,
+    "snippet": "started_at?: string | null",
+    "severity": "critical",
+    "introduced": true,
+    "rule": "R-295",
+    "causation": "O select referencia titration_steps.started_at, mas essa coluna nao existe na tabela; o PostgREST respondera 42703 e o read-path inteiro cai em producao.",
+    "issue": "Coluna `started_at` nao existe em `titration_steps`. O select vai falhar em runtime com 42703 (column does not exist).",
+    "fix": "Remover `started_at` do select e do tipo, ou criar a coluna via migracao."
+  }
+}

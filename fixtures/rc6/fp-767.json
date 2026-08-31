@@ -1,0 +1,23 @@
+{
+  "id": "fp-767",
+  "kind": "fp",
+  "class": "compile",
+  "expect": "refuted",
+  "pr": 767,
+  "date": "2026-07-23",
+  "source": "plans/specs/034-gemini-sunset/measurement.md — linha do PR 767 (run unfiltered / dry-run)",
+  "provenance": "Critical alucinado no dry-run: alegou que `typeof INTAKE_UNIT_LABELS.ml` e sintaxe invalida (TS2662) e quebra o build. Refutado na epoca por `tsc -p packages/core/tsconfig.json --noEmit` (0 erros) e pelo strict-island.sh, rodados ANTES e DEPOIS do dry-run. Mesma classe do critical do #757.",
+  "counter_evidence_expected": "tsc do programa que contem packages/core/src/utils/doseUnit.ts sai sem nenhum diagnostico NESSE arquivo",
+  "line_provenance": "packages/core/src/utils/doseUnit.ts:183 — a expressao citada esta viva nessa linha hoje.",
+  "finding": {
+    "file": "packages/core/src/utils/doseUnit.ts",
+    "line": 183,
+    "snippet": "export function stockUnitLabel(medicine: { dosage_unit?: string | null } | null | undefined): typeof INTAKE_UNIT_LABELS.ml | 'un.' {",
+    "severity": "critical",
+    "introduced": true,
+    "rule": "R-283",
+    "causation": "`typeof X.y` nao e uma construcao valida em posicao de tipo; o compilador emite TS2662 e o build inteiro falha.",
+    "issue": "Sintaxe invalida: `typeof INTAKE_UNIT_LABELS.ml` gera TS2662 e quebra o build.",
+    "fix": "Trocar por `(typeof INTAKE_UNIT_LABELS)['ml']`."
+  }
+}

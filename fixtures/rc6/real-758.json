@@ -1,0 +1,24 @@
+{
+  "id": "real-758",
+  "kind": "real",
+  "class": null,
+  "expect": "passed",
+  "expect_reason": "Classe nao reconhecida (plataforma/RN). Verificador nao roda => finding passa. Confirma que o gate nao derruba achado real fora das classes verificaveis.",
+  "pr": 758,
+  "date": "2026-07-19",
+  "source": "plans/specs/034-gemini-sunset/measurement.md — linha do PR 758 (029 F5), Achado 034-D.2",
+  "provenance": "Achado REAL, aplicado. `statusBarTranslucent` ausente no Modal (AP-165). Sinal unico do RC6 — o RC5 do autor pegou cold-start/double-fetch/CHANGELOG e nao tocou nesta borda de plataforma.",
+  "counter_evidence_expected": null,
+  "line_provenance": "file:line nao registrados no measurement; o arquivo e o Modal da timeline do 029 F5.",
+  "finding": {
+    "file": "apps/mobile/src/features/treatments/components/GuideModal.tsx",
+    "line": 1,
+    "snippet": "<Modal transparent animationType=\"fade\">",
+    "severity": "medium",
+    "introduced": true,
+    "rule": "AP-165",
+    "causation": "Sem `statusBarTranslucent`, o Modal do Android nao cobre a status bar e o conteudo aparece deslocado sob ela.",
+    "issue": "Modal sem `statusBarTranslucent` no Android.",
+    "fix": "Adicionar `statusBarTranslucent` ao Modal."
+  }
+}

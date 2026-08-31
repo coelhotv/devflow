@@ -1,0 +1,24 @@
+{
+  "id": "real-768",
+  "kind": "real",
+  "class": null,
+  "expect": "passed",
+  "expect_reason": "Classe nao reconhecida (copy/consistencia). Passa por default.",
+  "pr": 768,
+  "date": "2026-07-23",
+  "source": "plans/specs/034-gemini-sunset/measurement.md — linha do PR 768 (A/B limpo, commit 457eabe3)",
+  "provenance": "Achado REAL confirmado, identico em file:line nos DOIS runs do A/B (filtrado e unfiltered) — zero achado real perdido pelo filtro. Regressao residual do AP-306: densityLabel ficou desatualizado ao lado de densityHint ja corrigido, em 3 arquivos. Corrigido no mesmo PR.",
+  "counter_evidence_expected": null,
+  "line_provenance": "ProtocolFormBody.tsx:113 na epoca do PR; hoje a linha 112 carrega a versao ja corrigida ('por mL'). O fixture preserva o estado historico.",
+  "finding": {
+    "file": "apps/mobile/src/features/treatments/components/ProtocolFormBody.tsx",
+    "line": 113,
+    "snippet": "const densityLabel = form.values.intake_unit === 'UI' ? '💧 Densidade: UI por ml' : '💧 Densidade: Gotas por ml'",
+    "severity": "medium",
+    "introduced": true,
+    "rule": "AP-306",
+    "causation": "densityHint foi corrigido para a grafia 'mL' neste PR e densityLabel ficou com 'ml' logo ao lado, entao o mesmo conceito aparece com duas grafias na mesma tela.",
+    "issue": "densityLabel usa 'ml' enquanto densityHint ja usa 'mL' — grafia inconsistente na mesma tela.",
+    "fix": "Trocar 'ml' por 'mL' em densityLabel nos 3 arquivos."
+  }
+}

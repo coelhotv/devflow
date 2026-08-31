@@ -1,0 +1,24 @@
+{
+  "id": "real-765",
+  "kind": "real",
+  "class": null,
+  "expect": "passed",
+  "expect_reason": "Classe nao reconhecida (coerencia entre superficies). Nao ha verificador possivel na Fase 1 — e exatamente o tipo de achado que so um revisor produz, e o gate nao pode encostar nele.",
+  "pr": 765,
+  "date": "2026-07-21",
+  "source": "plans/specs/034-gemini-sunset/measurement.md — linha do PR 765 (029 F6)",
+  "provenance": "O achado de MAIOR valor de toda a serie: pegou incoerencia ENTRE superficies do mesmo diff — status.ts do bot buscava a escada pelo embed protocol_id enquanto web e mobile foram corrigidos no MESMO PR, e o autor havia escrito o docstring que proibe isso horas antes. O RC5 do autor nao viu.",
+  "counter_evidence_expected": null,
+  "line_provenance": "server/bot/commands/status.ts:37-38 — hoje a query separada esta la, com o comentario que nasceu deste finding (linhas 29-30 citam 'RC6 #765').",
+  "finding": {
+    "file": "server/bot/commands/status.ts",
+    "line": 37,
+    "snippet": ".from('titration_steps')",
+    "severity": "high",
+    "introduced": true,
+    "rule": "AP-311",
+    "causation": "O bot resolve a escada pelo embed `titration_steps(...)` pendurado no select de protocols, que casa pela FK protocol_id; web e mobile foram migrados para query separada neste mesmo PR e o bot ficou para tras, entao as tres superficies divergem para o mesmo tratamento.",
+    "issue": "AP-311 reintroduzido no bot: escada resolvida por embed em vez de query separada.",
+    "fix": "Trocar o embed por query separada em titration_steps, como ja feito em web e mobile."
+  }
+}

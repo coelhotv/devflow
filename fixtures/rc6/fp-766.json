@@ -1,0 +1,24 @@
+{
+  "id": "fp-766",
+  "kind": "fp",
+  "class": null,
+  "expect": "passed",
+  "expect_reason": "Classe `assinatura` nao existe na Fase 1 (T019/T020 sao Fase 2). Classe nao reconhecida => verificador vazio => finding PASSA. Este fixture e o controle de que o classificador nao chuta.",
+  "pr": 766,
+  "date": "2026-07-22",
+  "source": "plans/specs/034-gemini-sunset/measurement.md — linha do PR 766 (hotfix AP-314, --tier1)",
+  "provenance": "Alegou que omitir o 3o arg de describeLoadFailure devolveria undefined e renderizaria estado vazio; o parametro tem valor DEFAULT e o retorno e string. Refutado por execucao: describeLoadFailure({}, {}) -> 'Erro ao carregar dados.'. O instinto valia (nao havia teste travando o caso), e o teste foi adicionado em f2c53e0.",
+  "counter_evidence_expected": null,
+  "line_provenance": "file:line nao registrados no measurement; a funcao foi alterada depois do PR. Mantido generico de proposito — este fixture testa CLASSIFICACAO, nao verificacao.",
+  "finding": {
+    "file": "apps/web/src/utils/loadFailure.ts",
+    "line": 1,
+    "snippet": "describeLoadFailure(error, context, fallback)",
+    "severity": "medium",
+    "introduced": true,
+    "rule": "",
+    "causation": "Os call sites omitem o terceiro argumento, entao `fallback` chega undefined e a funcao devolve undefined; a UI renderiza estado vazio em vez da mensagem de erro.",
+    "issue": "Chamada sem o terceiro argumento faz `describeLoadFailure` devolver undefined.",
+    "fix": "Passar o terceiro argumento em todos os call sites."
+  }
+}

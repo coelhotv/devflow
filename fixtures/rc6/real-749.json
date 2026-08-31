@@ -1,0 +1,26 @@
+{
+  "id": "real-749",
+  "kind": "real",
+  "class": "schema",
+  "expect": "passed",
+  "expect_reason": "PAR ADVERSARIAL do fp-757, mesma tabela e mesma classe, verdade oposta. `titration_steps.description` NUNCA existiu — o verificador de schema tem de NAO refutar. Sem este fixture o SC-002 e vacuo para a classe `schema`: os outros real-* sao todos de classe nao reconhecida e passariam sem o verificador rodar.",
+  "pr": 749,
+  "date": "2026-07-16",
+  "source": ".agent/memory/anti-patterns/**/AP-300.md (incidente 029 F3) — nao veio de run do RC6",
+  "provenance": "Outage em producao: TitrationStepLike declarava `description`, o F1 nunca criou a coluna, e o F3 escreveu os select() a partir do tipo. `{\"code\":\"42703\",\"message\":\"column titration_steps_1.description does not exist\"}` derrubou o read-path de protocols em web, mobile e cron. NENHUM gate pegou (tsc, 2068 testes, lint, RC5, review externo) porque o select e string e os testes mockam o client.",
+  "synthesized": true,
+  "synthesis_note": "O finding abaixo e a redacao que o RC6 teria produzido se tivesse pego o incidente; o FATO (coluna inexistente, codigo 42703, arquivo) e historico e verificavel, a prosa e reconstruida. Declarado para nao passar por output de run.",
+  "counter_evidence_expected": "information_schema.columns NAO devolve linha para titration_steps.description => sem contra-prova positiva => finding passa",
+  "line_provenance": "packages/core/src/utils/titrationUtils.ts — o tipo vive nesse arquivo; a linha do campo `description` foi removida na correcao do incidente.",
+  "finding": {
+    "file": "packages/core/src/utils/titrationUtils.ts",
+    "line": 41,
+    "snippet": "description?: string | null",
+    "severity": "critical",
+    "introduced": true,
+    "rule": "R-295",
+    "causation": "O select de protocols embute titration_steps(...) com `description`; a coluna nao existe na tabela, entao o PostgREST responde 42703 e todo o read-path de protocols morre em web, mobile e cron.",
+    "issue": "Coluna `description` nao existe em `titration_steps`. O select vai falhar em runtime com 42703 (column does not exist).",
+    "fix": "Remover `description` do tipo e dos 5 selects; a nota por etapa nao migrou do N1 por decisao de spec."
+  }
+}
