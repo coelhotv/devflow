@@ -45,6 +45,19 @@ if [ ! -x "$GATE" ]; then
   exit 69
 fi
 
+# Preflight: o corpus é do dosiq — os fixtures citam arquivos e tabelas DELE. Rodar
+# contra outro repo faz todo verificador devolver UNAVAILABLE, e o corpus fica vermelho
+# por motivo errado (alguém "conserta" o gate que estava certo).
+REPO_ROOT="${RC6_REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+if [ ! -f "$REPO_ROOT/packages/core/src/utils/doseUnit.ts" ]; then
+  echo "reflect-test: REPO_ROOT=$REPO_ROOT não parece ser o repo do dosiq." >&2
+  echo "  Os fixtures citam arquivos e tabelas do dosiq; fora dele todo verificador" >&2
+  echo "  devolve UNAVAILABLE e o corpus fica vermelho por motivo errado." >&2
+  echo "  Rode de dentro do dosiq, ou exporte RC6_REPO_ROOT=/caminho/para/dosiq." >&2
+  exit 78
+fi
+export RC6_REPO_ROOT="$REPO_ROOT"
+
 # Monta o payload no formato do $MERGED e roda o gate.
 # Ecoa: <id>\t<expect>\t<class>\t<refuted_real>\t<tem_refutation>
 run_one() {
@@ -59,18 +72,32 @@ PY
   out="$("$GATE" < /tmp/reflect-test-payload.$$.json 2>/tmp/reflect-test-stderr.$$)"
   rc=$?
   rm -f /tmp/reflect-test-payload.$$.json
+  # O log do FR-009 é a única forma de distinguir "passou porque o verificador
+  # contradisse" de "passou porque o verificador nem rodou". Engolir esse stderr
+  # transforma degradação silenciosa em corpus vermelho sem causa — a doença que a
+  # 056 documentou. Sempre encaminhar.
+  sed 's/^/    gate: /' /tmp/reflect-test-stderr.$$ >&2
+  rm -f /tmp/reflect-test-stderr.$$
   if [ $rc -ne 0 ]; then
     echo "reflect-test: gate saiu $rc no fixture $(basename "$file")" >&2
-    sed 's/^/    gate: /' /tmp/reflect-test-stderr.$$ >&2
-    rm -f /tmp/reflect-test-stderr.$$
     return 1
   fi
-  rm -f /tmp/reflect-test-stderr.$$
-  if [ "$AS_JSON" = "1" ]; then printf '%s\n' "$out"; return 0; fi
-  printf '%s' "$out" | python3 - "$file" <<'PY'
+  # --json normaliza a serializacao (indent fixo, chaves ordenadas) porque o PO-4 compara
+  # os 3 modos por diff. O modo 0 e passthrough PURO — o gate desligado nao pode reescrever
+  # o JSON — entao sem normalizar aqui o diff vira ruido de formatacao e esconde justamente
+  # o que o PO-4 quer ver: refuted/refutation e nada mais.
+  if [ "$AS_JSON" = "1" ]; then
+    printf '%s' "$out" | python3 -c 'import json,sys; json.dump(json.load(sys.stdin), sys.stdout, ensure_ascii=False, indent=2, sort_keys=True); print()'
+    return 0
+  fi
+  # 🔴 A saida do gate vai por ARQUIVO, nao por pipe: `python3 - <<'PY'` ja usa o stdin
+  # para ler o proprio programa, entao um pipe para o mesmo processo chega vazio e o
+  # json.load(sys.stdin) morre com "Expecting value: line 1 column 1".
+  printf '%s' "$out" > /tmp/reflect-test-out.$$.json
+  python3 - "$file" /tmp/reflect-test-out.$$.json <<'PY'
 import json, sys
-fx = json.load(open(sys.argv[1]))
-out = json.load(sys.stdin)
+fx = json.load(open(sys.argv[1], encoding='utf-8'))
+out = json.load(open(sys.argv[2], encoding='utf-8'))
 fs = out.get("findings", [])
 # modo drop remove o refutado: ausência do finding É o refuted.
 if fs:
@@ -86,6 +113,9 @@ if refuted and not refutation.strip():
     got += " SEM-EVIDENCIA"
 print("\t".join([fx["id"], fx["kind"], str(fx.get("class")), fx["expect"], got, "OK" if ok else "FALHA"]))
 PY
+  local prc=$?
+  rm -f /tmp/reflect-test-out.$$.json
+  return $prc
 }
 
 if [ "$MODE" = "fixture" ]; then
