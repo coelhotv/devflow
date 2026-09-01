@@ -1269,7 +1269,10 @@ if n_ref:
     c["introduced_critical"] = cnt("critical", True)
     c["introduced_high"] = cnt("high", True)
 json.dump(d, open(p, "w", encoding='utf-8'), ensure_ascii=False, indent=2)
-print("refuted=%d" % n_ref)
+# 🔴 stderr, NUNCA stdout: o stdout deste script é o JSON do review e existe
+# consumidor que faz `| jq`. Uma linha de log antes do `{` quebra o parse — a
+# mesma classe de bug do `--json` truncado que a 060 já pagou uma vez.
+sys.stderr.write("reflect: refuted=%d\n" % n_ref)
 PYR
     else
       log "reflect: saída inválida — $MERGED preservado sem filtro"
