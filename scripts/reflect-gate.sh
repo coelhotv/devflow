@@ -70,6 +70,11 @@ PATTERNS = {
         r'\b42703\b',
         r'coluna\s+\S+\s+nao existe', r'column\s+\S+\s+does not exist',
         r'nao existe (?:em|na tabela)', r'tabela inexistente', r'relation .* does not exist',
+        # T021 — a frase do FP do #801. O revisor nao disse "nao existe", disse "entra
+        # sem verificacao"; o verificador ja resolvia (a coluna existe, HTTP 200) e quem
+        # falhava era o classificador. Seguro por construcao: esta classe so refuta se a
+        # coluna EXISTIR, e se existe a preocupacao do finding e vazia por definicao.
+        r'sem verifica[cç]', r'nao (?:foi )?verificad', r'nao verificou',
     ],
 }
 
