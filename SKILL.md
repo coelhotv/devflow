@@ -1561,7 +1561,7 @@ If there are ASK items → STOP and await operator decision. (Do not proceed to 
 **Independence is the whole point — enforce it by construction:**
 - Run in a **fresh headless process**, NOT in the coding agent's session. Do **not** pass the coder's chat history, reasoning, or "what I intended" — only the diff + the rule catalogs. Cold-start is the feature, not a cost.
 - Engine (OAuth quota, **$0 marginal** — no metered API):
-  - **Primary: `agy -p` (Gemini 3.1)** — larger weekly quota, absorbs routine volume.
+  - **Primary: `agy -p` (Gemini 3.8 Flash)** — larger weekly quota, absorbs routine volume.
   - **Fallback / escalation: `claude -p` (Opus 4.8 / Sonnet 4.6)** — stronger reasoning; use on architectural PRs or when `agy -p` is unavailable/weak.
 
 **Execution:**

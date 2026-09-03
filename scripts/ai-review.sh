@@ -11,7 +11,7 @@
 # Independence by construction: this runs in a fresh process with NO access to
 # the coding agent's chat/reasoning — only the diff + full files + rule catalogs.
 #
-# Engines (OAuth quota, $0 marginal): agy (Gemini 3.6) generalist; claude -p
+# Engines (OAuth quota, $0 marginal): agy (Gemini 3.8 Flash) generalist; claude -p
 # (Opus/Sonnet) for the domain-rule pass on migration/architectural PRs.
 #
 # Usage:
@@ -750,7 +750,8 @@ JSON
 # `StructuredOutput` tool despite --tools "": that is the delivery mechanism for
 # the structured answer (no shell/file/MCP reach), so the SC-SEC1 property holds,
 # but the `init` event will list one tool. Do not read that as a broken guard.
-AGY_ARGS=(--sandbox --print-timeout "$AGY_TIMEOUT" --model 'gemini-3.7-flash-high')
+RC6_AGY_MODEL="${RC6_AGY_MODEL:-gemini-3.8-flash-medium}"
+AGY_ARGS=(--sandbox --print-timeout "$AGY_TIMEOUT" --model "$RC6_AGY_MODEL")
 [ "$AGY_NOSLASH" = 1 ] && AGY_ARGS+=(--disable-slash-commands)
 [ "$AGY_SCHEMA"  = 1 ] && AGY_ARGS+=(--output-format json --json-schema "$SCHEMA")
 # --setting-sources "": do NOT load user/project settings (CLAUDE.md, skills,
@@ -916,7 +917,7 @@ fi
 # cost no engine quota, and a probe is an engine call.
 PROBE_TIMEOUT="${RC6_PROBE_TIMEOUT:-30s}"
 if [ "$HAVE_AGY" = 1 ] && [ "${RC6_SKIP_PROBE:-0}" != 1 ]; then
-  PROBE_ARGS=(--sandbox --print-timeout "$PROBE_TIMEOUT" --model 'gemini-3.7-flash-high')
+  PROBE_ARGS=(--sandbox --print-timeout "$PROBE_TIMEOUT" --model "$RC6_AGY_MODEL")
   [ "$AGY_NOSLASH" = 1 ] && PROBE_ARGS+=(--disable-slash-commands)
   if [ "$AGY_SCHEMA" = 1 ]; then
     # structured envelope: SUCCESS is asserted, not inferred from "output looked non-empty"
