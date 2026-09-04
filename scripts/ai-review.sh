@@ -261,7 +261,14 @@ fi
 # head of an R/AP line states the pattern; the tail is case history the
 # reviewer doesn't need (detail files for ids present in the diff still attach
 # in full below).
-IDX_LINE_MAX="${RC6_IDX_LINE_MAX:-110}"       # 056/US2: 230→110 (medido #756/#766: preamble -40%, chunk sob budget)
+IDX_LINE_MAX="${RC6_IDX_LINE_MAX:-80}"        # 056/US2: 230→110 · 078/T3.2: 110→80 (medido: budget 31.202→49.895B, sai do piso, ADVISORY 1→0)
+# ⚠️ 80 e não 55 POR MEDIÇÃO DO CUSTO (078/T3.3): a linha do índice É o conteúdo que o
+# revisor lê. Mediana da linha real = 224 chars; conteúdo útil pós-prefixo "- **[ID]** "
+# cai para 95 (clamp 110) / 65 (80) / 40 (55). Em 55, 8 de 10 linhas amostradas param no
+# meio da cláusula ("Filter logs using ONLY log.protocol_id ==") — sintoma sem mecanismo.
+# 55 renderia budget de 64.456B que nada consome, pago em legibilidade. Se o budget
+# apertar de novo, a alavanca é o seletor da 060 (preâmbulo O(1) no acervo), não encurtar
+# mais a linha: o aviso ">60% of the engine budget" AINDA dispara em 80.
 CTX_TOTAL_MAX="${RC6_CTX_TOTAL_MAX:-150000}"
 # 🔴 Truncagem por CARACTERE, não por byte. `cut -c` (BSD, locale C) e `awk substr`
 # cortam BYTES: numa linha em português o corte cai no meio de um multibyte e deixa
