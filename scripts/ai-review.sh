@@ -26,6 +26,12 @@
 #                 writers without a lock lose one write silently).
 #     --tier1/2   force pass strategy; default is auto-detected from the diff.
 #
+# Env (078/T3.6): RC6_SELECTOR=0 desliga o bloco SELECTED MEMORIES (default 1),
+#     RC6_SELECTOR_LIMIT=N quantas memórias inteiras ele injeta (default 5, é o
+#     termo que dimensiona o bloco), RC6_SELECTOR_SCRIPT=<path> aponta o seletor
+#     (default <repo>/scripts/select-rules.mjs). Ausência de qualquer um deles é
+#     fail-open com log, nunca erro.
+#
 # Exit: 0 clean or issues_found (non-blocking by design — human gate R-060 is
 #       final). Fail-open: if all engines are unavailable, emits a warning JSON
 #       and exits 0. STOP semantics (introduced critical/high) are the operator's
@@ -397,10 +403,77 @@ PREAMBLE_DETAIL="$WORKDIR/preamble_detail.txt"
   done
 } > "$PREAMBLE_DETAIL"
 
+# SELECTED MEMORIES (spec 060/T012 · 078/T3.6) — roteamento em vez de despejo.
+# O bloco abaixo NÃO cresce com o acervo: o seletor pontua o índice COMPILADO contra o
+# diff e devolve no máximo RC6_SELECTOR_LIMIT memórias INTEIRAS. É o oposto do índice
+# clampado, que manda 611 linhas decapitadas: aqui vão poucas, completas e escolhidas.
+# Ele ADICIONA — não remove os índices. O corte é decisão do PR 7 da 078, pelo A/B, e
+# não pode ser tomada de carona aqui (substituto ANTES do corte).
+# Fail-open por desenho: script ausente, node ausente, índice ilegível ou saída vazia =>
+# preâmbulo sem o bloco, review segue. O seletor tem fail-safe próprio (FR-007 da 060),
+# mas um gate que morre porque o ROTEADOR morreu é pior que um gate sem roteamento.
+SELECTOR="${RC6_SELECTOR:-1}"
+SELECTOR_LIMIT="${RC6_SELECTOR_LIMIT:-5}"
+SELECTOR_SCRIPT="${RC6_SELECTOR_SCRIPT:-$REPO_ROOT/scripts/select-rules.mjs}"
+PREAMBLE_SELECTED="$WORKDIR/preamble_selected.txt"
+: > "$PREAMBLE_SELECTED"
+if [ "$SELECTOR" != 0 ] && [ -f "$SELECTOR_SCRIPT" ] && command -v node >/dev/null 2>&1; then
+  if node "$SELECTOR_SCRIPT" --diff-file "$WORKDIR/diff.txt" --limit "$SELECTOR_LIMIT" \
+       > "$WORKDIR/selected_raw.txt" 2>"$WORKDIR/selected.err"; then
+    # DEDUPE contra os DETAIL files: uma memória citada por id no diff já entra INTEIRA
+    # abaixo. Sem isto o mesmo texto viajaria duas vezes no mesmo preâmbulo — pagar duas
+    # vezes pelo mesmo conteúdo, num orçamento que este PR existe para respeitar.
+    # A lista de skip sai do PREAMBLE_DETAIL JÁ MONTADO, não de DETAIL_FILES: o bloco de
+    # detail tem cap próprio (RC6_DETAIL_MAX) e descarta o excedente. Deduplicar contra a
+    # lista PRETENDIDA em vez da EMITIDA removia a memória das DUAS pontas — cortada do
+    # detail pelo cap e do seletor pelo dedupe, some sem uma linha de log. Medido com o
+    # diff d365257c^...main: AP-345 estava exatamente nesse buraco.
+    grep -oE '^===== DETAIL (R|AP|ADR)-[0-9]+' "$PREAMBLE_DETAIL" 2>/dev/null \
+      | sed -E 's#^===== DETAIL ##' | sort -u > "$WORKDIR/selected_skip.txt" || : > "$WORKDIR/selected_skip.txt"
+    python3 - "$WORKDIR/selected_raw.txt" "$WORKDIR/selected_skip.txt" > "$WORKDIR/selected.txt" <<'PYDEDUP'
+import re, sys
+blocks, cur = [], []
+head = re.compile(r'^## (?:\[HOT\] )?((?:R|AP|ADR)-[0-9]+)')
+for line in open(sys.argv[1], encoding='utf-8'):
+    if head.match(line):
+        if cur: blocks.append(cur)
+        cur = [line]
+    elif cur:
+        cur.append(line)
+skip = {l.strip() for l in open(sys.argv[2], encoding='utf-8') if l.strip()}
+if cur: blocks.append(cur)
+out = [b for b in blocks if head.match(b[0]).group(1) not in skip]
+sys.stdout.write(''.join(''.join(b) for b in out))
+PYDEDUP
+    mv "$WORKDIR/selected.txt" "$WORKDIR/selected_raw.txt"
+    if [ -s "$WORKDIR/selected_raw.txt" ]; then
+      {
+        echo
+        echo "===== SELECTED MEMORIES (compiled index; top-${SELECTOR_LIMIT} by diff match; FULL text) ====="
+        echo "Estas foram ESCOLHIDAS pelo diff — o score e o motivo vão em cada bloco. Prioridade"
+        echo "sobre as linhas dos índices abaixo, que chegam clampadas e sem seleção."
+        echo
+        cat "$WORKDIR/selected_raw.txt"
+      } > "$PREAMBLE_SELECTED"
+      # Contar por '^## ' contaria os subtítulos DO CORPO das memórias (uma regra tem seções
+      # próprias) e inflava 5 para 25. O cabeçalho de bloco é '## <ID> — ...' / '## [HOT] <ID>'.
+      log "selector: $(grep -cE '^## (\[HOT\] )?(R|AP|ADR)-[0-9]+' "$WORKDIR/selected_raw.txt" || echo 0) memória(s), $(wc -c < "$PREAMBLE_SELECTED" | tr -d ' ')B"
+    else
+      log "selector: saída vazia — preâmbulo segue sem o bloco (fail-open)"
+    fi
+  else
+    log "selector: falhou (exit != 0) — preâmbulo segue sem o bloco (fail-open); stderr: $(head -c 200 "$WORKDIR/selected.err" 2>/dev/null)"
+  fi
+elif [ "$SELECTOR" != 0 ]; then
+  log "selector: indisponível ($SELECTOR_SCRIPT ou node ausente) — preâmbulo sem o bloco"
+fi
+
+
 # emit_preamble $1=space-packs("" => whole catalogs). HEAD + filtered indexes + DETAIL.
 emit_preamble() {
   local packs="$1"
   cat "$PREAMBLE_HEAD"
+  cat "$PREAMBLE_SELECTED"
   echo; echo "===== RULES_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
   [ -f "$RULES_IDX" ] && filtered_index "$RULES_IDX" rules "$packs"
   echo; echo "===== ANTI_PATTERNS_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
