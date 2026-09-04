@@ -39,10 +39,10 @@ done
 # Create journal with archive
 mkdir -p "$MEMORY_DIR/journal/archive"
 
-# Create evolution, sessions, synthesis
+# Create evolution, sessions
+# (synthesis/ was the staging area of the cross-project export, RETIRED 2026-09-04 — see SKILL.md D4)
 mkdir -p "$AGENT_DIR/evolution"
 mkdir -p "$AGENT_DIR/sessions"
-mkdir -p "$AGENT_DIR/synthesis"
 
 echo "  ✓ Directory tree created with 5 categories"
 
@@ -273,7 +273,6 @@ if [ -f "$PROJECT_PATH/.gitignore" ]; then
     echo "" >> "$PROJECT_PATH/.gitignore"
     echo "# DEVFLOW runtime" >> "$PROJECT_PATH/.gitignore"
     echo ".agent/sessions/" >> "$PROJECT_PATH/.gitignore"
-    echo ".agent/synthesis/" >> "$PROJECT_PATH/.gitignore"
     echo ".agent/evolution/" >> "$PROJECT_PATH/.gitignore"
     echo ".agent/state.json" >> "$PROJECT_PATH/.gitignore"
     echo "# Keep memory (rules, ADRs, etc.) in git" >> "$PROJECT_PATH/.gitignore"

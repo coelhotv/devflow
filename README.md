@@ -36,7 +36,7 @@ Each session reads project state from files, acts, and records outcomes back to 
 bash /path/to/devflow/scripts/setup.sh ./my-project "my-project" "react,typescript,supabase"
 ```
 
-This creates a `.agent/` structure with Markdown memory indexes, detail folders, state, genes, sessions, and synthesis files.
+This creates a `.agent/` structure with Markdown memory indexes, detail folders, state, genes, and sessions.
 
 ### Existing project
 
@@ -62,7 +62,6 @@ DEVFLOW modes:
 /devflow distill
 /devflow status
 /devflow status --health
-/devflow export
 ```
 
 Mode control is strict:
@@ -155,9 +154,6 @@ Each project using DEVFLOW gets a `.agent/` folder:
   sessions/
     .lock                          ← optimistic write lock, not versioned
     events.jsonl                   ← append-only session events, not versioned
-
-  synthesis/
-    pending_export.json
 ```
 
 Spec-first feature work lives outside `.agent/`:
@@ -176,7 +172,7 @@ plans/
         *.md                       ← feature-local contracts, if needed
 ```
 
-**Versioned:** `.agent/memory/`, `.agent/evolution/`, `.agent/synthesis/`, `.agent/constitution.md`, `.agent/state.json`, `plans/specs/`.
+**Versioned:** `.agent/memory/`, `.agent/evolution/`, `.agent/constitution.md`, `.agent/state.json`, `plans/specs/`.
 
 **Not versioned:** `.agent/sessions/.lock`, `.agent/sessions/events.jsonl`.
 
@@ -192,7 +188,6 @@ plans/
 | Reviewing | `/devflow reviewing "PR #N"` | Analyze changes against rules/contracts/ADRs and sync memory |
 | Distillation | `/devflow distill` | Compress journal, lifecycle review, reconcile indexes/counters |
 | Status | `/devflow status` | Current state dashboard |
-| Export | `/devflow export` | Promote reusable knowledge to global base |
 
 ---
 
@@ -224,21 +219,17 @@ Each detail file uses YAML frontmatter plus Markdown body. See [templates/schema
 
 ---
 
-## Global Knowledge Base
+## Cross-Project Knowledge — RETIRED (2026-09-04)
 
-DEVFLOW can maintain a shared knowledge base at `~/.devflow/global_base/`:
+The shared knowledge base at `~/.devflow/global_base/` and the `/devflow export` step are **no
+longer part of the protocol** (dosiq spec 078 / ADR-097). Measured before retiring it: 616 KB,
+133 `.md`, every content file last written **2026-04-08** — five months write-only — and **zero**
+read paths anywhere in the skill. Nothing consumed it, so nothing was learned from it.
 
-```text
-~/.devflow/global_base/
-  universal_rules.json
-  universal_anti_patterns.json
-  rules/
-  anti-patterns/
-```
-
-New projects can import universal patterns. Mature projects can run `/devflow export` to promote general rules/APs for reuse.
-
----
+Promotion now happens **inside** a project (D3): rank memories by the refreshed `incident_count`,
+take the top-K, and let the file that is always loaded be the consumer. The directory is left on
+disk for traceability; nothing was deleted. Reviving cross-project sharing needs the two things it
+never had: a reader, and a way to validate a rule from project A inside project B.
 
 ## Language
 

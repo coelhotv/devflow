@@ -38,9 +38,6 @@
     .lock                       ← optimistic write lock (clear after every write)
     events.jsonl                ← session events (append-only, capped at 200 entries)
 
-  synthesis/
-    pending_export.json         ← rules/APs ready for global base promotion
-
 plans/
   specs/
     NNN-feature-name/
@@ -130,10 +127,8 @@ DISTILLATION MODE:
     ↓
   D0: session.status = "distilling"
     ↓
-  D1-D3: journal compression, lifecycle review, promotion assessment
-    ↓
-  D4 (optional, /devflow export):
-    → session.status = "exporting" → export → session.status = "exported"
+  D1-D3: journal compression, lifecycle counters refreshed, in-project top-K promotion
+         (D4/global export RETIRED 2026-09-04 — see SKILL.md D4)
     ↓
   D5: index self-cleaning
     ↓

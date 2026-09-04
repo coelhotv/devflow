@@ -1329,7 +1329,34 @@ All gates must pass AND all DoD items must be checked before proceeding to C5.
 Execute this checklist IN ORDER:
 
 ```
-  [ ] 1. New bug found and fixed? → Add AP-NNN to ANTI_PATTERNS_INDEX.md + anti-patterns/[cat]/AP-NNN.md
+  [ ] 1. New bug found and fixed?
+      → FIRST search for an EXISTING pattern of the same CLASS, then decide increment-vs-coin:
+          a. Run the project's class search over the memory index (e.g. dosiq:
+             `node scripts/recount-memory.mjs --find-similar "<one-line description of the bug>"`).
+             No such tool in this project? Then `grep` the index for the words that name the
+             MECHANISM, not the surface (search "gate reports success without running", not the
+             file name).
+          b. Vary the terms at least once. These searches match TERMS over title/summary/keywords —
+             they are NOT semantic. Measured on dosiq 2026-09-04: the paraphrase
+             "fixture written by the author carries the premise" did NOT return AP-346, the exact
+             parent, coined the day before, because its title says "paired patterns" and not
+             "fixture". NOT MATCHING IS THEREFORE NOT PROOF OF A NEW CLASS — it is a first pass.
+          c. Matched? → INCREMENT: append a dated amendment to the existing AP (what THIS instance
+             adds to the rule) + update its index line. Do NOT coin a sibling ID.
+          d. No match after varying terms? → coin AP-NNN in ANTI_PATTERNS_INDEX.md +
+             anti-patterns/[cat]/AP-NNN.md, checking the ID against the index ON DISK (AP-343).
+      → The journal entry MUST record the TERMS used and the outcome (matched <ID> / no match).
+        A new AP with no such line in the journal is a GATE VIOLATION, not an oversight: without
+        the terms nobody can tell a real search from a claimed one — and "searched, found nothing"
+        is exactly the shape of a step that never ran (AP-325 family).
+      ⚠️ PREREQUISITE — the search is only as fresh as the compiled index. If the project keeps a
+        compiled memory index, re-run its freshness gate (dosiq:
+        `node scripts/compile-memory-index.mjs --check`; exit != 0 means recompile) and recompile
+        BEFORE searching. Memory coined in THIS session is the most likely to match the next bug
+        and is precisely what a stale index cannot see (R-289 class: the source moved, the derived
+        artifact did not). Note that a legitimate gap remains after recompiling: entries with
+        status archived/superseded are excluded BY DESIGN (dosiq 2026-09-04: 611 on disk, 573 in
+        the index, the 38 being archived) — that difference is not staleness, do not "fix" it.
   [ ] 2. New pattern discovered? → Add R-NNN to RULES_INDEX.md + rules/[cat]/R-NNN.md
   [ ] 3. Contract updated? → Update CONTRACTS_INDEX.md (CON-NNN) + contracts/[cat]/CON-NNN.md
   [ ] 4. Architectural decision made? → DECISIONS_INDEX.md ADR-NNN (status: "accepted") + detail file
@@ -1723,7 +1750,7 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 
 ## Mode: Distillation
 
-**Purpose:** Compress journal entries, review rule lifecycle, export cross-project knowledge.
+**Purpose:** Compress journal entries, refresh the lifecycle counters, and review promotion/demotion within the project. (Cross-project export was RETIRED in 2026-09-04 — see D4.)
 
 ### D0 — State Transition to Distillation
 
@@ -1757,6 +1784,20 @@ Write compressed archive: memory/journal/archive/YYYY-WXX-WYY.json
 
 ### D2 — Rule Lifecycle Review
 ```
+FIRST, refresh the lifecycle counters — the review below is worthless if it reads a frozen field.
+`incident_count`/`last_referenced` are DERIVED from the project's own traces (git log, journal,
+events, measurement files), not hand-maintained:
+  1. Recompute:  the project's counter in read-only mode (dosiq: `recount-memory.mjs --report`)
+  2. Write back: the project's frontmatter writer (dosiq:
+                 `migrate-memory-frontmatter.mjs --lifecycle --apply`)
+  3. Verify:     the diff touches ONLY the lifecycle lines, and the schema validator stays green
+                 with those fields TYPED (untyped, a passthrough schema accepts garbage such as
+                 the literal `None` and reports success — dosiq 2026-09-04: typing them exposed
+                 104 files carrying exactly that)
+If the project has no such producer, treat both fields as ABSENT and say so in the distillation
+entry — do NOT read the stale number as if it were current. A counter nobody recomputes is worse
+than no counter: it looks like evidence.
+
 Read RULES_INDEX.md — for each entry where review_due < today:
   Grep recent journal entries for references to this R-NNN
   IF referenced recently (< 4 weeks ago) → extend review_due by 12 weeks
@@ -1793,23 +1834,44 @@ Guardrails:
   - preserve IDs and detail files when archiving for traceability
 ```
 
-### D3 — Promotion Assessment
+### D3 — Promotion Assessment (top-K, in-project)
 ```
-For each R-NNN with incident_count >= genes.auto_promote_rule_after_incidents:
-  IF rule is general (applies_to doesn't include domain-specific tags) → add to synthesis/pending_export.json
-For each AP-NNN with trigger_count >= 3:
-  IF anti-pattern is general → add to synthesis/pending_export.json
+Promotion has a HARD CEILING, not a floor. Rank the memories by the refreshed `incident_count`
+(D2) and take the top-K; the memory that leaves the list is DEMOTED BY THE SAME EVENT that
+promotes the one entering. An absolute threshold is the wrong instrument and the number proves it:
+on dosiq, `incident_count >= 3` would promote 311 of 611 memories (51% of the corpus), which is
+the very inflation this step exists to prevent.
+
+  1. Rank + cut:   the project's top-K (dosiq: `recount-memory.mjs --skills-layer --k 12`)
+  2. Diff:         against the always-loaded file (dosiq:
+                   `--skills-layer --k 12 --diff-against CLAUDE.md`) — SUBIR/DESCER in one report
+  3. Budget check: the ceiling is the reviewer's MEASURED chunk budget, not a number from a paper
+                   (dosiq: `--estimate-bytes --pr N`, which EXECUTES the reviewer in measure mode)
+  4. Second door:  severity (dosiq: `--severity-candidates`) — for the bug that happened ONCE and
+                   still has to be known. Objective criteria only, each backed by a quotable line
+                   from the record itself; "this feels serious" is not a criterion.
+
+The implied threshold at the cut is an OBSERVATION (record it with HEAD + date), never an
+acceptance criterion: it MOVES on its own, because every session that cites rules changes the
+counts (dosiq measured 32 → 34 within a single day).
+
+Editing the always-loaded file is a HUMAN decision — this step produces the report, not the edit.
 ```
 
-### D4 — Global Export (triggered by /devflow export)
+### D4 — Global Export — **RETIRED (2026-09-04, dosiq spec 078 / ADR-097)**
 ```
-Read ~/.devflow/global_base/ (create if not exists)
-For each entry in synthesis/pending_export.json:
-  Assign GR-NNN or GAP-NNN identifier (increment from existing count)
-  Add to ~/.devflow/global_base/universal_rules.json or universal_anti_patterns.json
-  Copy detail file to ~/.devflow/global_base/rules/ or anti-patterns/
-  Update ~/.devflow/global_base/index.json
-Clear synthesis/pending_export.json after successful export
+The cross-project export step no longer runs, and `synthesis/pending_export.json` is no longer
+produced. Evidence that retired it (measured 2026-09-04):
+  - ~/.devflow/global_base = 616 KB, 133 .md (137 files), EVERY content file last written
+    2026-04-08 — five months write-only (the only newer file is a .DS_Store, written by Finder)
+  - ZERO read paths: no script in this skill ever reads it; the only references were prose in
+    SKILL.md and README.md
+A step that writes something nobody reads is not knowledge management — it is a gate reporting
+success for an operation with no consumer (AP-325 family). D3 now promotes WITHIN the project,
+where the always-loaded file is the actual consumer.
+
+The directory is LEFT ON DISK for traceability; nothing is deleted. Reviving it requires the thing
+it never had: a reader — plus a decision about how a rule from project A is validated in project B.
 ```
 
 ### D5 — Autonomous Self-Cleaning (Index Regenerator) — MANDATORY DEEP SCAN
