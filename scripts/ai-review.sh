@@ -470,14 +470,20 @@ fi
 
 
 # emit_preamble $1=space-packs("" => whole catalogs). HEAD + filtered indexes + DETAIL.
+# RC6_INDEXES=0 tira os dois índices .md do preâmbulo — é O CORTE que o ADR-097 propõe,
+# atrás de env var para ser MEDÍVEL e REVERSÍVEL antes de virar default (078/T3.10).
+# Default 1: cortar por padrão sem o A/B seria decidir pelo argumento em vez do número.
+INDEXES="${RC6_INDEXES:-1}"
 emit_preamble() {
   local packs="$1"
   cat "$PREAMBLE_HEAD"
   cat "$PREAMBLE_SELECTED"
-  echo; echo "===== RULES_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
-  [ -f "$RULES_IDX" ] && filtered_index "$RULES_IDX" rules "$packs"
-  echo; echo "===== ANTI_PATTERNS_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
-  [ -f "$AP_IDX" ] && filtered_index "$AP_IDX" anti-patterns "$packs"
+  if [ "$INDEXES" != 0 ]; then
+    echo; echo "===== RULES_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
+    [ -f "$RULES_IDX" ] && filtered_index "$RULES_IDX" rules "$packs"
+    echo; echo "===== ANTI_PATTERNS_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
+    [ -f "$AP_IDX" ] && filtered_index "$AP_IDX" anti-patterns "$packs"
+  fi
   cat "$PREAMBLE_DETAIL"
 }
 
