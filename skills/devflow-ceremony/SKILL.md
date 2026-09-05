@@ -356,6 +356,8 @@ STOP. Awaiting next ceremony OR planning invocation.
 <!-- devflow-split:qr:begin -->
 ## Quick Reference — Do / Do Not
 
+> Recorte **deste modo**. A tabela completa do DEVFLOW está distribuída pelas 7 skills — o núcleo (`/devflow`) guarda as linhas transversais.
+
 | DO | DO NOT |
 |----|--------|
 | Run at least RC3 (Eng Review) before coding Tier 2 work | Skip ceremonies to save time on Tier 2 work |

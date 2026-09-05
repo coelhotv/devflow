@@ -154,6 +154,8 @@ STOP. Awaiting Planning mode invocation.
 <!-- devflow-split:qr:begin -->
 ## Quick Reference — Do / Do Not
 
+> Recorte **deste modo**. A tabela completa do DEVFLOW está distribuída pelas 7 skills — o núcleo (`/devflow`) guarda as linhas transversais.
+
 | DO | DO NOT |
 |----|--------|
 | Register/update the spec row in the specs index/README on creation AND every status change | Create a spec dir or change its status without updating the specs index (silent drift) |

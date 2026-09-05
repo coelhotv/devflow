@@ -366,6 +366,8 @@ Next Session
 <!-- devflow-split:qr:begin -->
 ## Quick Reference — Do / Do Not
 
+> Recorte **deste modo**. A tabela completa do DEVFLOW está distribuída pelas 7 skills — o núcleo (`/devflow`) guarda as linhas transversais.
+
 | DO | DO NOT |
 |----|--------|
 | Run full selective bootstrap before every session | Skip bootstrap steps to save time |
