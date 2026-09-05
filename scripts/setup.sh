@@ -282,6 +282,23 @@ else
   echo "  ⚠ No .gitignore found (skip)"
 fi
 
+# ─── 5b. Install the DEVFLOW sub-skills ─────────────────────────────────────
+# As 6 sub-skills sao versionadas DENTRO deste repo, mas a descoberta olha UM nivel
+# abaixo de ~/.claude/skills/ — sub-skill aninhada nao e encontrada. Sem este passo o
+# operador tem 1 skill em vez de 7, e descobre pela AUSENCIA (falha silenciosa).
+echo "→ Installing DEVFLOW sub-skills..."
+SKILL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -x "$SKILL_ROOT/scripts/install-skills.sh" ]; then
+  if bash "$SKILL_ROOT/scripts/install-skills.sh"; then
+    echo "  ✓ sub-skills linked"
+  else
+    # NAO abortar o setup do projeto por causa disto — mas tambem NAO relatar sucesso.
+    echo "  ⚠ sub-skill install FAILED (see above). Only /devflow is available; run scripts/install-skills.sh by hand." >&2
+  fi
+else
+  echo "  ⚠ scripts/install-skills.sh not found (skip)"
+fi
+
 # ─── 6. Print summary ────────────────────────────────────────────────────────
 echo ""
 echo "✓ DEVFLOW v1.7 setup complete!"
@@ -291,4 +308,5 @@ echo "  1. Add rules: cp templates/examples/RULE_TEMPLATE.md .agent/memory/rules
 echo "  2. Add decisions: cp templates/examples/ADR_TEMPLATE.md .agent/memory/decisions/data_and_schema/ADR-001.md"
 echo "  3. Review RULES_INDEX.md and other indexes as you add items"
 echo "  4. Invoke /devflow in Claude Code to start using the skill"
+echo "     (modes: /devflow-spec · /devflow-plan · /devflow-ceremony · /devflow-code · /devflow-ideation · /devflow-distill)"
 echo ""
