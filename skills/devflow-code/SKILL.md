@@ -417,6 +417,28 @@ Execute this checklist IN ORDER:
         artifact did not). Note that a legitimate gap remains after recompiling: entries with
         status archived/superseded are excluded BY DESIGN (dosiq 2026-09-04: 611 on disk, 573 in
         the index, the 38 being archived) — that difference is not staleness, do not "fix" it.
+  [ ] 1b. SOMETHING TRIED, MEASURED AND REVERTED? → append an entry to the attempts ledger.
+      This is the SYMMETRIC step to item 1: the protocol has a path for what WORKED (AP / R / ADR /
+      CON) and, until now, none for "I tried it, I measured it, it did not work, I reverted it".
+      Without it the next session re-implements the same rejected intervention under another name,
+      measures it again, reverts it again — and no gate complains (measured on dosiq: the two
+      rejected rankings of spec 060 produced ZERO AP and ZERO R, and lived only in a `state.json`
+      note whose own header orders it deleted).
+        a. One line per INTERVENTION (not per defect), with the NUMBER measured, the BASELINE it was
+           measured against, the CAUSE it fell, the SHA (or an explicit `trace` when the revert never
+           became a commit — declaring absent provenance beats inventing it), and `terms` written on
+           purpose so someone else's search actually finds it. `verdict` also admits `accepted`:
+           without the denominator of accepted attempts the rejection rate means nothing.
+        b. If the project ships a ledger tool, use it (dosiq:
+           `node scripts/attempts.mjs --add '<json>'`, then `--check`, whose exit code MUST be read
+           WITHOUT a pipe). Otherwise append to `.agent/memory/attempts.jsonl` by hand.
+        c. Write the entry in a commit SEPARATE from the intervention itself. An entry born in the
+           same commit dies in that commit's `git revert` — the memory would roll back together with
+           the code, which is exactly what this step exists to prevent.
+      ⚠️ Where a gate can and cannot help: `--check` cross-references the `git log` reverts and
+      fails on any that has no entry, so REVERTING BY COMMIT without registering is impossible. A
+      revert done in the WORKING TREE, before any commit, leaves no trace in git — for that case
+      this checklist step is the only mechanism. Declared limit, not an oversight.
   [ ] 2. New pattern discovered? → Add R-NNN to RULES_INDEX.md + rules/[cat]/R-NNN.md
   [ ] 3. Contract updated? → Update CONTRACTS_INDEX.md (CON-NNN) + contracts/[cat]/CON-NNN.md
   [ ] 4. Architectural decision made? → DECISIONS_INDEX.md ADR-NNN (status: "accepted") + detail file

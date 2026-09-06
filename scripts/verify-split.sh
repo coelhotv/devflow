@@ -1,6 +1,26 @@
 #!/usr/bin/env bash
 # verify-split.sh — prova que a quebra da SKILL.md em 7 skills foi MECANICA (078/PO-19, PO-23 guard).
 #
+# ⚠️ APOSENTADO em 2026-09-05 (078/T5.7a, decisao do PO). NAO E GATE — nao rode em C4/C5 nem em hook.
+#
+#   O que ele prova e um EVENTO, nao um invariante: que o commit cb40ce6 moveu as linhas da
+#   SKILL.md sem reescrever nenhuma. Esse evento ja passou e a evidencia esta no PR #825; a ultima
+#   execucao verde foi em 2026-09-05, contra a base 9a8267e, antes desta nota.
+#
+#   Mantido como GATE ele reprovaria TODA edicao legitima subsequente nas 7 skills — a primeira
+#   delas e o passo do C5 deste mesmo slice (078/T5.7), que insere linhas em
+#   skills/devflow-code/SKILL.md e o deixa vermelho por construcao. O desfecho previsivel de um
+#   verificador permanentemente vermelho e alguem "consertar" afrouxando o verificador, que e a
+#   familia do AP-325 — e um script afrouxado e pior que um script aposentado, porque continua
+#   parecendo prova.
+#
+#   A alternativa considerada e recusada foi repontar a base para o commit da quebra e mante-lo
+#   como guard anti-reescrita: exigiria distinguir linha MOVIDA de linha NOVA, o que nao e de graca
+#   e nao foi orcado neste slice.
+#
+#   Para reproduzir a prova historica: `git stash` de qualquer trabalho e
+#   `git checkout cb40ce6 && bash scripts/verify-split.sh`.
+#
 # Por que duas checagens e nao uma:
 #   (a) o corpo 13-2096 e movido em blocos contiguos  -> diff ORDENADO tem de sair VAZIO;
 #   (b) o Quick Reference (2097-2135) e DISTRIBUIDO   -> a ordem muda por construcao, entao
