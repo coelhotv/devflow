@@ -1208,8 +1208,13 @@ if [ "$AB_MODE" != 0 ]; then
     # the A/B then died silently, which is the very failure class this guards).
     ab_done="$( { grep -c 'AB-PAIR' "$AB_LOG" || true; } 2>/dev/null | tr -dc '0-9')"
     ab_pend="$( { grep 'AB-PAIR' "$AB_LOG" 2>/dev/null | grep -c 'triagem: PENDENTE' || true; } | tr -dc '0-9')"
-    ab_done="${ab_done:-0}"; ab_pend="${ab_pend:-0}"
-    ab_triaged=$(( ab_done - ab_pend ))
+    # A pair marked PERDIDA was captured but its JSONs are gone: it can never be
+    # triaged, so it proves nothing for PO-5. Counting it as "triaged" would
+    # disarm the capture ONE usable pair short of the two PO-5 asks for — the
+    # brake firing against the goal it exists to serve (AP-348).
+    ab_lost="$( { grep 'AB-PAIR' "$AB_LOG" 2>/dev/null | grep -c 'triagem: PERDIDA' || true; } | tr -dc '0-9')"
+    ab_done="${ab_done:-0}"; ab_pend="${ab_pend:-0}"; ab_lost="${ab_lost:-0}"
+    ab_triaged=$(( ab_done - ab_pend - ab_lost ))
     # Worst-case UNFILTERED payload per chunk, computed from the pieces that
     # build_chunk_ctx would concatenate. Above the sampling threshold an
     # unfiltered baseline is not a baseline: agy samples it in silence
@@ -1230,7 +1235,7 @@ if [ "$AB_MODE" != 0 ]; then
     ab_npacks="$(printf '%s' "$AB_PACKS" | wc -w | tr -d ' ')"
 
     if [ "$ab_triaged" -ge 2 ] && [ "$AB_MODE" != 1 ]; then
-      AB_SKIP="PO-5 já tem $ab_triaged pares triados — captura desarmada (RC6_AB=1 força)"
+      AB_SKIP="PO-5 já tem $ab_triaged par(es) triado(s) e utilizável(is) — captura desarmada (RC6_AB=1 força)"
     elif [ "$ab_pend" -ge 1 ] && [ "$AB_MODE" != 1 ]; then
       AB_SKIP="$ab_pend par(es) aguardando triagem em $(basename "$AB_LOG") — trie antes de capturar outro"
     elif [ "$ab_npacks" -lt "$AB_MIN_PACKS" ] && [ "$AB_MODE" != 1 ]; then
@@ -1307,7 +1312,15 @@ if [ "$AB_ARMED" = 1 ]; then
     PACK_FILTER=0
     AB_ON="$(ab_counts "${AB_ON_OUTS[@]:-/dev/null}")"
     # Survive the trap rm -rf: the triage happens after this process is gone.
-    AB_KEEP="${TMPDIR:-/tmp}/rc6_ab_pr${PR}"
+    # NOT $TMPDIR — the triage can be days later and the OS reaper already ate
+    # one pair (the PERDIDA row in the measurement log). The JSONs live beside
+    # the log that references them, so the row's path is valid when read.
+    AB_KEEP_DIR="${RC6_AB_KEEP_DIR:-$(dirname "$AB_LOG")/ab-pairs}"
+    if ! mkdir -p "$AB_KEEP_DIR" 2>/dev/null; then
+      AB_KEEP_DIR="${TMPDIR:-/tmp}"
+      log "⚠️ A/B: destino durável indisponível — JSONs em $AB_KEEP_DIR, sujeitos a purga do SO. Triar HOJE."
+    fi
+    AB_KEEP="$AB_KEEP_DIR/rc6_ab_pr${PR}"
     cp "${AB_OFF_OUTS[@]}" "$AB_KEEP.off.json" 2>/dev/null || \
       python3 -c 'import sys,json;print(json.dumps([json.load(open(p)) for p in sys.argv[1:]]))' "${AB_OFF_OUTS[@]}" > "$AB_KEEP.off.json"
     [ "${#AB_ON_OUTS[@]}" -gt 0 ] && { cp "${AB_ON_OUTS[@]}" "$AB_KEEP.on.json" 2>/dev/null || \
