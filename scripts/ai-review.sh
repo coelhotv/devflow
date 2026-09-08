@@ -61,15 +61,16 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 # ---- args -------------------------------------------------------------------
-POST=0; PR=""; FORCE_TIER=""
+POST=0; PR=""; FORCE_TIER=""; BREAKDOWN=0
 for a in "$@"; do
   case "$a" in
-    --post)     POST=1 ;;
-    --dry-run)  POST=0 ;;
-    --tier1)    FORCE_TIER=1 ;;
-    --tier2)    FORCE_TIER=2 ;;
-    [0-9]*)     PR="$a" ;;
-    *) echo "usage: ai-review.sh [<PR#>] [--dry-run|--post] [--tier1|--tier2]" >&2; exit 2 ;;
+    --post)      POST=1 ;;
+    --dry-run)   POST=0 ;;
+    --tier1)     FORCE_TIER=1 ;;
+    --tier2)     FORCE_TIER=2 ;;
+    --breakdown) BREAKDOWN=1 ;;   # 080/PO-6: parcelas do preambulo e SAI, sem chamar motor
+    [0-9]*)      PR="$a" ;;
+    *) echo "usage: ai-review.sh [<PR#>] [--dry-run|--post] [--tier1|--tier2] [--breakdown]" >&2; exit 2 ;;
   esac
 done
 
@@ -474,17 +475,55 @@ fi
 # atrás de env var para ser MEDÍVEL e REVERSÍVEL antes de virar default (078/T3.10).
 # Default 1: cortar por padrão sem o A/B seria decidir pelo argumento em vez do número.
 INDEXES="${RC6_INDEXES:-1}"
-emit_preamble() {
+
+# 080/T011: a parcela WIKI (os dois indices + os cabecalhos que os separam) sai de
+# UMA funcao so, usada tanto para EMITIR quanto para MEDIR. O breakdown da PO-6 exige
+# fechar em 0 B contra o preambulo real; uma soma paralela que reimplementasse esta
+# secao seria um segundo padrao que precisa concordar com o primeiro, e eles divergem
+# na primeira edicao (AP-346). Aqui nao ha o que divergir: e a mesma funcao.
+# Os `echo` de separacao vivem DENTRO dela de proposito — sao bytes do preambulo e
+# pertencem a parcela que eles rotulam (RC3/F5).
+emit_wiki_block() {
   local packs="$1"
-  cat "$PREAMBLE_HEAD"
-  cat "$PREAMBLE_SELECTED"
   if [ "$INDEXES" != 0 ]; then
     echo; echo "===== RULES_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
     [ -f "$RULES_IDX" ] && filtered_index "$RULES_IDX" rules "$packs"
     echo; echo "===== ANTI_PATTERNS_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
     [ -f "$AP_IDX" ] && filtered_index "$AP_IDX" anti-patterns "$packs"
   fi
+}
+
+emit_preamble() {
+  local packs="$1"
+  cat "$PREAMBLE_HEAD"
+  cat "$PREAMBLE_SELECTED"
+  emit_wiki_block "$packs"
   cat "$PREAMBLE_DETAIL"
+}
+
+# 080/T011+T013: breakdown por parcela. Imprime as 4 parcelas na ORDEM em que
+# emit_preamble as emite e reconcilia a soma contra o total real medido.
+# O CLAUDE.md e marcado PISO PROTEGIDO (FR-007 / ADR-099 §5): entra na conta porque a
+# medicao tem de ser do total honesto, e NUNCA e a parcela cortada — corte sai do wiki.
+preamble_breakdown() { # $1=packs  $2=total real (bytes) para reconciliar
+  local packs="$1" total="$2" head sel wiki det sum delta
+  head="$(wc -c < "$PREAMBLE_HEAD" | tr -d ' ')"
+  sel="$(wc -c < "$PREAMBLE_SELECTED" | tr -d ' ')"
+  wiki="$(emit_wiki_block "$packs" | wc -c | tr -d ' ')"
+  det="$(wc -c < "$PREAMBLE_DETAIL" | tr -d ' ')"
+  sum=$(( head + sel + wiki + det ))
+  delta=$(( total - sum ))
+  log "breakdown do preambulo (${total}B):"
+  log "  CLAUDE.md ........ ${head}B  [PISO PROTEGIDO — nunca cortado]"
+  log "  seletor .......... ${sel}B"
+  log "  wiki (indices) ... ${wiki}B  [parcela de corte]"
+  log "  detail ........... ${det}B"
+  log "  soma ............. ${sum}B  · reconciliacao: ${delta}B"
+  if [ "$delta" -ne 0 ]; then
+    log "  ⚠️ breakdown NAO fecha (${delta}B) — contabilidade quebrada, nao confie no gate"
+  fi
+  RC6_BD_HEAD="$head"; RC6_BD_SEL="$sel"; RC6_BD_WIKI="$wiki"; RC6_BD_DET="$det"; RC6_BD_DELTA="$delta"
+  return 0
 }
 
 # Global UNFILTERED preamble — worst case, used for chunk-budget planning, the
@@ -495,6 +534,97 @@ emit_preamble "" > "$PREAMBLE"
 PRE_BYTES="$(wc -c < "$PREAMBLE")"
 [ "$PRE_BYTES" -gt $(( CTX_TOTAL_MAX * 6 / 10 )) ] && \
   log "⚠️ preamble ${PRE_BYTES}B eats >60% of the engine budget — indexes/details too fat; consider RC6_IDX_LINE_MAX lower"
+
+# ---- 080/T014+T015: orcamento do preambulo por TAXA DE CRESCIMENTO -----------
+# Por que TAXA e nao teto absoluto (ADR-099 §3): o teto honesto seria o chunk budget,
+# e o preambulo esta a ~2x dele — um teto assim nasce vermelho e vira excecao
+# permanente, que e um gate desligado com passos extras. A taxa cobra o DELTA contra
+# uma linha de base DECLARADA e congela o sintoma medido (+4.539B em 3 dias, #822->#828).
+#
+# A baseline e um artefato VERSIONADO, lido e nunca escrito por este script. Se o gate
+# atualizasse a propria baseline a cada run, ele subiria junto com o que deveria vigiar
+# e jamais poderia falhar — um gate incapaz de reprovar e da familia do AP-325.
+# Sem baseline o gate se declara NAO ARMADO e diz como arma-lo; nunca finge vigiar.
+rc6_num() { # R-312: env que nao e inteiro >= 0 cai no default, em vez de desarmar o freio
+  case "${1:-}" in ''|*[!0-9]*) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac
+}
+GROWTH_MAX_BPD="$(rc6_num "${RC6_GROWTH_MAX_BPD:-}" 1500)"
+BASELINE_FILE="${RC6_BASELINE_FILE:-$REPO_ROOT/.agent/memory/rc6-preamble-baseline.json}"
+
+# O gate mede a parcela WIKI, nao o preambulo TOTAL — e a correcao importa:
+# `selector` e `detail` dependem do DIFF (quantos IDs o PR cita, quantos arquivos toca),
+# entao o total varia de PR para PR por motivo que nada tem a ver com o acervo. Gatear o
+# total faria o gate disparar em PR que cita muita regra e ficar quieto em PR pequeno,
+# medindo o PR em vez do catalogo. A parcela WIKI e emitida sem packs (global, unfiltered)
+# e so muda quando o ACERVO muda — e exatamente a parcela que cresce O(catalogo), que e a
+# premissa da 080. O breakdown segue reportando as 4 (denominador honesto, FR-006);
+# o gate cobra a unica que a passagem do tempo move.
+WIKI_BYTES="$(emit_wiki_block "" | wc -c | tr -d ' ')"
+
+GATE_VERDICT="$( { python3 - "$BASELINE_FILE" "$WIKI_BYTES" "$GROWTH_MAX_BPD" <<'PY'
+import sys, json, os, datetime
+bf, cur, maxbpd = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+if not os.path.exists(bf):
+    print("UNARMED 0 0 0"); print("baseline ausente: %s" % bf, file=sys.stderr); sys.exit(0)
+try:
+    b = json.load(open(bf))
+    base = int(b["wiki_bytes"]); d0 = datetime.date.fromisoformat(b["date"])
+except Exception as e:
+    print("UNARMED 0 0 0"); print("baseline ilegivel (%r)" % (e,), file=sys.stderr); sys.exit(0)
+days    = max(1, (datetime.date.today() - d0).days)
+allowed = base + maxbpd * days
+rate    = round((cur - base) / days)
+print("%s %d %d %d" % ("OVER" if cur > allowed else "OK", allowed, days, rate))
+PY
+  } || true )"
+read -r GATE_STATE GATE_ALLOWED GATE_DAYS GATE_RATE <<EOF2
+$GATE_VERDICT
+EOF2
+
+case "$GATE_STATE" in
+  UNARMED)
+    log "orcamento por taxa: NAO ARMADO (sem baseline em $BASELINE_FILE) — wiki ${WIKI_BYTES}B nao vigiado"
+    log "  para armar: grave {\"wiki_bytes\": ${WIKI_BYTES}, \"date\": \"$(date +%F)\", \"head\": \"$(git rev-parse --short HEAD 2>/dev/null)\"} nesse caminho e versione" ;;
+  OK)
+    log "orcamento por taxa: OK — wiki ${WIKI_BYTES}B <= ${GATE_ALLOWED}B (taxa ${GATE_RATE}B/dia sobre ${GATE_DAYS}d, limite ${GROWTH_MAX_BPD}B/dia) · preambulo total ${PRE_BYTES}B" ;;
+  OVER)
+    log "⚠️ orcamento por taxa ESTOURADO: wiki ${WIKI_BYTES}B > ${GATE_ALLOWED}B permitidos (preambulo total ${PRE_BYTES}B)"
+    log "  taxa medida ${GATE_RATE}B/dia sobre ${GATE_DAYS}d · limite ${GROWTH_MAX_BPD}B/dia (RC6_GROWTH_MAX_BPD)"
+    # DEGRADA, nao aborta (RC3/F6 + ADR-099 §4): o RC6 e fail-open por desenho e revisar
+    # caro e melhor que nao revisar. Abortar fica reservado ao estouro do limite do MOTOR.
+    # A parcela cortada e sempre o WIKI. No preambulo GLOBAL o pack filter nao se aplica
+    # (ele e emitido sem packs, por desenho — a filtragem por pack e alavanca POR CHUNK),
+    # entao a ordem de corte disponivel aqui e so o clamp. Declarado para nao parecer que
+    # a ordem "pack filter -> clamp" do plano foi cumprida inteira neste ponto.
+    for _step in 55 40; do
+      [ "$WIKI_BYTES" -le "$GATE_ALLOWED" ] && break
+      [ "$_step" -ge "$IDX_LINE_MAX" ] && continue
+      _prev_w="$WIKI_BYTES"; _prev_c="$IDX_LINE_MAX"
+      IDX_LINE_MAX="$_step"
+      WIKI_BYTES="$(emit_wiki_block "" | wc -c | tr -d ' ')"
+      emit_preamble "" > "$PREAMBLE"
+      PRE_BYTES="$(wc -c < "$PREAMBLE" | tr -d ' ')"
+      log "  degradacao: parcela WIKI, clamp ${_prev_c}c -> ${_step}c · wiki ${_prev_w}B -> ${WIKI_BYTES}B (preambulo ${PRE_BYTES}B)"
+    done
+    log "  CLAUDE.md NAO foi cortado (piso protegido, FR-007) — a reducao saiu inteira do wiki"
+    if [ "$WIKI_BYTES" -gt "$GATE_ALLOWED" ]; then
+      log "  ⚠️ wiki ainda acima do permitido (${WIKI_BYTES}B > ${GATE_ALLOWED}B) apos esgotar o clamp — review SEGUE (fail-open); o corte estrutural e decisao de spec, nao do gate"
+    fi
+    ;;
+  *)
+    # Verdict irreconhecivel (python indisponivel, saida truncada). NAO passa calado:
+    # um gate que nao avaliou e diferente de um gate que aprovou (AP-325/AP-347).
+    log "orcamento por taxa: NAO AVALIADO (verdict inesperado: '${GATE_STATE:-<vazio>}') — review SEGUE" ;;
+esac
+
+# 080/PO-6: --breakdown mostra a contabilidade e SAI antes de qualquer motor.
+# Roda DEPOIS do gate de propósito: assim o breakdown reflete o preambulo que a
+# review usaria de verdade, degradacao inclusa, e nao um estado que nunca existiu.
+if [ "$BREAKDOWN" = 1 ]; then
+  preamble_breakdown "" "$PRE_BYTES"
+  [ "${RC6_BD_DELTA:-1}" -eq 0 ] || exit 5
+  exit 0
+fi
 
 # FR-009: taxonomy-regression guard. Any pack in the index links that the map
 # doesn't know = the divergence this spec exists to kill, coming back invisible.
