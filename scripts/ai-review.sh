@@ -1519,42 +1519,83 @@ PY
 # ADR-069 §20/EM2: RC6 must NEVER write state.json — read-modify-write races
 # with the live coder session; the gate reads the PR, not project state)
 python3 - "$MERGED" "$PR" "$REPO_ROOT" <<'PY'
-import sys, json, os, datetime
+import sys, json, os, re, datetime
 merged, pr, root = json.load(open(sys.argv[1])), int(sys.argv[2]), sys.argv[3]
 c = merged["counts"]
 status = "issues_found" if (c["introduced_critical"] or c["introduced_high"]) else "clean"
 now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
-ep = os.path.join(root, ".agent/memory/events.jsonl")
-os.makedirs(os.path.dirname(ep), exist_ok=True)
-event = {"event": "ai_review_complete", "ts": now, "pr": pr,
-         "engine": merged["engine"], "status": status,
-         "coverage": merged.get("coverage"),
-         "critical": c["critical"], "high": c["high"],
-         "introduced_critical": c["introduced_critical"],
-         "introduced_high": c["introduced_high"]}
-with open(ep, "a") as f: f.write(json.dumps(event, ensure_ascii=False)+"\n")
+# --- 080/T002: USO = os IDs de memoria citados no campo `rule` dos findings ---
+# O campo ja e obrigatorio no schema (:815) e era descartado junto do WORKDIR.
+# O padrao e DELIBERADAMENTE identico ao RULE_ID_RE de scripts/mine-rule-corpus.mjs
+# no dosiq (/\b(?:R|AP)-\d{3}\b): os dois lados sao comparados no A/B de uso, e um
+# lado que aceite o que o outro rejeita fabrica par fantasma (AP-346 — alargar um
+# lado de um par de padroes que precisam concordar).
+# Limite declarado: IDs legados (R-025-1, AP-SL01, AP-LOG-001) nao casam em NENHUM
+# dos dois lados — a subcontagem e simetrica, nao e divergencia entre os lados.
+# `rules_cited` e SEMPRE uma lista: review que nao citou nada grava [] explicito,
+# porque "revisou e nao citou" e um dado, e campo ausente e a falta dele (PO-3).
+RULE_ID_RE = re.compile(r"\b(?:R|AP)-\d{3}\b")
+findings = merged.get("findings") or []
+rules_cited = sorted({m for f in findings
+                        for m in RULE_ID_RE.findall(f.get("rule") or "")})
 
-# O ARQUIVO do journal e a SEMANA CORRENTE — nunca o rotulo de sprint do state.json.
-# Bug corrigido em 2026-08-19: o script usava state.json.sprint como nome de arquivo, e esse
-# campo envelhece (estava em "2026-W31" com a semana corrente em W34). O registro do RC6 caia
-# num journal de 3 semanas atras, onde a distill e a reconciliacao D5 nao o encontram.
-# O sprint continua registrado, mas como CAMPO da entrada, nao como caminho.
-week = datetime.date.today().strftime("%Y-W%V")
-sprint = None
+# --- 080/T003: a persistencia inteira e FAIL-OPEN (FR-010) --------------------
+# O RC6 e fail-open por desenho e a review JA FOI PUBLICADA no PR neste ponto:
+# morrer aqui trocaria "review entregue, registro perdido" por "review entregue e
+# o script falhou", que e pior para quem le o exit code. A falha e engolida, mas
+# NAO e silenciosa: a unica saida positiva e impressa DENTRO de _persist(), depois
+# das escritas — nunca ha "sucesso" de operacao que nao ocorreu (AP-325).
+_written = []   # o que EFETIVAMENTE chegou ao disco, para a mensagem de falha nao mentir
+def _persist():
+    ep = os.path.join(root, ".agent/memory/events.jsonl")
+    os.makedirs(os.path.dirname(ep), exist_ok=True)
+    event = {"event": "ai_review_complete", "ts": now, "pr": pr,
+             "engine": merged["engine"], "status": status,
+             "coverage": merged.get("coverage"),
+             "critical": c["critical"], "high": c["high"],
+             "introduced_critical": c["introduced_critical"],
+             "introduced_high": c["introduced_high"],
+             "findings_total": len(findings),
+             "rules_cited": rules_cited}
+    with open(ep, "a") as f: f.write(json.dumps(event, ensure_ascii=False)+"\n")
+    _written.append("events.jsonl")
+
+    # O ARQUIVO do journal e a SEMANA CORRENTE — nunca o rotulo de sprint do state.json.
+    # Bug corrigido em 2026-08-19: o script usava state.json.sprint como nome de arquivo, e esse
+    # campo envelhece (estava em "2026-W31" com a semana corrente em W34). O registro do RC6 caia
+    # num journal de 3 semanas atras, onde a distill e a reconciliacao D5 nao o encontram.
+    # O sprint continua registrado, mas como CAMPO da entrada, nao como caminho.
+    week = datetime.date.today().strftime("%Y-W%V")
+    sprint = None
+    try:
+        sprint = json.load(open(os.path.join(root, ".agent/state.json"))).get("sprint")
+    except Exception:
+        pass
+    jp = os.path.join(root, ".agent/memory/journal", f"{week}.jsonl")
+    os.makedirs(os.path.dirname(jp), exist_ok=True)
+    entry = {"session":"rc6","date":datetime.date.today().isoformat(),"type":"ai_review",
+             "ceremony":"RC6","pr":pr,"engine":merged["engine"],"status":status,
+             "week": week, "sprint": sprint,
+             "summary": (merged["summary"][:500]),
+             "counts": c,
+             "findings_total": len(findings),
+             "rules_cited": rules_cited}
+    with open(jp,"a") as f: f.write(json.dumps(entry, ensure_ascii=False)+"\n")
+    _written.append("journal/%s.jsonl" % week)
+    print("events.jsonl + journal appended (status=%s, rules_cited=%d)"
+          % (status, len(rules_cited)))
+
 try:
-    sprint = json.load(open(os.path.join(root, ".agent/state.json"))).get("sprint")
-except Exception:
-    pass
-jp = os.path.join(root, ".agent/memory/journal", f"{week}.jsonl")
-os.makedirs(os.path.dirname(jp), exist_ok=True)
-entry = {"session":"rc6","date":datetime.date.today().isoformat(),"type":"ai_review",
-         "ceremony":"RC6","pr":pr,"engine":merged["engine"],"status":status,
-         "week": week, "sprint": sprint,
-         "summary": (merged["summary"][:500]),
-         "counts": c}
-with open(jp,"a") as f: f.write(json.dumps(entry, ensure_ascii=False)+"\n")
-print("events.jsonl + journal appended (status=%s)" % status)
+    _persist()
+except Exception as e:
+    # A falha pode ser PARCIAL (events gravado, journal nao). Dizer "nada foi gravado"
+    # nesse caso seria declarar ausente um registro que existe — omissao nao e neutra
+    # (Constituicao IX). A mensagem nomeia os dois lados a partir do que ocorreu.
+    done = ", ".join(_written) if _written else "nada"
+    print("\u26a0\ufe0f  RC6: persistencia do registro FALHOU (review JA publicada no PR). "
+          "Gravado: %s. Faltou: %s. O uso deste PR entra incompleto no corpus. Causa: %r"
+          % (done, "journal" if _written else "events.jsonl + journal", e), file=sys.stderr)
 PY
 
 log "RC6 --post complete"
