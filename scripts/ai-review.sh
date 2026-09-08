@@ -386,7 +386,12 @@ PREAMBLE_HEAD="$WORKDIR/preamble_head.txt"
 {
   echo "===== PROJECT CRITICAL RULES (CLAUDE.md — Regras Críticas hoisted; read FIRST) ====="
   if [ -f "$CLAUDE_MD" ]; then
-    awk '/^## Regras Críticas/{f=1} f{print}' "$CLAUDE_MD"
+    # `f=1` sem reset imprimia da secao critica ate o EOF, e o segundo awk imprime
+    # tudo-menos-a-critica: as secoes DEPOIS dela entravam duas vezes (6.279B de
+    # duplicacao medidos em 2026-09-08 — 19.034B emitidos para um arquivo de 12.602B),
+    # dentro da parcela que o orcamento trata como piso e nunca corta. O `f=0` no
+    # proximo `## ` fecha a secao. `^## ` nao casa `### `, entao subsecao segue dentro.
+    awk '/^## Regras Críticas/{f=1;print;next} f&&/^## /{f=0} f{print}' "$CLAUDE_MD"
     echo; echo "----- (rest of CLAUDE.md, critical section omitted above) -----"
     awk '/^## Regras Críticas/{f=1;next} f&&/^## /{f=0} !f{print}' "$CLAUDE_MD"
   fi
