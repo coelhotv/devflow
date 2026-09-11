@@ -74,7 +74,7 @@ a tier and produce **only** the artifacts that tier requires.
 
 | Signal | Tier 0 — Trivial | Tier 1 — Standard | Tier 2 — Epic / High-Risk |
 |--------|------------------|-------------------|---------------------------|
-| Scope | ≤2 files, 1 layer | 3–8 files, 1 feature | multi-PR, multi-file, often sliced into sub-specs |
+| Scope | ≤2 files, 1 layer | 3–8 files, 1 feature | multi-file, delivered as **N slices** (1 slice = 1 PR) |
 | goal_type | `fix` / `docs` / `chore` | `feature` / `fix` / `refactor` | `feature` / `refactor` (epic) |
 | DB migration | none | none | **yes** |
 | Contract (CON-NNN) | none | additive/none | **breaking or new/uncatalogued** |
@@ -99,17 +99,59 @@ Tier 1 — Standard:   Suggest RC3 (Eng Review) + RC5 critical-only. Others opt-
                      → then create analysis.md just for that finding.
 
 Tier 2 — Epic:       Suggest full autoplan (RC1→RC2→RC3→RC4) + RC5 critical-only (capped v2.0).
-                     FULL set: spec.md, plan.md, tasks.md, analysis.md, checklists/requirements.md,
-                     contracts/ as needed. Slice into sub-specs (NNN per atomic deliverable) when the
-                     epic spans layers (db → core → ui). analysis.md is MANDATORY and gated (see C1.5).
+                     FULL set: spec.md, plan.md, tasks.md, checklists/requirements.md,
+                     contracts/ as needed. ONE numbered spec dir — do NOT split an epic into
+                     sibling NNN sub-specs. Delivery is sliced: see *Tier 2 is multi-slice* below.
+                     analysis.md is MANDATORY, gated, and written PER SLICE (see C1.5).
 ```
 
 > [!NOTE]
 > Tier 2 usa o mesmo nível de review que Tier 1 (critical-only). O full checklist (Pass 2 INFORMATIONAL) permanece reservado para versão futura após validação prática — NÃO foi habilitado no bump v2.1 (que introduziu Proof Obligations + RC5 Pass 0, distintos do Pass 2).
 
+### Tier 2 is multi-slice
+
+A Tier 2 epic ships in **slices**: one slice = one PR = one coding session. The canonical word is
+**slice** (existing specs may say *fase*, *wave*, *PR A* — legacy synonyms; do not rename them
+retroactively). The epic stays in **ONE** numbered directory.
+
+**`spec.md` is the umbrella** and carries what is true across slices: epic-level SC, cross-cutting
+decisions, and a **slice table** that is the authority on order — the slice's letter/number is a
+label, the table is the truth. Each row declares: `scope` (FR + task ranges) · `tier` ·
+`depends on` · `POs owned` · `PR #` once merged.
+
+**Each `po` block declares the slice that owns it** (`slice: A`). A slice's C4/RC5 gates on ITS
+POs only. An epic where every PO must close before any slice may land is a gate that cannot be
+satisfied — and a gate that must be ignored teaches the agent to ignore gates. PO evidence is
+pasted into the `po` block itself (durable, git-versioned); there is no separate results directory.
+
+**`analysis.md` is per slice** — `analysis-<slice>.md`, written at that slice's C1.5, scoped to
+that slice's target files. A root `analysis.md` written at Planning is a **skeleton, not an
+authority**: it must say so in its own header, and a later slice must re-verify against the repo
+instead of trusting it. The repo moved — often because an earlier slice moved it.
+
+**Flat is the default; prefer it.** A flat directory with `analysis-<slice>.md` per slice covers
+the normal Tier 2 epic (schema → core → ui). Nested `slice-N-name/` subdirs carrying their own
+bundle are an ESCAPE HATCH for an epic so large it stops fitting in one spec — a whole-stack
+technology migration, a documentation rewrite — not a feature. Reaching for nesting is a signal,
+not a tidiness choice: say so to the operator, and check first whether the epic should be two specs.
+
+**Spin-off is legitimate.** When implementing a slice reveals separable scope, open a **new NNN
+spec** and point to it. That is discovery working, not planning having failed — do not grow the
+epic to absorb it.
+
+*Lesson source (dosiq, 2026-09): 82 specs, 0 sub-specs; 27 of 41 delivered specs were multi-PR.
+Five specs independently invented per-slice analysis files, per-slice tier, staleness warnings and
+phase subdirectories — none of it reached this skill, so spec 082 rediscovered the same failure
+three months after spec 012 had already solved it.*
+
 **Tier is recorded** in `state.json.session.tier` (`0` | `1` | `2`) and in the spec header
 (`**Tier**: N`). Re-evaluate the tier if scope grows mid-work (e.g. a "small fix" reveals a
 needed migration → upgrade to Tier 2 and tell the operator).
+
+A **slice may declare its own tier**, never above the epic's: a Tier 2 epic can contain a Tier 1
+slice (a serverless-only copy fix inside a schema epic). That slice's tier is the floor for ITS
+artifacts and guard — it never lowers the epic's. Record it in the slice's row in `spec.md` and in
+the header of its `analysis-<slice>.md`.
 
 > **Guard/PO rigor is declared once, here.** The `Proof Obligation` and `Guard` rows above are
 > the SINGLE source of truth for how strict each tier is. A `po` block (see *Proof Obligations*)

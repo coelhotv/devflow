@@ -158,7 +158,10 @@ Inputs: spec.md, plan.md, tasks.md, checklists/requirements.md, contracts/ (if a
   .agent/constitution.md, CONTRACTS_INDEX.md, DECISIONS_INDEX.md, rules/APs from bootstrap,
   AND THE REAL REPOSITORY (find / grep / MCP / Read — not memory, not the spec's own claims).
 
-Write output to plans/specs/NNN-feature-name/analysis.md.
+Write output to plans/specs/NNN-feature-name/analysis.md — or, when the epic is SLICED (see
+  *Tier 2 is multi-slice* in the core), to analysis-<slice>.md, scoped to THIS slice's target
+  files. A root analysis.md from Planning is a skeleton: re-verify against the repo, never
+  inherit its PASS. An earlier slice probably moved what it validated.
 ```
 
 **REALITY CHECK (the non-negotiable core of this gate):**

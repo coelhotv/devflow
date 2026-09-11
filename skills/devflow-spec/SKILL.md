@@ -71,7 +71,9 @@ Classify the work using the Work Tiers table. Record session.tier in state.json.
   Tier 0 → do NOT enter Specifying. Tell the operator "Tier 0 — no spec needed;
            ready to code under C1-C5 directly." STOP.
   Tier 1 → create the dir but only spec.md (lite) + tasks.md (see S3/S4).
-  Tier 2 → full dir + full bundle; consider slicing into sub-specs.
+  Tier 2 → full dir + full bundle in ONE numbered dir. Plan the DELIVERY in slices
+           (1 slice = 1 PR) — never in sibling NNN sub-specs; see *Tier 2 is multi-slice*
+           in the core.
 If the tier is ambiguous, ASK the operator before creating any artifact.
 ```
 
