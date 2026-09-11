@@ -123,6 +123,35 @@ counts (dosiq measured 32 → 34 within a single day).
 Editing the always-loaded file is a HUMAN decision — this step produces the report, not the edit.
 ```
 
+### D3.5 — Process Friction Assessment (promote the SKILL, not the memory)
+
+```
+D2/D3 refresh what the CODE taught. This step reads what the PROCESS taught:
+`.agent/memory/process-friction.jsonl`, written one line at a time by C5/`1c`.
+
+  1. Read the ledger; drop lines already `promoted`.
+  2. Group by (skill, section). The `kind` field is a closed vocabulary precisely so this
+     grouping is mechanical — never re-interpret free text into a category.
+  3. BAR (from DEVFLOW-META.md): a group promotes at 3+ independent observations FROM ≥2 DISTINCT
+     specs. Three lines from one spec is one problem seen three times, not a pattern — hold them.
+  4. For a group that clears the bar, emit into evolution/evolution_log.jsonl:
+       {"type":"devflow_mutation_proposal","section":"<skill · section>",
+        "rationale":"<the 3+ lines, cited verbatim, with spec + date>",
+        "draft":"<proposed text — REQUIRED; a proposal without a draft is a complaint>",
+        "status":"pending"}
+     Respect the META guardrail: at most 2 pending proposals at any time. Over the cap, keep the
+     group with the most distinct specs and say the others are held.
+  5. Mark the consumed lines `promoted: "<proposal id>"` — never delete them. The ledger is the
+     evidence the bar was actually met.
+
+⚠️ This step PROPOSES. It never edits the skill: applying a mutation needs the operator's command
+and human approval (R-065), and that door stays exactly where DEVFLOW-META.md put it.
+
+📅 FALSIFICATION (same clause as C5/`1c`): if the ledger holds fewer than 3 lines after 10 coding
+sessions, detection is not fitting the flow — REMOVE the step instead of enforcing it. That is the
+verdict D4 earned below, and this step is built to earn it too if the signal is not real.
+```
+
 ### D4 — Global Export — **RETIRED (2026-09-04, dosiq spec 078 / ADR-097)**
 ```
 The cross-project export step no longer runs, and `synthesis/pending_export.json` is no longer
@@ -200,10 +229,22 @@ After D5 reconciliation, acquire lock → update state.json:
 Release lock
 
 Append to evolution/evolution_log.jsonl:
-  {"timestamp": "...", "event": "distillation_complete", "rules_promoted": N, "aps_triggered": N}
+  {"timestamp": "...", "event": "distillation_complete", "rules_promoted": N, "aps_triggered": N,
+   "friction_lines": N, "mutation_proposals": N}
 
 Write journal entry to memory/journal/YYYY-WWW.jsonl with distillation summary
 ```
+
+**SURFACE THE PROPOSALS IN THE CLOSING REPORT — this is the reader, and it is a person.**
+Any `devflow_mutation_proposal` emitted at D3.5 MUST appear in the text the operator reads when
+this mode ends: the section it affects, the 3+ citations, and the draft. Appending it to
+`evolution_log.jsonl` and saying nothing does NOT count as surfacing.
+
+> This requirement is not bureaucracy — it is what D4 died for. A step that writes something
+> nobody reads is a gate reporting success for an operation with no consumer (AP-325 family), and
+> `evolution_log.jsonl` is already in that state: 20 entries between 2026-04 and 2026-09, all of
+> them `distillation_complete`, none ever read back. The operator, at the end of a distill, is a
+> reader who actually acts. Land it there or do not build it.
 
 STOP. Memory distilled, counters reset.
 

@@ -1,7 +1,16 @@
 # DEVFLOW Meta-Evolution Protocol
 
 > Carregado sob demanda — apenas quando `/devflow meta-evolve` é invocado.
-> Não faz parte do bootstrap normal. Agentes não devem ler este arquivo autonomamente.
+> Não faz parte do bootstrap normal.
+>
+> ⚠️ **APLICAR ≠ OBSERVAR.** Agentes não **aplicam** mutação autonomamente — isso continua exigindo
+> este arquivo, o comando e aprovação humana (R-065). Mas **observar atrito** com o DEVFLOW é passo
+> normal do C5 (`1c`) e **não** requer ler este arquivo: é uma linha em
+> `.agent/memory/process-friction.jsonl`, com vocabulário fechado e zero conhecimento deste
+> protocolo. A confusão entre as duas coisas era um deadlock: a detecção exigia justamente o
+> arquivo que o agente estava proibido de abrir, e por isso este protocolo nunca rodou — 20
+> entradas em `evolution_log.jsonl` entre abril e setembro de 2026, **nenhuma** delas uma proposta
+> de mutação, enquanto a skill evoluía três vezes (v1.7, v2.1, v2.2) por fora dele.
 
 ---
 
@@ -55,7 +64,10 @@ Appenda entrada de rollback em evolution_log.jsonl.
 Mudanças no arquivo de skill são mais críticas que mudanças em genes — afetam todos os agentes e projetos que usam DEVFLOW.
 
 ### Requisitos para propor uma mudança
-1. **3+ observações independentes** no journal suportando a mudança
+1. **3+ observações independentes** — registradas em `.agent/memory/process-friction.jsonl`
+   (C5/`1c`) — **e vindas de ≥2 specs/trabalhos distintos**. Três ocorrências na mesma spec são um
+   problema visto três vezes, não um padrão: a spec 082 sozinha rendeu 8 achados e teria promovido
+   com amostra de um; foi o par 012 (junho/2026) + 082 (setembro/2026) que provou padrão.
 2. **Evidência de regressão ou gap** — não apenas preferência estética
 3. **Rascunho do texto alterado** incluído na proposta
 
@@ -91,6 +103,7 @@ Mudanças no arquivo de skill são mais críticas que mudanças em genes — afe
 
 | Versão | Data | Seção | Mudança | Evidência |
 |--------|------|-------|---------|-----------|
+| v2.3.0 | 2026-09-10 | C5 (1c), D3.5, D6, este protocolo | Laço de auto-melhoria: C5/`1c` grava atrito com o DEVFLOW em `process-friction.jsonl` (vocabulário fechado; o campo `workaround` é o payload — é como um conserto inventado dentro de um diretório de spec sai de lá); D3.5 agrupa por (skill, seção) e emite `devflow_mutation_proposal` com rascunho OBRIGATÓRIO ao bater 3+ observações de ≥2 specs distintas; D6 obriga a SURFACE a proposta no relatório que o operador lê. Separa OBSERVAR de APLICAR — aplicar segue exigindo comando + aprovação humana | Este protocolo existia e NUNCA rodou: 20 entradas no `evolution_log.jsonl` entre 04 e 09/2026, nenhuma delas proposta, enquanto a skill evoluiu 3x (v1.7, v2.1, v2.2) por fora. Deadlock: a bar pedia 3+ observações que nada registrava, e a detecção exigia ler o arquivo que o agente era proibido de abrir. O leitor nomeado (operador, no fecho do distill) é a exigência que o D4 impôs ao morrer: passo que escreve o que ninguém lê é AP-325. Ambos os passos nascem com cláusula de falsificação (<3 linhas em 10 sessões ⇒ REMOVER) |
 | v2.2.0 | 2026-09-10 | Work Tiers, S2.5/S4, P1/P3, C1.5, C2, RC5 Pass 0 | Entrega fatiada: épico Tier 2 = UM dir numerado + N slices (1 slice = 1 PR), no lugar do `slice into sub-specs`; `spec.md` vira umbrella com tabela de slices (autoridade da ordem) + SC do épico; slice declara tier próprio, dependências e `slice:` no bloco `po`; `analysis.md` passa a ser POR SLICE e o de Planning é skeleton cujo PASS não se herda; Pass 0 recorta pelas POs do slice; C1.5 ganha `1b. Obtainability` | 82 specs / 0 sub-specs contra 27 de 41 delivered multi-PR (dosiq 2026-09). Pass 0 como estava rejeitava TODO slice de TODO épico fatiado — gate insatisfazível ensina o agente a pular gate. A `1b` nasceu do FR-007 da 082, que prometia granularidade por dose contra tabela sem chave de ocorrência: plano 100% ✅ em símbolo e entregável inexequível |
 | v2.2.0 | 2026-09-10 | C5 (4b), Quick Reference | Manutenção de verdade do artefato: o que a implementação desmentir se corrige no CORPO do artefato, no mesmo commit (apêndice com corpo contraditório é proibido); achado de cerimônia refutado é anotado IN LOCO com data; item de `checklists/requirements.md` que deixou de ser verdade é DESMARCADO | A 012 inventou per-slice analysis, tier por slice e aviso de staleness em junho/2026 e nada chegou à skill; a 082 redescobriu o mesmo furo em setembro. O caso perigoso é o achado com CONCLUSÃO certa e MECANISMO errado (RC3/F1 da 082 → AP-351): verificar a conclusão a confirma e ninguém re-deriva o mecanismo |
 | v2.1.0 | 2026-06-18 | Work Tiers, S4, Goal Alignment, C4, RC5, D1 | Goal-shaped delivery: Proof Obligations (`po` blocks) verificáveis-por-transcript; C4 fecha PO colando evidência; RC5 Pass 0 audita demonstrado-vs-afirmado; state.acceptance_criteria vira ponteiro; guard escala por tier; distila o conceito `/goal` provider-agnóstico | Modelos fracos (sonnet/gpt/gemini) declarando "done" prematuro — pulando AC/regressões |

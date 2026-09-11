@@ -459,6 +459,33 @@ Execute this checklist IN ORDER:
       fails on any that has no entry, so REVERTING BY COMMIT without registering is impossible. A
       revert done in the WORKING TREE, before any commit, leaves no trace in git — for that case
       this checklist step is the only mechanism. Declared limit, not an oversight.
+  [ ] 1c. DID THE DEVFLOW ITSELF GET IN THE WAY? → append ONE line to
+      `.agent/memory/process-friction.jsonl`. Sibling of items 1 and 1b: same shape, same cost,
+      different subject — 1 records what the CODE taught, 1b what a REVERTED attempt taught, 1c
+      what THIS PROCESS taught. Without it the third lesson has nowhere to go and dies in the
+      directory where it was learned.
+      Append a line when a gate could not be satisfied as written, when the model had no slot for
+      an artifact the work needed, when you invented a convention the skill does not provide, when
+      two skill files disagreed, or when an instruction described a reality that had changed:
+        {"ts":"<ISO>","skill":"devflow-code","section":"<C1.5 | RC5 Pass 0 | S4 | ...>",
+         "kind":"unsatisfiable|no-slot|reinvented|contradiction|stale",
+         "what":"<what the instruction says vs what the work needed — one line>",
+         "workaround":"<what you did INSTEAD; this field is the payload>",
+         "spec":"<NNN or task ref>","promoted":null}
+      `kind` is a CLOSED vocabulary on purpose: free text cannot be counted, and counting is the
+      whole point — the mutation bar is "3+ independent observations from ≥2 distinct specs".
+      ⚠️ **The `workaround` is the value, not the complaint.** A previous session invents the fix
+      (a per-slice analysis file, a heading the template lacks, a scope the gate forgot) and writes
+      it inside its own spec directory, where nobody will ever count it. This line is how the fix
+      leaves that directory.
+      This step is SELF-CONTAINED: one line, no knowledge of `DEVFLOW-META.md` required, and you
+      do NOT open it. Observing is C5; APPLYING a mutation stays behind the operator's command and
+      human approval (R-065).
+      A session that hit no friction writes nothing — silence is the expected default, and a line
+      invented to look diligent poisons the count.
+      📅 **Falsification clause:** if after 10 coding sessions this ledger holds fewer than 3
+      lines, the step is NOT working — REMOVE it, do not enforce it harder. Friction with a process
+      is constant; an empty ledger means detection does not fit the flow. Same verdict D4 got.
   [ ] 2. New pattern discovered? → Add R-NNN to RULES_INDEX.md + rules/[cat]/R-NNN.md
   [ ] 3. Contract updated? → Update CONTRACTS_INDEX.md (CON-NNN) + contracts/[cat]/CON-NNN.md
   [ ] 4. Architectural decision made? → DECISIONS_INDEX.md ADR-NNN (status: "accepted") + detail file
@@ -900,6 +927,7 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 | Run C1.5 against THIS slice's target files, into `analysis-<slice>.md` | Inherit a `PASS` computed for another slice (or for the whole spec at Planning) |
 | Ask whether the promised output is obtainable at the promised granularity | Verify every symbol exists and call the deliverable implementable |
 | Audit the POs this slice OWNS in RC5 Pass 0 | Demand every PO of a sliced epic close before any slice may land |
+| Log DEVFLOW friction as one line at C5/1c, with the workaround | Invent a convention the skill lacks and leave it inside your spec dir |
 | Fill a Behavioral Failure-Modes table (NULL/0/boundary/missing-join) for every new function + a negative-path test each | Verify only that a symbol exists/matches the repo and call it robust |
 | Run RC5 (code review) on every Tier 1+ PR before push | Push without RC5 on Tier 2 work (safety net against regression) |
 | Use check-review skill post-push if an external reviewer is configured | Skip RC5 just because an external reviewer exists (defense in depth) |

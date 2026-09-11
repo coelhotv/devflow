@@ -2,7 +2,7 @@
 
 > **The filesystem is the orchestrator.**
 >
-> **Status: v2.2 — Sliced delivery + artifact truth maintenance, Goal-shaped delivery (Proof Obligations), spec-first workflow, Markdown memory, constitution-aware bootstrap, index-first loading.**
+> **Status: v2.3 — Self-improvement loop (process friction ledger → skill mutation proposals), sliced delivery + artifact truth maintenance, Goal-shaped delivery (Proof Obligations), spec-first workflow, Markdown memory, constitution-aware bootstrap, index-first loading.**
 
 DEVFLOW is a skill for autonomous AI agents working on long-term software projects. It provides persistent memory, goal alignment, numbered feature specs, durable task plans, contract-aware coding, and continuous learning without requiring a central orchestrator.
 
