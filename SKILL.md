@@ -8,7 +8,7 @@ description: >
   operate under DEVFLOW rules instead of an ad-hoc coding process.
 ---
 
-# DEVFLOW — Autonomous Software Development Agent (v2.1)
+# DEVFLOW — Autonomous Software Development Agent (v2.2)
 
 <!-- devflow-split:core-a:begin -->
 ## Role
@@ -325,6 +325,7 @@ Each AC carries one fenced `po` block (grep-auditable via `​```po`):
 
 ````
 ```po PO-1
+slice:  <slice id>                             # sliced Tier 2 epics only; omit when unsliced
 ac:     <the acceptance criterion in one line>
 proof:  <exact command that demonstrates it>   # or  MANUAL — <observable action>
 expect: <positive signal observable in the output>
@@ -337,6 +338,7 @@ Fixed fields, fixed order. A missing field = invalid block = gate failure.
 
 | Field | Required | Meaning |
 |-------|----------|---------|
+| `slice` | sliced T2 | which slice owns this PO. C4 and RC5 Pass 0 gate on the CURRENT slice's POs — an epic whose every PO must close before any slice lands is unsatisfiable. Legacy blocks without it are not invalid: backfill opportunistically, only on the POs a session touches |
 | `ac` | always | the AC, one line (the *what*) |
 | `proof` | T1+ | exact command that demonstrates it, or `MANUAL — <action>` |
 | `expect` | T1+ | positive signal observable in the transcript output |
@@ -419,6 +421,8 @@ Next Session
 | Append to journal — never rewrite | Truncate or rewrite journal entries |
 | Propose gene mutations, wait for human approval | Auto-apply gene mutations (see DEVFLOW-META.md) |
 | Flag GOAL DRIFT explicitly when it occurs | Silently deviate from acceptance criteria |
+| Deliver a Tier 2 epic as N slices in ONE numbered spec dir | Split an epic into sibling NNN sub-specs |
+| Correct a refuted premise in the artifact's BODY, same commit | Leave the canonical doc proposing a path the code disproved |
 <!-- devflow-split:qr:end -->
 
 <!-- devflow-split:tail:begin -->
@@ -428,7 +432,8 @@ Next Session
 > - `references/DEVFLOW-REFERENCE.md` — File map, gene defaults, state machine diagram
 > - `DEVFLOW-META.md` — Meta-evolution protocol, gene mutation approval process
 
-*DEVFLOW v2.1 — The filesystem is the orchestrator.*
+*DEVFLOW v2.2 — The filesystem is the orchestrator.*
+*v2.2: Sliced delivery + artifact truth maintenance. Named the shape Tier 2 epics actually ship in — **one numbered spec dir, N slices, 1 slice = 1 PR** — replacing the `slice into sub-specs` prescription that had 0 adoption across 82 specs while 27 of 41 delivered specs were multi-PR. `spec.md` becomes the umbrella (slice table = authority on order, epic-level SC); each slice declares its own `tier` (never above the epic's), dependencies and the POs it owns (`slice:` field in the `po` block); `analysis.md` becomes PER SLICE (`analysis-<slice>.md`, written at that slice's C1.5 against that slice's target files), and a Planning-time root `analysis.md` is explicitly a skeleton whose PASS cannot be inherited. RC5 Pass 0 gains a scope step (audit the POs this slice owns — demanding all of them made the gate unsatisfiable on every sliced epic, and an unsatisfiable gate trains the agent to skip gates). C1.5 gains **1b. Obtainability**: a plan can be 100% ✅ on every symbol it names and still promise an output the schema cannot yield at the promised granularity — that is a decision for the operator, not a task to code. C5 gains **4b. Artifact Truth Reconciliation**: what the implementation disproved is corrected in the artifact's BODY in the same commit (never parked in an appendix with the body left contradicting it), refuted ceremony findings are annotated in place, and `checklists/requirements.md` items that stopped being true are un-checked. Flat stays the default; nested slice dirs are an escape hatch that signals the epic outgrew one spec. Spin-off (implementation reveals separable scope → new NNN spec) is named as legitimate discovery. Lesson source: dosiq specs 012 (June — invented per-slice analysis, per-slice tier and staleness warnings locally) and 082 (September — rediscovered the same failure, because none of it had reached this skill).*
 *v2.1: Goal-shaped delivery. Introduced **Proof Obligations (PO)** — every acceptance criterion (Tier 1+) carries a fenced `po` block (`ac`/`proof`/`expect`/`guard`/`status`) that makes it verifiable-by-transcript. Attacks the core failure of weak/cheap models: declaring "done" prematurely. C4 must close each PO by pasting evidence before flipping `status: [x]`; RC5 gains Pass 0 (PO audit — demonstrated vs merely affirmed) before quality review. `state.json.acceptance_criteria[]` becomes a POINTER to the spec's PO blocks (durable, git-versioned) instead of duplicating the proof. Guard rigor is declared once in the Work Tiers table and scales with tier (floor; C1.5 may override up, never down). Provider-agnostic: distills the `/goal` concept (external completion evaluator) without depending on any vendor feature. `proof: MANUAL —` flag triggers downstream double-check. Distillation captures `po_unstable` events for tiering feedback. Ceremonies absorb the concept: RC-SEC emits formal security POs (with `audit`/`evidence` when regulated), RC3 calibrates Guard level via blast-radius, RC2/RC4 surface MANUAL POs via the common Ceremony Output step. Legacy pre-v2.1 specs use lazy opportunistic PO backfill at C1 (only AC the current task touches; never big-bang rewrite).*
 *v2.0: Introduced Mode Ideation, RC1-RC4 Ceremonies (CEO, Design, Eng, DevEx) + RC-AUTO as pre-planning opt-in gates. Implemented RC5 Pre-Landing Code Review into R1, shifting the GitHub Gemini Code Assist dependency to a local, token-efficient, diff-only checklist with Fix-First protocol and cavecrew specialist dispatch.*
 *v1.9.1: C1.5 Reality Check gains item 5 — BEHAVIORAL FAILURE MODES (mandatory degenerate-input table per new/changed function: NULL/0/boundary/missing-join/wrong-case + negative-path test each). Structure checks prove a symbol exists; failure-mode checks prove it's robust — the class an external reviewer caught by instinct, now encoded in the gate. Lesson source: PR #650 (liquid-meds 022 Fase A), where the external reviewer found 7 behavioral defects the structural reality-check missed.*

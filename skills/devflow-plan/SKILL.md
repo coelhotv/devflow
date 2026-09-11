@@ -40,7 +40,11 @@ Checklist: Read current state.json → update mode/status/goal/goal_type → wri
 ```
 If state.json has session.spec_dir:
   Read `spec.md` from that directory.
-  Prepare to write `plan.md`, `tasks.md`, `analysis.md`, and checklists there.
+  Prepare to write `plan.md`, `tasks.md` and checklists there.
+  `analysis.md` at Planning time is a SKELETON, not an authority: Planning has not touched the
+  code yet, so it can only record what is already known and what is UNVERIFIED. Its header MUST
+  say so. The binding Reality Check is the C1.5 of each coding session (`analysis-<slice>.md`).
+  Writing `PASS` here is how a later slice inherits a verdict nobody computed for it.
 Else:
   Read relevant legacy files in plans/ from session.spec or task context.
 
@@ -105,7 +109,11 @@ Tier 2 (Epic): write the full technical plan to `plans/specs/NNN-feature-name/pl
 For legacy workflows, write execution spec to plans/EXEC_SPEC_<GOAL>.md (scope, target files
 verified, acceptance criteria, risk flags, gate commands).
 
-Write `tasks.md` (both tiers). Each task MUST:
+Write `tasks.md` (both tiers). For a SLICED Tier 2 epic, group tasks under one heading per
+slice, in the slice table's execution order, and state at the top of each group: the slice's
+tier, the POs it closes, and what it depends on. A task belongs to exactly one slice.
+
+Each task MUST:
   - Start with `- [ ] TNNN`
   - Use `[P]` only for independent parallel work
   - Use `[US1]`, `[US2]`, etc. when tied to a user story

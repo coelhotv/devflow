@@ -177,6 +177,21 @@ Write output to plans/specs/NNN-feature-name/analysis.md — or, when the epic i
        * a column exists with the type/precision the plan assumes (information_schema/MCP)
        * a "new" helper/contract isn't already defined elsewhere (no duplication)
 
+1b. OBTAINABILITY OF THE PROMISED OUTPUT — the table above proves a symbol EXISTS; it does NOT
+   prove the deliverable can be PRODUCED. A plan can be 100% ✅ on every symbol it names and still
+   promise an output the data cannot yield, because the gap is a capability nobody wrote down.
+   For every FR / SC / PO of THIS slice that reads, joins, aggregates or reports data, answer:
+   | Promise | Granularity/field it needs | Does the real schema yield it? | Evidence |
+   - Is the promised output obtainable from the real schema, AT THE GRANULARITY PROMISED?
+     (a per-occurrence alert needs a per-occurrence key: if the table only has a parent id, or
+     one row covers N occurrences, the promise is not implementable as written)
+   - Does the join the promise needs actually exist — FK, or a column to join ON?
+   - Does absence of a row mean what the promise assumes? (early returns, swallowed inserts and
+     deliberate skips all produce "no row" without meaning "did not happen")
+   A promise that fails here is NOT a task to code: it is a DECISION to take back to the operator
+   (approximate, or migrate the schema) and the FR/PO must be rewritten to promise what the chosen
+   option delivers. Shipping the query anyway ships a number that answers a different question.
+
 2. CROSS-FILE CONSISTENCY — spec.md ↔ plan.md ↔ tasks.md ↔ analysis.md must AGREE.
    Flag any contradiction (e.g. plan says "insert direct" while analysis says "via RPC").
    Contradiction between artifacts = HIGH at minimum.
@@ -280,9 +295,11 @@ This enforces ceremonies by *surfacing a gap*, never by executing them. Two trig
 Output this summary, then STOP and await go-ahead:
 
   ╔══ DEVFLOW C2 GATE ══════════════════════════════╗
-  ║ Tier              : [0 / 1 / 2]                  ║
+  ║ Tier              : [0 / 1 / 2] (slice's own)    ║
   ║ Spec dir          : [plans/specs/... or "none"]  ║
-  ║ Artifact analysis : [PASS / risks / BLOCKED / n/a]║
+  ║ Slice             : [id + scope (FR/tasks), n/a] ║
+  ║ Artifact analysis : [file · date · PASS/risks/BLOCKED] ║
+  ║                     (a verdict from another slice is n/a, not PASS) ║
   ║ Reality check     : [evidence table ✅ / n/a]    ║
   ║ Files to modify   : [list of files]             ║
   ║ Contracts touched : [CON-NNN list or "none"]    ║
@@ -445,6 +462,29 @@ Execute this checklist IN ORDER:
   [ ] 2. New pattern discovered? → Add R-NNN to RULES_INDEX.md + rules/[cat]/R-NNN.md
   [ ] 3. Contract updated? → Update CONTRACTS_INDEX.md (CON-NNN) + contracts/[cat]/CON-NNN.md
   [ ] 4. Architectural decision made? → DECISIONS_INDEX.md ADR-NNN (status: "accepted") + detail file
+  [ ] 4b. ARTIFACT TRUTH RECONCILIATION (Tier 1+) — what the implementation DISPROVED gets fixed
+      where it is USED, in THIS commit. Implementation is the only thing that can refute a
+      planning artifact; when it does, the artifact becomes a trap for whoever reads it next.
+      ⚠️ An appendix of corrections with the body left contradicting it is NOT this step. It is
+      worse than nothing: it forces the next reader to hold two versions and pick, and a
+      "the appendix wins" note is a patch, not a design. The body is the canonical doc — fix it.
+        a. Rewrite the premise AT ITS POINT OF USE: the FR/SC/PO in spec.md, the section in
+           plan.md, the row in the Target Files table, the task in tasks.md. A requirement that
+           became unachievable is REWRITTEN to promise what IS achievable, or marked blocked on a
+           NAMED decision. It is never left asserting the impossible.
+        b. Annotate the artifact that asserted it, IN PLACE, with the date — including a
+           **ceremony finding**. Ceremony sections are append-only by design, so a refuted finding
+           stays wrong forever unless the correction sits next to it. The dangerous case is the
+           finding whose CONCLUSION was right and MECHANISM wrong: verifying the conclusion
+           CONFIRMS it, so nobody re-derives the mechanism, and the fix lands on the wrong line.
+        c. Keep a short record-of-corrections section: what was wrong or missing · how it was
+           verified · where the correction now lives. Its header must say it is HISTORY, not the
+           source of truth.
+        d. Re-validate `checklists/requirements.md`: UN-CHECK every item that stopped being true
+           and name why. An all-green checklist over a requirement that became unachievable
+           asserts a review that did not happen (AP-325 class) — a stale ✅ outranks an open box
+           in how much damage it does.
+      A slice that refuted nothing writes nothing here. Silence is valid; a stale ✅ is not.
   [ ] 5. Acquire lock → update relevant index files → release lock (see Locking Protocol)
 
   [ ] 6. Append to events.jsonl:
@@ -522,15 +562,19 @@ Before judging quality, verify the proofs exist. This is mechanical and cheap �
 do it without architectural judgment:
 
 ```
-1. `rtk grep '```po' <spec files>` → list every PO.
-2. For each PO: is status `[x] done`? If any is still `[ ] open`, the work is INCOMPLETE — reject, return to C4.
+0. Establish the SCOPE first: the POs this slice OWNS (`slice:` field, or the slice's row in the
+   spec's slice table). POs owned by a later slice are OUT of scope here — auditing them would
+   reject every slice of every sliced epic, which is how a gate teaches the agent to skip it.
+   Unsliced spec ⇒ scope is every PO.
+1. `rtk grep '```po' <spec files>` → list the POs IN SCOPE.
+2. For each in-scope PO: is status `[x] done`? If any is still `[ ] open`, the work is INCOMPLETE — reject, return to C4.
 3. For each `[x]`: is there pasted evidence in the transcript showing `expect:`? A `[x]` with no
    evidence is "affirmed, not demonstrated" — treat as a critical finding, return to C4.
 4. MANUAL POs: scrutinize harder — the evidence is human-judged, so confirm it actually shows the claim.
 5. Confirm each PO's `guard:` ran and showed no regression at the tier level.
 ```
 
-Only after every PO is demonstrated (not merely claimed) proceed to Pass 1 quality review.
+Only after every IN-SCOPE PO is demonstrated (not merely claimed) proceed to Pass 1 quality review.
 
 #### Pass 1 — CRITICAL Checklist
 
@@ -851,6 +895,11 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 | Run lint before EACH commit (not only at final C4 gate) | Accumulate commits and lint once at the end |
 | Cite line number and code excerpt in each C4 DoD check | Say "I checked and it looks OK" |
 | Keep the 5 artifacts mutually consistent (flag contradictions) | Let plan.md and analysis.md disagree on the same flow |
+| Fix a refuted premise in the BODY of the artifact, same commit (C5/4b) | Park the correction in an appendix and leave the body proposing the wrong path |
+| Annotate a refuted ceremony finding next to itself, with the date | Leave a `critical` finding asserting a mechanism the code disproved |
+| Run C1.5 against THIS slice's target files, into `analysis-<slice>.md` | Inherit a `PASS` computed for another slice (or for the whole spec at Planning) |
+| Ask whether the promised output is obtainable at the promised granularity | Verify every symbol exists and call the deliverable implementable |
+| Audit the POs this slice OWNS in RC5 Pass 0 | Demand every PO of a sliced epic close before any slice may land |
 | Fill a Behavioral Failure-Modes table (NULL/0/boundary/missing-join) for every new function + a negative-path test each | Verify only that a symbol exists/matches the repo and call it robust |
 | Run RC5 (code review) on every Tier 1+ PR before push | Push without RC5 on Tier 2 work (safety net against regression) |
 | Use check-review skill post-push if an external reviewer is configured | Skip RC5 just because an external reviewer exists (defense in depth) |

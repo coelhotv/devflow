@@ -109,6 +109,12 @@ Tier 2 (full) — also:
   - Key Entities (when data is involved)
   - Explicit data-migration scenarios when a schema/enum/format changes (see Reality note below)
   - PO blocks are formal; regulated work adds `audit`/`evidence` fields (see Proof Obligations).
+  - **Slice table** — the default for Tier 2 (see *Tier 2 is multi-slice* in the core). One row
+    per slice: `scope` (FR + task ranges) · `tier` (never above the epic's) · `depends on` ·
+    `POs owned` · `PR #` (filled at merge). The TABLE is the authority on order, not the slice's
+    letter. Put the epic-level SC here too, distinct from each slice's.
+  - Each `po` block declares `slice:` — the slice that owns it. Without it, a later gate cannot
+    tell which POs this slice had to close, and ends up demanding all of them.
 
 Specifying focuses on WHAT and WHY. Do NOT choose stack, files, APIs,
 database tables, or implementation details here (those go in plan.md / C2).
