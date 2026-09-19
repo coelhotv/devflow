@@ -372,6 +372,15 @@ Follow this order when touching multiple layers:
 Apply all relevant R-NNN rules during implementation.
 Check anti-patterns before each significant operation.
 
+A ordem acima é de DEPENDÊNCIA, não cronograma: schemas antes de services porque services
+dependem deles, não porque a semana começa no schema.
+Tier 1+: quando o `proof:` de uma PO é um teste, escreva o teste ANTES da implementação e cole a
+falha esperada no campo `red:` do bloco. Vale se a falha for por asserção ou símbolo ausente;
+falha por sintaxe/import é teste quebrado, não teste vermelho. Tier 0 pula (anti-bloat).
+Após CADA arquivo, rode o `Validate:` da task (comandos resolvidos no C1). Não avance com erro
+pendente. O `guard:` NÃO migra para cá — o C4 segue sendo o portão único de fechamento.
+[PILOTO 2026-09 · origin: proactive]
+
 Falhou o gate? ORDENE os erros por dependência antes de corrigir: imports/resolução de módulo →
 tipos/schemas → lógica → estilo. Corrigir lógica antes do tipo gera retrabalho e mascara a causa.
 ```
@@ -416,6 +425,14 @@ CLOSE EVERY PROOF OBLIGATION (Tier 1+). For each `po` block of the task whose st
   The turn does NOT close while any PO is still `[ ] open`. `[x]` without pasted evidence is a
   protocol violation — it is the exact prematurely-"done" failure POs exist to prevent.
   MANUAL POs require concrete pasted evidence too (screenshot/curl/output), not just a claim.
+
+  DECLARE `evidence_class:` ao fechar e confronte com o que o `proof:` prometia:
+    proof: era comando executável → `execution` ou `reconciliation`. Fechar com `static-read` ou
+      `inference` um proof que prometia execução é REJEITADO no Pass 0.
+    proof: MANUAL — → `execution` (ação feita, evidência colada) ou `[!]` com motivo.
+  Não pôde rodar? `status: [!] unavailable — <motivo>`. NÃO invente saída, NÃO marque `[x]`,
+  NÃO trave a sessão. `[!]` é dívida visível e o Pass 0 a reporta como gate desarmado.
+  [PILOTO 2026-09 · origin: proactive]
 
 Verify every acceptance criterion and DoD item extracted in C1 spec read.
 All gates must pass AND all DoD items must be checked before proceeding to C5.
@@ -635,6 +652,10 @@ do it without architectural judgment:
 2. For each in-scope PO: is status `[x] done`? If any is still `[ ] open`, the work is INCOMPLETE — reject, return to C4.
 3. For each `[x]`: is there pasted evidence in the transcript showing `expect:`? A `[x]` with no
    evidence is "affirmed, not demonstrated" — treat as a critical finding, return to C4.
+3b. Confronte `evidence_class:` com o que o `proof:` prometia. Comando executável fechado com
+   `static-read` ou `inference` = "afirmado, não demonstrado" → rejeite, volte ao C4.
+3c. `[!] unavailable` NÃO é `[x]`: conte-o à parte e REPORTE cada um como gate desarmado, com o
+   motivo. Um slice pode landar com `[!]`; o que não pode é o `[!]` passar despercebido.
 4. MANUAL POs: scrutinize harder — the evidence is human-judged, so confirm it actually shows the claim.
 5. Confirm each PO's `guard:` ran and showed no regression at the tier level.
 ```
@@ -970,6 +991,7 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 | Resolver test/lint/typecheck/build no C1 e citar a fonte de cada um | Escrever `proof:` com comando chutado (`npm test` em projeto Bun/Cargo) |
 | Nomear o critério de parada do C1.5 e marcar `deferred:` o que ficou por ler | Parar de ler sem dizer por quê, ou espiralar até o contexto estourar |
 | Abortar citando delta líquido, erro idêntico 3× ou reclassificação de escopo | Tentar "mais uma vez" indefinidamente, ou commitar com gate vermelho |
+| Declarar `evidence_class:` ao fechar e confrontá-la com o `proof:` no Pass 0 | Fechar com `static-read` um proof que prometia execução |
 | Run RC5 (code review) on every Tier 1+ PR before push | Push without RC5 on Tier 2 work (safety net against regression) |
 | Use check-review skill post-push if an external reviewer is configured | Skip RC5 just because an external reviewer exists (defense in depth) |
 <!-- devflow-split:qr:end -->

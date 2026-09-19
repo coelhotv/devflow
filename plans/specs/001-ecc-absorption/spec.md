@@ -124,11 +124,17 @@ para distinguir demonstrado de afirmado.
 
 ## Estado & próximo passo (leia primeiro numa sessão nova)
 
-**Última sessão:** 2026-09-19 · **Slices A e B entregues** · **POs fechadas: 4 de 23** (PO-1, PO-2, PO-14, PO-15).
-**Propostas de mutação pendentes: 1** (MP-003 — INV-6: 1 vaga livre).
+**Última sessão:** 2026-09-19 · **Slices A e B entregues** · **POs fechadas: 5 de 23** (PO-1, PO-2, PO-7, PO-14, PO-15).
+**Propostas de mutação pendentes: 0** (MP-003 aplicada — INV-6: 2 vagas livres).
 
-**Próximo passo exato:** ⛔ **aprovar ou rejeitar MP-003** (`mutations/D-po-grammar.md`, slice D).
-Aprovada, segue T033. Livre em paralelo: **G** (estudo de handoff).
+**Próximo passo exato:** **slice E, T040** (depende de D ✅). Livre em paralelo: **G**.
+**Dívida aberta do slice D:** a PO-10 exige uma proposta nova para o **C1.5** (`uncertainty:`) —
+a MP-003 não cobria essa seção. Candidata a viajar junto do slice E, que já mexe no S4.
+**Decisão ainda pendente:** o achado **AC-1** (`ai-review.sh` morre sem `ANTI_PATTERNS_INDEX.md`).
+
+**Entregue no slice D:** gramática do `po` — `evidence_class` (T1+), `boundary` (T2),
+`uncertainty` e `red` (opcionais), e o terceiro `status: [!] unavailable`. RC5 Pass 0 ganhou os
+passos `3b` (confronto de classe) e `3c` (`[!]` é gate desarmado). **v2.5.0 → v2.6.0 (PILOTO)**.
 
 **Entregue no slice F1:** `scripts/lib/engine-core.sh` (9 funções agnósticas, `ENGINE_CORE_VERSION`
 1.0.0) · `ai-review.sh` consome o core e valida a versão (1754 → 1583 linhas) ·
@@ -163,8 +169,8 @@ Proposta e drafts em `mutations/` (MP-001 `approved` + `MP-001-applied`).
 | **A** | ✅ done | `mode-gate.sh` em 3 níveis de acoplamento | 1 | — | PO-1, PO-2 | `scripts/mode-gate.sh`, `tests/` | — |
 | **B** | ⚠️ aplicado (piloto) · POs MANUAL abertas | C-mode: M1 runner detection · F5 parada de busca (C1.5) · F6 trio de aborto (C3/C4) | 2 | — | PO-3, PO-4, PO-5 | `skills/devflow-code/SKILL.md` | — |
 | **C** | ⚠️ aplicado (piloto) · PO-6 MANUAL aberta | R-065: F7 terminação mecânica + proibição do Y/N auto-respondido | 1 | A | PO-6 | `SKILL.md` | — |
-| **D** | ⏸ aguardando aprovação (MP-003) | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
-| **E** | ⏳ todo | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate | 1 | D | PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
+| **D** | ⚠️ aplicado (piloto) · PO-7 ✅ · PO-8/9 MANUAL · PO-10 gap (C1.5) | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
+| **E** | ▶ next | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate | 1 | D | PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
 | **F1** | ✅ done — PO-14, PO-15 fechadas | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | — |
 | **F2** | ⏳ todo | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
 | **G** | ⏳ todo (estudo pode começar já) | Handoff: estudo de formato → endurecimento do C5 | 1 | — | PO-20, PO-21 | `skills/devflow-code/` (C5) | — |
@@ -259,38 +265,68 @@ status: [ ] open
 
 ```po PO-7
 slice:  D
-ac:     todo po de Tier 1+ declara boundary (o que não vale fazer para chegar lá)
-proof:  rtk grep -c 'boundary:' plans/specs/001-ecc-absorption/spec.md
-expect: contagem igual ao número de blocos po do slice corrente
+ac:     todo po de Tier **2** declara boundary (o que não vale fazer para chegar lá)
+boundary: não vale satisfazer isto afrouxando a própria regra para "opcional em todo tier" —
+          um campo que ninguém é obrigado a preencher não prova nada sobre o mecanismo
+proof:  grep -c 'boundary:' nos blocos po tocados por esta sessão
+expect: toda PO que esta sessão tocou (PO-7..PO-10) declara boundary
 guard:  blocos po legados sem boundary não invalidam (backfill oportunista)
-status: [ ] open
+evidence_class: execution
+status: [x] done
+# CORRECAO DE VERDADE (C5/4b, 2026-09-19): a AC dizia "Tier 1+". O orcamento aprovado na MP-003
+#   gateou `boundary` em **T2 apenas** — obrigar em T1 vira preenchimento ritual. A AC foi
+#   corrigida no CORPO para refletir o que foi entregue, nao o que foi imaginado.
+# evidencia 2026-09-19: grep -c 'boundary:' nos 4 blocos tocados -> 4/4.
+#   Regra aplicada no disco: SKILL.md (tabela canonica, Required=T2) e
+#   skills/devflow-spec/SKILL.md (S4: "Tier 2 exige `boundary:` no bloco").
 ```
 
 ```po PO-8
 slice:  D
 ac:     todo po declara a classe da evidência e o Pass 0 confronta com o proof
-proof:  MANUAL — fechar uma PO com evidence static-read cujo proof prometia execução
+boundary: não vale fechar isto lendo o texto do Pass 0 e declarando que ele confronta —
+          a AC é sobre o Pass 0 REJEITAR um caso incompatível, não sobre a instrução existir
+proof:  MANUAL — fechar uma PO com evidence_class static-read cujo proof prometia execução
 expect: o Pass 0 rejeita por incompatibilidade de classe
 guard:  POs com classe compatível continuam fechando normalmente
 status: [ ] open
+# INSTRUMENTO PRONTO 2026-09-19: `evidence_class` na tabela canonica (SKILL.md), regra de
+#   confronto no C4 e passo 3b no RC5 Pass 0. proof PENDENTE: e MANUAL e exige provocar a
+#   rejeicao num projeto consumidor (A-2). Nao marcar [x] sem colar a rejeicao.
+# NOTA: o campo mudou de nome para `evidence_class` (colisao com o `evidence` regulado).
 ```
 
 ```po PO-9
 slice:  D
 ac:     um check que não pôde rodar fecha como [!] unavailable com motivo, em vez de mentir ou travar
+boundary: não vale usar [!] como escape para prova incômoda — [!] é "não pôde rodar",
+          nunca "deu trabalho rodar". Um [!] sem motivo verificável é pior que um [ ] open
 proof:  MANUAL — rodar C4 sem acesso ao recurso do proof e colar o bloco
 expect: status [!] com motivo; RC5 Pass 0 enxerga e reporta o gate desarmado
 guard:  [!] nunca conta como [x] em nenhuma contagem de SC
+evidence_class: static-read (parcial — ver nota)
 status: [ ] open
+# INSTRUMENTO PRONTO 2026-09-19: terceiro valor na tabela canonica do nucleo, regra dura
+#   ("[!] nunca conta como [x]"), passo 3c no Pass 0 e linha na Quick Reference do nucleo.
+#   A parte GUARD da AC e estatica e esta satisfeita (a regra esta escrita e e inequivoca);
+#   o proof e MANUAL e exige um C4 real sem acesso ao recurso (A-2).
 ```
 
 ```po PO-10
 slice:  D
 ac:     o C1.5/C4 tem onde registrar ignorância sem fabricar conteúdo
+boundary: não vale fechar isto apontando o campo na tabela do núcleo — a AC nomeia C1.5 e C4,
+          que são onde o agente TEM a ignorância; a tabela é onde o campo é definido, não usado
 proof:  rtk grep -n 'uncertainty:' skills/devflow-code/SKILL.md
 expect: o campo existe e a instrução proíbe inventar quando ele é aplicável
 guard:  o limite de 3 marcadores [NEEDS CLARIFICATION] do S4 permanece
 status: [ ] open
+# GAP REAL 2026-09-19, nao e falta de acesso: `uncertainty` entrou na gramatica do NUCLEO
+#   (SKILL.md, tabela canonica), mas NAO no C1.5 nem no C4 do devflow-code — o grep do proof
+#   retorna vazio hoje. A MP-003 aprovou as secoes Proof Obligations, C3, C4, Pass 0 e S4;
+#   **C1.5 nao estava entre elas**, e editar fora do aprovado violaria a INV-4.
+#   => Fica [ ] open e exige uma proposta nova (candidata a entrar junto do slice E, que ja
+#      mexe no S4/P2.5). NAO e [!]: [!] e "nao pode rodar", isto e "nao foi implementado".
 ```
 
 ```po PO-11

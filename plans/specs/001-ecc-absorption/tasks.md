@@ -2,7 +2,7 @@
 
 > **Retomada a frio:** leia a seção *Estado & próximo passo* do `spec.md` antes desta lista.
 > **Feito:** slice A (T001–T006; T007 N/A) · slice B (T010–T014; MP-001 aprovada e aplicada).
-> **Próximo:** T033 — **BLOQUEADO até o operador aprovar MP-003** (INV-4). Livre: G.
+> **Próximo:** slice E (T040) — depende de D ✅. Ou G, livre. PO-10 precisa de proposta nova (C1.5).
 > PO-3..PO-6 seguem `[ ] open`: MANUAL, exigem projeto consumidor real (A-2).
 > PO-3..PO-5 seguem `[ ] open`: são MANUAL e exigem projeto consumidor real (A-2).
 > Legenda: `[x]` feita · `[~]` não aplicável, com motivo · `[ ]` pendente.
@@ -91,11 +91,19 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
 - [x] T032 **MP-003** emitida (`status: pending`). INV-6: 1 em voo, 1 vaga. INV-5 aplica-se ao C4
   ⇒ essa parte entra rebaixada a piloto. Orçamento declarado no draft: nenhum campo novo é
   obrigatório em todo tier (bloco de 11 campos mataria a PO como formulário curto).
-- [ ] T033 ⛔ **GATE DO OPERADOR (INV-4)** — aplicar MP-003 nos 3 arquivos; backfill oportunista
-  para blocos legados; bump v2.5.0 → v2.6.0
+- [x] T033 MP-003 **aprovada em 2026-09-19** e aplicada: núcleo (tabela canônica + 3º status +
+  Quick Reference) · `devflow-code` (C3/M6, C4, Pass 0 `3b`/`3c`, Quick Reference) ·
+  `devflow-spec` (S4). Bump **v2.5.0 → v2.6.0 (PILOTO)**; histórico no META; `MP-003-applied` no log.
+  Backfill oportunista aplicado só nas POs que esta sessão tocou (PO-7..PO-10), como a regra manda.
   * **Validate**: marcadores `devflow-split` (4 em devflow-code, 8 no núcleo) + `mode-gate.test.sh`
     + `no-core-shadowing.test.sh`. **NÃO** usar `verify-split.sh` (aposentado — ver T014)
-- [ ] T034 [C4] Fechar PO-7..PO-10 · [C5] journal
+- [~] T034 [C4] **PO-7 fechada** (`evidence_class: execution`, 4/4 blocos tocados com `boundary:`).
+  **PO-8 e PO-9 abertas**: MANUAL, exigem projeto consumidor (A-2) — instrumento pronto e anotado.
+  **PO-10 aberta por GAP REAL**, não por falta de acesso: `uncertainty:` entrou na gramática do
+  núcleo mas **não** no C1.5/C4 do `devflow-code`, e o C1.5 **não estava** entre as seções aprovadas
+  na MP-003 — editá-lo violaria a INV-4. Exige proposta nova; candidata a entrar junto do slice E.
+  Correção de verdade (C5/4b): a AC da PO-7 dizia "Tier 1+" e foi corrigida para **T2**, que é o
+  que o orçamento aprovado entregou. [C5] journal: N/A (sem `.agent/` — A-1).
 
 ## Slice E — Spec & Plan · Tier 1 · depende: D · fecha PO-11..PO-13
 

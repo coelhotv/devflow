@@ -115,6 +115,13 @@ Tier 2 (full) — also:
     letter. Put the epic-level SC here too, distinct from each slice's.
   - Each `po` block declares `slice:` — the slice that owns it. Without it, a later gate cannot
     tell which POs this slice had to close, and ends up demanding all of them.
+  - Tier 2 exige `boundary:` no bloco — o que NÃO vale fazer para chegar na AC. Sem isso, a PO é
+    satisfazível apagando o teste.
+  - `evidence_class:` NÃO se escreve aqui: é declarada no C4, ao fechar, porque é propriedade da
+    prova obtida e não da prometida. Escrevê-la na emissão seria o agente prometendo a própria nota.
+  - Bloco legado sem os campos novos NÃO é inválido: backfill oportunista, só nas POs que a sessão
+    tocar (mesma regra do backfill pré-v2.1).
+    [PILOTO 2026-09 · origin: proactive]
 
 Specifying focuses on WHAT and WHY. Do NOT choose stack, files, APIs,
 database tables, or implementation details here (those go in plan.md / C2).

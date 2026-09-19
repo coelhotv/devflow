@@ -8,7 +8,7 @@ description: >
   operate under DEVFLOW rules instead of an ad-hoc coding process.
 ---
 
-# DEVFLOW — Autonomous Software Development Agent (v2.5)
+# DEVFLOW — Autonomous Software Development Agent (v2.6)
 
 <!-- devflow-split:core-a:begin -->
 ## Role
@@ -358,13 +358,32 @@ Fixed fields, fixed order. A missing field = invalid block = gate failure.
 | `proof` | T1+ | exact command that demonstrates it, or `MANUAL — <action>` |
 | `expect` | T1+ | positive signal observable in the transcript output |
 | `guard` | T1+ (level per tier) | anti-regression; T0 omits, T1 light, T2 full |
-| `status` | always | `[ ] open` → `[x] done` (flipped only after evidence is pasted) |
+| `status` | always | `[ ] open` → `[x] done` (flipped only after evidence is pasted) → ou `[!] unavailable — <motivo>` quando o check NÃO PÔDE rodar (ver abaixo) |
 
 **T2 regulated** adds two fields (privacy/audit/compliance work):
 ```
 audit:    <action> → who / what / when / why / evidence captured
 evidence: <where the audit line appears in the proof output>
 ```
+
+**Campos novos (v2.6 — PILOTO).** Nenhum é obrigatório em todo tier — um bloco de 11 campos mata
+o que faz a PO funcionar: um formulário curto que um modelo fraco segura inteiro. Ver *Required*.
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `boundary` | T2 | what must NOT be done to reach this AC — the moves that would satisfy the letter and betray the intent ("não relaxar o schema", "não mockar o caminho que a PO mede"). A PO without a boundary is satisfiable by deleting the test |
+| `evidence_class` | T1+ | how strong the proof actually is — ONE of: `reconciliation` (output confrontado com baseline/artefato independente) · `execution` (comando rodado, saída colada) · `static-read` (arquivo lido, linha citada; nada executou) · `inference` (deduzido; NADA foi lido nem rodado). Declarado ao FECHAR, não ao escrever — é propriedade da prova obtida, não da prometida. NÃO confundir com `evidence` (T2 regulado), que aponta ONDE a linha de auditoria aparece |
+| `uncertainty` | opcional | what you do NOT know and did not fabricate. Preencher é preferível a inventar; vazio significa "nada a declarar", nunca "verifiquei tudo" |
+| `red` | opcional (T1+) | quando o `proof:` é um teste: a falha esperada, colada ANTES da implementação. Vale se for por asserção ou símbolo ausente — falha por sintaxe/import é teste quebrado, não teste vermelho |
+
+**`status` ganha um terceiro valor:** `[!] unavailable — <motivo>`.
+Um check que NÃO PÔDE rodar (recurso ausente, ambiente sem acesso, dependência de outro slice)
+fecha como `[!]` com o motivo, em vez de mentir `[x]` ou travar a sessão indefinidamente.
+REGRA DURA: `[!]` **nunca** conta como `[x]` em nenhuma contagem de SC, e o RC5 Pass 0 o reporta
+como **gate desarmado**. `[!]` é dívida visível; `[x]` sem evidência é fraude de processo.
+Distillation conta `[!]` ao lado de `po_unstable` — ambos dizem "a prova escolhida não se paga
+neste tier", que é sinal de tiering errado, não de azar.
+[PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-003]
 
 **`MANUAL —` flag:** when an AC cannot become a runnable command (e.g. "UI hides internal
 comments"), `proof:` may be `MANUAL — <observable action>` (screenshot, curl showing field
@@ -436,6 +455,7 @@ Next Session
 | Append to journal — never rewrite | Truncate or rewrite journal entries |
 | Propose gene mutations, wait for human approval | Auto-apply gene mutations (see DEVFLOW-META.md) |
 | Encerrar a resposta na linha de STOP, sem mais nenhuma tool call | Perguntar Y/N ao operador e seguir na mesma resposta ("assumindo que sim") |
+| Fechar um check que não pôde rodar como `[!] unavailable — <motivo>` | Marcar `[x]` sem evidência, ou travar a sessão num gate insatisfazível |
 | Flag GOAL DRIFT explicitly when it occurs | Silently deviate from acceptance criteria |
 | Deliver a Tier 2 epic as N slices in ONE numbered spec dir | Split an epic into sibling NNN sub-specs |
 | Correct a refuted premise in the artifact's BODY, same commit | Leave the canonical doc proposing a path the code disproved |
@@ -448,7 +468,9 @@ Next Session
 > - `references/DEVFLOW-REFERENCE.md` — File map, gene defaults, state machine diagram
 > - `DEVFLOW-META.md` — Meta-evolution protocol, gene mutation approval process
 
-*DEVFLOW v2.5 — The filesystem is the orchestrator.*
+*DEVFLOW v2.6 — The filesystem is the orchestrator.*
+*v2.6 (PILOT): the `po` block learns to say how strong its own proof is, and to admit what it could not run. `evidence_class` (T1+) is one word — `reconciliation`, `execution`, `static-read` or `inference` — declared at CLOSING, not at writing, because it is a property of the proof OBTAINED, not the one promised; RC5 Pass 0 now confronts it with what `proof:` had promised instead of judging prose. `status` gains a third value, `[!] unavailable — <reason>`: a check that COULD NOT run (missing resource, no access, blocked by another slice) closes as visible debt rather than a lie or a wedged session — `[!]` never counts as `[x]` in any SC tally, and Distillation counts it beside `po_unstable`, since both say the chosen proof does not pay for itself at this tier. `boundary` (T2) names what must NOT be done to reach the AC, because a PO without one is satisfiable by deleting the test. `uncertainty` and `red` are optional. The budget was the hard part: five new fields on a six-field block would have destroyed the thing that makes POs work on a weak model — a short form it can hold entire — so NONE is required at every tier, and each carries a 12-session removal clause. `[!]` alone has no sunset: it is not a new step but one more value in an existing field, and the failure it prevents does not expire.*
+
 *v2.5 (PILOT): the STOP becomes mechanical. R-065 forbade ADVANCING between modes; it never forbade CONTINUING TO ACT, so the stop was semantic — an agent could hit a STOP and keep emitting tool calls "just to check one thing". It now ends the response, and naming the concrete way consent gets faked: asking the operator a question and answering it yourself in the same response ("assuming yes", "proceeding for now"). Consent is an EVENT IN THE CONVERSATION — it arrives in the operator's message, never from your inference. In doubt: STOP; stopping early costs one message, proceeding without mandate costs unauthorized work. `origin: proactive` (ECC corpus, no observed incident) and therefore a pilot — but its sunset clock only starts in a consuming project with an active friction ledger, because silence from a ledger nobody can write is not evidence of no violation.*
 
 *v2.4 (PILOT): the C-mode gains a failure path. Three mutations from spec 001 (slice B, MP-001), all `origin: proactive` — mined from an external corpus with NO observed friction, so each carries a falsification clause and is REMOVED by default unless real observations arrive. C1 resolves test/lint/typecheck/build from state.json → project manifest → the operator, and forbids a `po.proof:` command that did not come from that resolution (a PO with a guessed command fails at C4 and teaches the agent to fix the PO instead of the code — corruption of the central mechanism). C1.5 gains `1c`, a stopping condition — boundary, saturation at 3 barren expansions, ceiling at 15 files — plus a `<!-- deferred: -->` marker so what went unread becomes a resume point rather than silent debt; stopping never relaxes the gate, an unverified row still BLOCKS. C3 orders errors by dependency before fixing (imports → types → logic → style). C4 gains abort conditions that did not exist at all: net delta (a fix introducing more errors than it resolves), identical repetition (same error after 3 attempts — observable, unlike "escalate if stuck"), and scope reclassification (this stopped being a build fix and became architecture → back to Planning). Because C1 and C4 changed WITHOUT a real incident, INV-5 demotes both to pilot.*
