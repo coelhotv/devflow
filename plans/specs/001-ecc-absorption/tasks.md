@@ -2,7 +2,7 @@
 
 > **Retomada a frio:** leia a seção *Estado & próximo passo* do `spec.md` antes desta lista.
 > **Feito:** slice A (T001–T006; T007 N/A) · slice B (T010–T014; MP-001 aprovada e aplicada).
-> **Próximo:** slice D (T030) — depende de B ✅. Ou G (estudo de handoff), livre.
+> **Próximo:** ⛔ decisão do operador sobre a colisão de `evidence:` (desbloqueia T031). Livre: G.
 > PO-3..PO-6 seguem `[ ] open`: MANUAL, exigem projeto consumidor real (A-2).
 > PO-3..PO-5 seguem `[ ] open`: são MANUAL e exigem projeto consumidor real (A-2).
 > Legenda: `[x]` feita · `[~]` não aplicável, com motivo · `[ ]` pendente.
@@ -80,8 +80,11 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
 
 ## Slice D — gramática do `po` · Tier 2 · depende: B · fecha PO-7..PO-10
 
-- [ ] T030 Confirmar se `po_unstable` (v2.1) está morto; se sim, absorver nesta revisão
-- [ ] T031 [PO-7..PO-10] Draft ÚNICO com os 4 campos + M6 (RED dentro da PO), com ordem fixa e exemplo completo
+- [x] T030 `po_unstable` está **VIVO** (`skills/devflow-distill/SKILL.md:42,47`) — o slice D integra,
+  não absorve. Achado extra: **`evidence:` já existe** no núcleo (`SKILL.md:364`) com OUTRO
+  significado (Tier 2 regulado). Colisão registrada na spec; **T031 bloqueada** até o operador
+  escolher o nome. Inventário levantado via `agy -p` e conferido contra o disco.
+- [ ] T031 ⛔ **BLOQUEADA** — depende da decisão de nome do `evidence:` (ver spec). Draft ÚNICO com os 4 campos + M6
   * **Mirror**: seção *Proof Obligations* do `SKILL.md` (tabela de campos)
 - [ ] T032 Emitir proposta única (seções: Proof Obligations, C3, C4, RC5 Pass 0) — INV-5 aplica-se ao C4
 - [ ] T033 Aplicar em `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/`; regra de backfill oportunista para blocos legados

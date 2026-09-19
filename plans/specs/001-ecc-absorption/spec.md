@@ -467,4 +467,17 @@ como task do slice F2, que já mexe no fail-open. Recomendo spec própria — F2
   inteiro vive em `spec/001-ecc-absorption`, um commit semântico por slice. **Não é mutação:** a
   tabela de Work Tiers permanece como está, e nenhuma proposta é emitida por causa disto.
 - **[NEEDS CLARIFICATION]** O formato de handoff do slice G — decisão do operador no PO-20.
-- **[NEEDS CLARIFICATION]** Se `po_unstable` (v2.1) está morto; se estiver, o slice D o absorve.
+- ~~**[NEEDS CLARIFICATION]** Se `po_unstable` está morto~~ → **RESOLVIDO (T030, 2026-09-19): está VIVO.**
+  Mora em `skills/devflow-distill/SKILL.md:42,47` — evento que o distill captura quando uma PO
+  repete/falha, realimentando a escolha de tier. O slice D **não o absorve nem o mata**: integra.
+  Um `status [!] unavailable` (F3) é justamente um sinal que o distill deveria contar ao lado do
+  `po_unstable`, e essa ligação precisa entrar no draft.
+- **[NEEDS CLARIFICATION · BLOQUEIA O SLICE D]** **Colisão de nome em `evidence:`.** O campo JÁ
+  EXISTE no núcleo (`SKILL.md:364`), restrito a Tier 2 regulado, e significa *"onde a linha de
+  auditoria aparece na saída do proof"*. O FR-004 quer `evidence:` com outro sentido — a **classe**
+  da prova (reconciled / executed / static-read / inferred). Dois sentidos sob um nome é o modo de
+  falha que o Pass 0 não consegue auditar. Três saídas, decisão do operador:
+    (a) o campo novo chama-se `evidence_class:` e o `evidence:` regulado fica intacto;
+    (b) `evidence:` passa a ser a classe (geral, todo tier) e o regulado vira `audit_evidence:`;
+    (c) fundir num só campo com duas partes (`evidence: executed — linha 42 do output`).
+  Recomendo **(a)**: não toca em nada que já funciona e não exige backfill de bloco regulado.
