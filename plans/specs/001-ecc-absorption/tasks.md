@@ -2,7 +2,7 @@
 
 > **Retomada a frio:** leia a seção *Estado & próximo passo* do `spec.md` antes desta lista.
 > **Feito:** slice A (T001–T006; T007 N/A) · slice B (T010–T014; MP-001 aprovada e aplicada).
-> **Próximo:** ⛔ decisão do operador sobre a colisão de `evidence:` (desbloqueia T031). Livre: G.
+> **Próximo:** T033 — **BLOQUEADO até o operador aprovar MP-003** (INV-4). Livre: G.
 > PO-3..PO-6 seguem `[ ] open`: MANUAL, exigem projeto consumidor real (A-2).
 > PO-3..PO-5 seguem `[ ] open`: são MANUAL e exigem projeto consumidor real (A-2).
 > Legenda: `[x]` feita · `[~]` não aplicável, com motivo · `[ ]` pendente.
@@ -84,11 +84,17 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
   não absorve. Achado extra: **`evidence:` já existe** no núcleo (`SKILL.md:364`) com OUTRO
   significado (Tier 2 regulado). Colisão registrada na spec; **T031 bloqueada** até o operador
   escolher o nome. Inventário levantado via `agy -p` e conferido contra o disco.
-- [ ] T031 ⛔ **BLOQUEADA** — depende da decisão de nome do `evidence:` (ver spec). Draft ÚNICO com os 4 campos + M6
+- [x] T031 [PO-7..PO-10] Draft ÚNICO → `mutations/D-po-grammar.md`. Colisão resolvida pelo operador:
+  **opção (a)** — campo novo é `evidence_class:`, o `evidence:` regulado fica intacto (zero backfill).
+  Achado do próprio draft: o M6 traz um **5º** campo (`red:`), não contabilizado no T031 original.
   * **Mirror**: seção *Proof Obligations* do `SKILL.md` (tabela de campos)
-- [ ] T032 Emitir proposta única (seções: Proof Obligations, C3, C4, RC5 Pass 0) — INV-5 aplica-se ao C4
-- [ ] T033 Aplicar em `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/`; regra de backfill oportunista para blocos legados
-  * **Validate**: `bash scripts/verify-split.sh`
+- [x] T032 **MP-003** emitida (`status: pending`). INV-6: 1 em voo, 1 vaga. INV-5 aplica-se ao C4
+  ⇒ essa parte entra rebaixada a piloto. Orçamento declarado no draft: nenhum campo novo é
+  obrigatório em todo tier (bloco de 11 campos mataria a PO como formulário curto).
+- [ ] T033 ⛔ **GATE DO OPERADOR (INV-4)** — aplicar MP-003 nos 3 arquivos; backfill oportunista
+  para blocos legados; bump v2.5.0 → v2.6.0
+  * **Validate**: marcadores `devflow-split` (4 em devflow-code, 8 no núcleo) + `mode-gate.test.sh`
+    + `no-core-shadowing.test.sh`. **NÃO** usar `verify-split.sh` (aposentado — ver T014)
 - [ ] T034 [C4] Fechar PO-7..PO-10 · [C5] journal
 
 ## Slice E — Spec & Plan · Tier 1 · depende: D · fecha PO-11..PO-13

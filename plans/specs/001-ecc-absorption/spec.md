@@ -125,11 +125,10 @@ para distinguir demonstrado de afirmado.
 ## Estado & próximo passo (leia primeiro numa sessão nova)
 
 **Última sessão:** 2026-09-19 · **Slices A e B entregues** · **POs fechadas: 4 de 23** (PO-1, PO-2, PO-14, PO-15).
-**Propostas de mutação pendentes: 0** (MP-001 e MP-002 aplicadas — INV-6: 2 vagas livres).
+**Propostas de mutação pendentes: 1** (MP-003 — INV-6: 1 vaga livre).
 
-**Próximo passo exato:** **slice D, T030** — confirmar se `po_unstable` (v2.1) está morto e redigir o
-draft ÚNICO dos 4 campos do bloco `po` + M6. Livre em paralelo: **G** (estudo de handoff).
-**Decisão pendente:** o que fazer com o achado **AC-1** (ver *Achados colaterais*).
+**Próximo passo exato:** ⛔ **aprovar ou rejeitar MP-003** (`mutations/D-po-grammar.md`, slice D).
+Aprovada, segue T033. Livre em paralelo: **G** (estudo de handoff).
 
 **Entregue no slice F1:** `scripts/lib/engine-core.sh` (9 funções agnósticas, `ENGINE_CORE_VERSION`
 1.0.0) · `ai-review.sh` consome o core e valida a versão (1754 → 1583 linhas) ·
@@ -164,7 +163,7 @@ Proposta e drafts em `mutations/` (MP-001 `approved` + `MP-001-applied`).
 | **A** | ✅ done | `mode-gate.sh` em 3 níveis de acoplamento | 1 | — | PO-1, PO-2 | `scripts/mode-gate.sh`, `tests/` | — |
 | **B** | ⚠️ aplicado (piloto) · POs MANUAL abertas | C-mode: M1 runner detection · F5 parada de busca (C1.5) · F6 trio de aborto (C3/C4) | 2 | — | PO-3, PO-4, PO-5 | `skills/devflow-code/SKILL.md` | — |
 | **C** | ⚠️ aplicado (piloto) · PO-6 MANUAL aberta | R-065: F7 terminação mecânica + proibição do Y/N auto-respondido | 1 | A | PO-6 | `SKILL.md` | — |
-| **D** | ▶ next | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
+| **D** | ⏸ aguardando aprovação (MP-003) | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
 | **E** | ⏳ todo | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate | 1 | D | PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
 | **F1** | ✅ done — PO-14, PO-15 fechadas | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | — |
 | **F2** | ⏳ todo | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
@@ -472,12 +471,13 @@ como task do slice F2, que já mexe no fail-open. Recomendo spec própria — F2
   repete/falha, realimentando a escolha de tier. O slice D **não o absorve nem o mata**: integra.
   Um `status [!] unavailable` (F3) é justamente um sinal que o distill deveria contar ao lado do
   `po_unstable`, e essa ligação precisa entrar no draft.
-- **[NEEDS CLARIFICATION · BLOQUEIA O SLICE D]** **Colisão de nome em `evidence:`.** O campo JÁ
+- ~~**[NEEDS CLARIFICATION]**~~ → **RESOLVIDO (a).** **Colisão de nome em `evidence:`.** O campo JÁ
   EXISTE no núcleo (`SKILL.md:364`), restrito a Tier 2 regulado, e significa *"onde a linha de
   auditoria aparece na saída do proof"*. O FR-004 quer `evidence:` com outro sentido — a **classe**
   da prova (reconciled / executed / static-read / inferred). Dois sentidos sob um nome é o modo de
   falha que o Pass 0 não consegue auditar. Três saídas, decisão do operador:
-    (a) o campo novo chama-se `evidence_class:` e o `evidence:` regulado fica intacto;
+    (a) **ESCOLHIDA pelo operador em 2026-09-19** — o campo novo chama-se `evidence_class:` e o
+        `evidence:` regulado fica intacto;
     (b) `evidence:` passa a ser a classe (geral, todo tier) e o regulado vira `audit_evidence:`;
     (c) fundir num só campo com duas partes (`evidence: executed — linha 42 do output`).
   Recomendo **(a)**: não toca em nada que já funciona e não exige backfill de bloco regulado.
