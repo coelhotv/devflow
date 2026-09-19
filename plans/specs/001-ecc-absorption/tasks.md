@@ -2,7 +2,7 @@
 
 > **Retomada a frio:** leia a seção *Estado & próximo passo* do `spec.md` antes desta lista.
 > **Feito:** slice A (T001–T006; T007 N/A) · slice B (T010–T014; MP-001 aprovada e aplicada).
-> **Próximo:** slice D (T030) — depende de B ✅. Ou F1/G, livres.
+> **Próximo:** slice D (T030) — depende de B ✅. Ou G (estudo de handoff), livre.
 > PO-3..PO-6 seguem `[ ] open`: MANUAL, exigem projeto consumidor real (A-2).
 > PO-3..PO-5 seguem `[ ] open`: são MANUAL e exigem projeto consumidor real (A-2).
 > Legenda: `[x]` feita · `[~]` não aplicável, com motivo · `[ ]` pendente.
@@ -100,15 +100,22 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
 
 ## Slice F1 — extração do `@core` · Tier 2 · depende: — · fecha PO-14, PO-15
 
-- [ ] T050 [PO-14] Capturar a baseline: `./scripts/ai-review.sh --dry-run > /tmp/before.txt` + MEASURE mode
-- [ ] T051 Criar `scripts/lib/engine-core.sh` com versão no cabeçalho e mover as funções agnósticas
+- [x] T050 [PO-14] Baseline determinística em `tests/ai-review-baseline.sh` (repo-fixture com diff
+  `.js`/`.ts` real + `RC6_MEASURE=1`, que para ANTES do engine). O `proof:` original era
+  não-determinístico e passava por construção — ver nota de método no bloco PO-14.
+- [x] T051 `scripts/lib/engine-core.sh` (224 linhas, `ENGINE_CORE_VERSION=1.0.0`) com as 9 funções
+  agnósticas, extraídas por script (casamento de chaves), nunca copiadas à mão
   * **Target**: `scripts/lib/engine-core.sh` (`[NEW]`)
   * **Mirror**: `scripts/ai-review.sh:89,301-369,546,909-1101,1167,1397-1479`
-- [ ] T052 `ai-review.sh` passa a consumir o core; remover as definições locais movidas
+- [x] T052 `ai-review.sh` dá source no core e valida `ENGINE_CORE_EXPECTED` (1754 → 1583 linhas);
+  versão divergente falha ALTO com exit 2, não em silêncio
   * **Target**: `scripts/ai-review.sh` (`[MODIFY]`)
   * **Validate**: `diff /tmp/before.txt <(./scripts/ai-review.sh --dry-run)`
-- [ ] T053 [P] [PO-15] `tests/no-core-shadowing.test.sh` — falha se uma função do core for redefinida localmente
-- [ ] T054 [C4] Fechar PO-14, PO-15 (evidência `reconciliation`) · [C5] journal
+- [x] T053 [PO-15] `tests/no-core-shadowing.test.sh` — 3/3. Descobre consumidores por grep (sem
+  lista fixa), então o `second-opinion.sh` do F2 entra sob a mesma regra ao nascer
+- [x] T054 [C4] **PO-14 e PO-15 fechadas com evidência colada.** [C5] journal: N/A (sem `.agent/` — A-1).
+  Achado colateral **AC-1** registrado na spec: `ai-review.sh` morre em repo sem
+  `ANTI_PATTERNS_INDEX.md` (`set -e` + `pipefail`). Não consertado aqui de propósito — violaria a PO-14.
 
 ## Slice F2 — `second-opinion.sh` · Tier 2 · depende: C, D, F1 · fecha PO-16..PO-19
 

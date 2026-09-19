@@ -124,12 +124,18 @@ para distinguir demonstrado de afirmado.
 
 ## Estado & próximo passo (leia primeiro numa sessão nova)
 
-**Última sessão:** 2026-09-19 · **Slices A e B entregues** · **POs fechadas: 2 de 23** (PO-1, PO-2).
+**Última sessão:** 2026-09-19 · **Slices A e B entregues** · **POs fechadas: 4 de 23** (PO-1, PO-2, PO-14, PO-15).
 **Propostas de mutação pendentes: 0** (MP-001 e MP-002 aplicadas — INV-6: 2 vagas livres).
 
-**Próximo passo exato:** **slice D, T030** — confirmar se `po_unstable` (v2.1) está morto e, na
-sequência, o draft ÚNICO dos 4 campos do bloco `po` + M6. Livres em paralelo: **F1** (`@core`, não
-emite proposta) e **G** (estudo de handoff).
+**Próximo passo exato:** **slice D, T030** — confirmar se `po_unstable` (v2.1) está morto e redigir o
+draft ÚNICO dos 4 campos do bloco `po` + M6. Livre em paralelo: **G** (estudo de handoff).
+**Decisão pendente:** o que fazer com o achado **AC-1** (ver *Achados colaterais*).
+
+**Entregue no slice F1:** `scripts/lib/engine-core.sh` (9 funções agnósticas, `ENGINE_CORE_VERSION`
+1.0.0) · `ai-review.sh` consome o core e valida a versão (1754 → 1583 linhas) ·
+`tests/ai-review-baseline.sh` (baseline determinística, substitui um proof que passava por
+construção) · `tests/no-core-shadowing.test.sh`. **PO-14 e PO-15 fechadas** — as duas primeiras POs
+automatizáveis do épico. Nenhuma prosa de skill tocada, nenhuma proposta emitida.
 
 **Entregue no slice C:** `SKILL.md` (núcleo) — a R-065 ganha terminação mecânica (nenhuma tool call
 após o STOP) e a proibição do auto-consentimento (perguntar e responder por conta própria =
@@ -160,7 +166,7 @@ Proposta e drafts em `mutations/` (MP-001 `approved` + `MP-001-applied`).
 | **C** | ⚠️ aplicado (piloto) · PO-6 MANUAL aberta | R-065: F7 terminação mecânica + proibição do Y/N auto-respondido | 1 | A | PO-6 | `SKILL.md` | — |
 | **D** | ▶ next | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
 | **E** | ⏳ todo | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate | 1 | D | PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
-| **F1** | ⏳ todo (livre: não depende de nada) | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | — |
+| **F1** | ✅ done — PO-14, PO-15 fechadas | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | — |
 | **F2** | ⏳ todo | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
 | **G** | ⏳ todo (estudo pode começar já) | Handoff: estudo de formato → endurecimento do C5 | 1 | — | PO-20, PO-21 | `skills/devflow-code/` (C5) | — |
 | **H** | ⏳ todo | Falsificação: medição de conformidade + caminho `external_corpus` no META | 1 | todos | PO-22, PO-23 | `DEVFLOW-META.md`, `scripts/` | — |
@@ -318,10 +324,25 @@ status: [ ] open
 ```po PO-14
 slice:  F1
 ac:     ai-review.sh mantém saída byte-idêntica após a extração do @core
-proof:  ./scripts/ai-review.sh --dry-run > /tmp/after.txt && diff /tmp/before.txt /tmp/after.txt
+proof:  bash tests/ai-review-baseline.sh /tmp/before.txt  (antes) ; idem /tmp/after.txt (depois) ; diff
 expect: diff vazio (exit 0)
-guard:  MEASURE mode reporta o mesmo byte count antes e depois
-status: [ ] open
+guard:  a baseline é determinística — duas execuções seguidas produzem arquivos idênticos
+evidence: reconciliation (execução real, saída colada)
+status: [x] done
+# evidencia 2026-09-19: diff before.txt after.txt -> "Files are identical" (exit 0), 14 linhas,
+#   incluindo changed=3, tier=1, full-file attach 2/2 ~163B, preamble 395B,
+#   "MEASURE: total payload across 1 chunk(s) = 1369B". Reconfirmado apos os ajustes de bash 3.2.
+#   guard: 2 execucoes consecutivas da baseline -> "Files are identical".
+#   shellcheck: nenhum achado NOVO de substancia — so SC1091 (source nao seguido estaticamente)
+#   e SC2034 PASSB_TIMEOUT (agora consumido DENTRO do core; e o contrato documentado no cabecalho).
+#
+# NOTA DE METODO — o `proof:` original desta PO foi SUBSTITUIDO, e o motivo importa:
+#   era `./scripts/ai-review.sh --dry-run > after.txt && diff before.txt after.txt`. Nao provava nada.
+#   (a) --dry-run AINDA CHAMA O ENGINE (ai-review.sh:20) — saida de LLM nao e reproduzivel;
+#   (b) este repo nao tem .js/.ts, entao o script saía em "No code changes" antes de montar
+#       contexto: o diff daria VAZIO sempre, inclusive com o refactor quebrado. Gate que passa
+#       por construcao e pior que gate nenhum.
+#   Substituido por RC6_MEASURE=1 sobre um repo-fixture com diff real, que para antes do engine.
 ```
 
 ```po PO-15
@@ -329,8 +350,18 @@ slice:  F1
 ac:     nenhuma função do @core é redefinida localmente em nenhum consumidor
 proof:  bash tests/no-core-shadowing.test.sh
 expect: zero redefinições encontradas
-guard:  engine-core.sh declara versão e ambos os consumidores a citam
-status: [ ] open
+guard:  engine-core.sh declara versão e todo consumidor cita a que espera
+evidence: execution (suite rodada, saida colada)
+status: [x] done
+# evidencia 2026-09-19: "3 passaram, 0 falharam" (exit=0).
+#   core exporta 9 funcoes: ab_counts ab_total clamp_index clamp_lines engine_err_hint
+#   log run_bounded run_engine unwrap_structured.
+#   scripts/ai-review.sh cita ENGINE_CORE_EXPECTED="1.0.0"; zero redefinicoes.
+#   guard: o teste FALHA se um consumidor der source sem citar versao — e a checagem 3a.
+#
+# ESCOPO HONESTO: hoje ha UM consumidor. O texto original dizia "ambos os consumidores"
+#   supondo o second-opinion.sh, que so nasce no slice F2. O teste descobre consumidores por
+#   grep (nao tem lista fixa), entao o segundo entra sob a mesma regra no dia em que existir.
 ```
 
 ```po PO-16
@@ -406,6 +437,25 @@ status: [ ] open
 ```
 
 ---
+
+## Achados colaterais (não previstos pela spec)
+
+### AC-1 · `ai-review.sh` morre em repo sem `.agent/memory/ANTI_PATTERNS_INDEX.md`
+Descoberto ao montar a baseline do F1. `emit_wiki_block` termina num `[ -f "$AP_IDX" ]` que
+retorna 1 quando o arquivo não existe; a função é o elo esquerdo do pipeline que alimenta
+`WIKI_BYTES="$(emit_wiki_block "" | wc -c | tr -d ' ')"`, e `set -o pipefail` + `set -e`
+(linha 40) derrubam o script inteiro. Saída: exit 1 sem mensagem de erro.
+
+**Por que nunca apareceu:** o consumidor real (dosiq) tem `.agent/`, e este repo sai antes, em
+"No code changes". Dois acasos escondendo o mesmo defeito.
+
+**Por que NÃO foi consertado no F1:** a PO-14 exige comportamento byte-idêntico antes e depois da
+extração. Consertar um bug no mesmo slice destruiria a própria prova de equivalência — e um
+refactor que muda comportamento "de leve" é exatamente o que a PO existe para impedir. O fixture da
+baseline cria `.agent/memory/` (é o que um consumidor DEVFLOW tem) e o defeito fica registrado aqui.
+
+**Decisão pendente do operador:** virar spec própria (Tier 0/1, ~3 linhas de conserto) ou entrar
+como task do slice F2, que já mexe no fail-open. Recomendo spec própria — F2 tem escopo demais.
 
 ## Assumptions & Open Questions
 
