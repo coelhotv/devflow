@@ -124,43 +124,80 @@ para distinguir demonstrado de afirmado.
 
 ## Estado & próximo passo (leia primeiro numa sessão nova)
 
-**Última sessão:** 2026-09-19 · **Slices A e B entregues** · **POs fechadas: 5 de 23** (PO-1, PO-2, PO-7, PO-14, PO-15).
-**Propostas de mutação pendentes: 0** (MP-003 aplicada — INV-6: 2 vagas livres).
+**Última sessão:** 2026-09-19 · **Slices A, B, C, D, F1 entregues** · **POs fechadas: 5 de 23**
+(PO-1, PO-2, PO-7, PO-14, PO-15) · **Propostas pendentes: 0** (INV-6: 2 vagas livres).
+**Versão do DEVFLOW:** v2.3 → **v2.6.0 (PILOTO)** ao longo destes slices.
 
-**Próximo passo exato:** **slice E, T040** (depende de D ✅). Livre em paralelo: **G**.
-**Dívida aberta do slice D:** a PO-10 exige uma proposta nova para o **C1.5** (`uncertainty:`) —
-a MP-003 não cobria essa seção. Candidata a viajar junto do slice E, que já mexe no S4.
-**Decisão ainda pendente:** o achado **AC-1** (`ai-review.sh` morre sem `ANTI_PATTERNS_INDEX.md`).
+### Como esta spec é executada (combinado com o operador — não redescubra)
 
-**Entregue no slice D:** gramática do `po` — `evidence_class` (T1+), `boundary` (T2),
-`uncertainty` e `red` (opcionais), e o terceiro `status: [!] unavailable`. RC5 Pass 0 ganhou os
-passos `3b` (confronto de classe) e `3c` (`[!]` é gate desarmado). **v2.5.0 → v2.6.0 (PILOTO)**.
+1. **Branch ÚNICO para o épico inteiro:** `spec/001-ecc-absorption`. Um commit semântico por slice.
+   `1 slice = 1 PR` é regra que o DEVFLOW impõe aos **clientes**, não a si mesmo (A-3).
+2. **Todo slice que toca prosa de skill PARA no gate do operador** (INV-4). O ciclo é sempre:
+   draft em `mutations/` → `devflow_mutation_proposal` no `mutations/evolution_log.jsonl`
+   (`status: pending`) → **STOP** → operador aprova → aplicar → bump → commit.
+   **Nunca** aplique sem a mensagem de aprovação. Aprovação é evento na conversa (v2.6, R-065).
+3. **Toda mutação é `origin: proactive`** (DT-2): corpus externo, sem dor observada. Logo carrega
+   assinatura de atrito prevista + sunset, e o **relógio do sunset só corre em projeto com ledger
+   ativo** (A-1) — silêncio de um ledger que ninguém pode escrever não é evidência.
+4. **PO MANUAL não fecha neste repo.** Exigem projeto consumidor real (A-2). Anote
+   "instrumento pronto ≠ AC demonstrada" no bloco e siga. Nunca `[x]` sem evidência colada.
+5. **`verify-split.sh` está APOSENTADO** — não use como gate (falha em HEAD limpo, por construção).
+   Validação real: contagem de marcadores `devflow-split` + `tests/mode-gate.test.sh` +
+   `tests/no-core-shadowing.test.sh` + `tests/ai-review-baseline.sh`.
+6. **Janela de tokens do Claude é o gargalo, não a do `agy`.** O operador liberou `agy -p` à
+   vontade para leitura pesada, inventário e geração de prova. Guia de operação medido em
+   `/Users/coelhotv/git/maestro/plans/OPERAR-MOTOR-EXTERNO.md`. **Saída de agente é dado, não
+   evidência**: confira contra o disco antes de citar (ele já citou arquivos fora do corpus).
 
-**Entregue no slice F1:** `scripts/lib/engine-core.sh` (9 funções agnósticas, `ENGINE_CORE_VERSION`
-1.0.0) · `ai-review.sh` consome o core e valida a versão (1754 → 1583 linhas) ·
-`tests/ai-review-baseline.sh` (baseline determinística, substitui um proof que passava por
-construção) · `tests/no-core-shadowing.test.sh`. **PO-14 e PO-15 fechadas** — as duas primeiras POs
-automatizáveis do épico. Nenhuma prosa de skill tocada, nenhuma proposta emitida.
+### Próximo passo exato
 
-**Entregue no slice C:** `SKILL.md` (núcleo) — a R-065 ganha terminação mecânica (nenhuma tool call
-após o STOP) e a proibição do auto-consentimento (perguntar e responder por conta própria =
-consentimento falsificado). **v2.4.0 → v2.5.0 (PILOTO)**. Sunset com relógio suspenso até haver
-ledger ativo (A-1).
+**Slice E, T040** — e o E ficou **maior do que a tabela original dizia**: por decisão do operador
+(2026-09-19) ele absorve a **dívida da PO-10**, que é adicionar `uncertainty:` ao **C1.5** do
+`devflow-code`. Motivo: o E já emite proposta para S4/P2.5/P3/RC5, então o C1.5 viaja na MESMA
+proposta — uma vaga de INV-6 em vez de duas, uma aprovação em vez de duas.
 
-**Entregue no slice B:** `skills/devflow-code/SKILL.md` — C1 resolve runners e proíbe `proof:` chutado ·
-C1.5 ganha `1c` (parada: boundary / saturação / teto + `<!-- deferred: -->`) · C3 ordena erros por
-dependência · C4 ganha trio de aborto · 3 linhas na Quick Reference. Núcleo **v2.3 → v2.4.0 (PILOTO)**.
-Proposta e drafts em `mutations/` (MP-001 `approved` + `MP-001-applied`).
+Ordem sugerida: T040 (M3) → T041 (M4) → T042 (M5) → T043 (M2) → **T039 (PO-10 / C1.5)** → T044.
 
-**Contexto que não está no repo:** os dois relatórios de garimpo que originaram esta spec vivem em
-`~/SKILLS/ecc-devflow-review-and-plan.md` (1ª rodada) e `~/SKILLS/ecc-devflow-mining-round2.md`
-(2ª rodada). **`~/SKILLS` não é repositório git** — se precisar deles, leia do disco.
+**Livre, sem dependência:** slice **G** (estudo de formatos de handoff — Tier 1, só comparação e
+decisão do operador; nenhuma edição no C5 antes da escolha).
 
-**Atrito registrado nesta sessão:** o teste do slice A nasceu com expectativa errada (tratava
-`devflow-spec --to specifying` como violação, quando é transição legítima concedida pelo operador).
-`kind: test_expectation_wrong`. Não houve `.agent/` onde gravar (A-1) — está no `tasks.md`, T007.
+### Decisão pendente do operador
 
----
+**AC-1** — `ai-review.sh` morre (exit 1 silencioso) em repo sem `.agent/memory/ANTI_PATTERNS_INDEX.md`.
+Ver *Achados colaterais*. Recomendação: spec própria Tier 0/1, não empurrar para o F2.
+
+### Onde está cada coisa
+
+| Artefato | Caminho |
+|---|---|
+| Drafts e propostas | `plans/specs/001-ecc-absorption/mutations/` |
+| Log de mutações | `mutations/evolution_log.jsonl` (MP-001..MP-003, todas `applied`) |
+| Histórico versionado | `DEVFLOW-META.md`, tabela no fim |
+| Relatórios de garimpo | `~/SKILLS/ecc-devflow-review-and-plan.md` e `~/SKILLS/ecc-devflow-mining-round2.md` — **`~/SKILLS` não é repo git**; leia do disco |
+
+### Entregue por slice
+
+- **A** · `scripts/mode-gate.sh` + `tests/mode-gate.test.sh` (10/10, 7/7 degradados) + seção
+  *Enforcement Substrate* no `references/DEVFLOW-REFERENCE.md`. PO-1, PO-2 ✅
+- **B** · `devflow-code`: C1 resolve runners e proíbe `proof:` chutado · C1.5 ganha `1c` (parada:
+  boundary/saturação/teto + `<!-- deferred: -->`) · C3 ordena erros por dependência · C4 ganha
+  trio de aborto. PO-3..PO-5 abertas (MANUAL)
+- **C** · núcleo: STOP mecânico (sem tool call após o STOP) + proibição do auto-consentimento.
+  PO-6 aberta (MANUAL; o `guard:` já está satisfeito)
+- **D** · gramática do `po`: `evidence_class` (T1+), `boundary` (T2), `uncertainty`/`red`
+  (opcionais), `status: [!] unavailable`; Pass 0 ganha `3b` e `3c`. PO-7 ✅ · PO-8/9 MANUAL ·
+  PO-10 → slice E
+- **F1** · `scripts/lib/engine-core.sh` (9 funções, `ENGINE_CORE_VERSION`) · `ai-review.sh`
+  consome e valida a versão · `tests/ai-review-baseline.sh` (determinística) ·
+  `tests/no-core-shadowing.test.sh`. **PO-14, PO-15 ✅**
+
+### Atritos registrados (vão para o ledger quando `.agent/` existir)
+
+| kind | O quê |
+|---|---|
+| `test_expectation_wrong` | teste do slice A nasceu tratando transição legítima como violação |
+| `instruction_describes_stale_reality` | `Validate` do T014 mandava rodar `verify-split.sh`, aposentado |
+| `gate_unsatisfiable` | `proof:` da PO-14 passava por construção (sem `.js` no repo, diff sempre vazio) |
 
 ## Tabela de slices — autoridade da ordem
 
@@ -169,8 +206,8 @@ Proposta e drafts em `mutations/` (MP-001 `approved` + `MP-001-applied`).
 | **A** | ✅ done | `mode-gate.sh` em 3 níveis de acoplamento | 1 | — | PO-1, PO-2 | `scripts/mode-gate.sh`, `tests/` | — |
 | **B** | ⚠️ aplicado (piloto) · POs MANUAL abertas | C-mode: M1 runner detection · F5 parada de busca (C1.5) · F6 trio de aborto (C3/C4) | 2 | — | PO-3, PO-4, PO-5 | `skills/devflow-code/SKILL.md` | — |
 | **C** | ⚠️ aplicado (piloto) · PO-6 MANUAL aberta | R-065: F7 terminação mecânica + proibição do Y/N auto-respondido | 1 | A | PO-6 | `SKILL.md` | — |
-| **D** | ⚠️ aplicado (piloto) · PO-7 ✅ · PO-8/9 MANUAL · PO-10 gap (C1.5) | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
-| **E** | ▶ next | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate | 1 | D | PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
+| **D** | ⚠️ aplicado (piloto) · PO-7 ✅ · PO-8/9 MANUAL · **PO-10 transferida para E** | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
+| **E** | ▶ next | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate · **+ `uncertainty:` no C1.5 (dívida da PO-10)** | 1 | D | **PO-10**, PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
 | **F1** | ✅ done — PO-14, PO-15 fechadas | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | — |
 | **F2** | ⏳ todo | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
 | **G** | ⏳ todo (estudo pode começar já) | Handoff: estudo de formato → endurecimento do C5 | 1 | — | PO-20, PO-21 | `skills/devflow-code/` (C5) | — |
@@ -313,7 +350,7 @@ status: [ ] open
 ```
 
 ```po PO-10
-slice:  D
+slice:  E   # transferida de D em 2026-09-19 — ver nota
 ac:     o C1.5/C4 tem onde registrar ignorância sem fabricar conteúdo
 boundary: não vale fechar isto apontando o campo na tabela do núcleo — a AC nomeia C1.5 e C4,
           que são onde o agente TEM a ignorância; a tabela é onde o campo é definido, não usado

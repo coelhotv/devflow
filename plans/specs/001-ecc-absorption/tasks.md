@@ -1,8 +1,10 @@
 # 001 — Tasks
 
 > **Retomada a frio:** leia a seção *Estado & próximo passo* do `spec.md` antes desta lista.
-> **Feito:** slice A (T001–T006; T007 N/A) · slice B (T010–T014; MP-001 aprovada e aplicada).
-> **Próximo:** slice E (T040) — depende de D ✅. Ou G, livre. PO-10 precisa de proposta nova (C1.5).
+> **Feito:** slices **A, B, C, D, F1**. POs fechadas: 5 de 23 (PO-1, PO-2, PO-7, PO-14, PO-15).
+> Propostas: MP-001, MP-002, MP-003 — todas aprovadas e aplicadas. DEVFLOW em **v2.6.0 (PILOTO)**.
+> **Próximo:** slice **E** (T040), que agora inclui **T039 — a dívida da PO-10** (`uncertainty:`
+> no C1.5), transferida do slice D por decisão do operador. Livre em paralelo: **G**.
 > PO-3..PO-6 seguem `[ ] open`: MANUAL, exigem projeto consumidor real (A-2).
 > PO-3..PO-5 seguem `[ ] open`: são MANUAL e exigem projeto consumidor real (A-2).
 > Legenda: `[x]` feita · `[~]` não aplicável, com motivo · `[ ]` pendente.
@@ -105,15 +107,26 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
   Correção de verdade (C5/4b): a AC da PO-7 dizia "Tier 1+" e foi corrigida para **T2**, que é o
   que o orçamento aprovado entregou. [C5] journal: N/A (sem `.agent/` — A-1).
 
-## Slice E — Spec & Plan · Tier 1 · depende: D · fecha PO-11..PO-13
+## Slice E — Spec & Plan · Tier 1 · depende: D · fecha **PO-10**, PO-11..PO-13
+
+> **Escopo ampliado em 2026-09-19** (decisão do operador): o E absorve a dívida da PO-10, deixada
+> aberta pelo slice D. `uncertainty:` entrou na gramática do núcleo mas não no C1.5, e o C1.5 não
+> estava entre as seções aprovadas na MP-003. Viaja na MESMA proposta do E — uma vaga de INV-6 em
+> vez de duas, uma aprovação em vez de duas.
 
 - [ ] T040 [PO-11] Draft M3 (Non-Goals + Invariantes no S4, com a ressalva CON-NNN)
 - [ ] T041 [PO-12] Draft M4 (P2.5 Pattern Grounding, só Tier 2)
 - [ ] T042 [PO-12] Draft M5 (task grammar `Target`/`Mirror`/`Validate` no P3)
 - [ ] T043 [PO-13] Draft M2 (RC5 Pass 1: limiar >80%, prova para HIGH/CRITICAL, zero findings válido) — **sem duplicar Suppressions**
-- [ ] T044 Emitir propostas serializadas (2 em voo) e aplicar após aprovação
+- [ ] T039 [PO-10] Draft do `uncertainty:` no **C1.5** do `devflow-code` (e a menção no C4):
+  onde registrar ignorância sem fabricar conteúdo. **Entra na mesma proposta do T044.**
+  * **Mirror**: a tabela canônica do núcleo já DEFINE o campo (`SKILL.md`) — aqui ele é USADO
+  * **Guard**: o limite de 3 marcadores `[NEEDS CLARIFICATION]` do S4 permanece
+  * **Validate**: `grep -n 'uncertainty:' skills/devflow-code/SKILL.md` deixa de sair vazio
+- [ ] T044 Emitir propostas serializadas (2 em voo, INV-6) — **incluindo o T039** — e aplicar
+  após aprovação do operador
   * **Validate**: `bash scripts/verify-split.sh`
-- [ ] T045 [C4] Fechar PO-11..PO-13 · [C5] journal
+- [ ] T045 [C4] Fechar **PO-10**, PO-11..PO-13 · [C5] journal
 
 ## Slice F1 — extração do `@core` · Tier 2 · depende: — · fecha PO-14, PO-15
 
