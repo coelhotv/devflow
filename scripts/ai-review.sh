@@ -92,7 +92,7 @@ HAVE_GH=0;     command -v gh     >/dev/null && HAVE_GH=1
 # binary would reject the flag and fail EVERY chunk, turning an enhancement into
 # a total blackout. When absent we fall back to the legacy text invocation, which
 # still works — just without the schema guarantees.
-AGY_SCHEMA=0; AGY_NOSLASH=0; CLAUDE_SCHEMA=0
+AGY_SCHEMA=0; AGY_NOSLASH=0; CLAUDE_SCHEMA=0; CLAUDE_NOSLASH=0; CLAUDE_NOPERSIST=0
 if [ "$HAVE_AGY" = 1 ]; then
   AGY_HELP="$(agy --help 2>&1 || true)"
   case "$AGY_HELP" in *--json-schema*)            AGY_SCHEMA=1 ;; esac
@@ -100,7 +100,10 @@ if [ "$HAVE_AGY" = 1 ]; then
   [ "$AGY_SCHEMA" = 0 ] && log "agy sem --json-schema (pre-1.1.8) — usando invocação legada em texto"
 fi
 if [ "$HAVE_CLAUDE" = 1 ]; then
-  case "$(claude --help 2>&1 || true)" in *--json-schema*) CLAUDE_SCHEMA=1 ;; esac
+  CLAUDE_HELP="$(claude --help 2>&1 || true)"
+  case "$CLAUDE_HELP" in *--json-schema*)            CLAUDE_SCHEMA=1 ;; esac
+  case "$CLAUDE_HELP" in *--disable-slash-commands*) CLAUDE_NOSLASH=1 ;; esac
+  case "$CLAUDE_HELP" in *--no-session-persistence*) CLAUDE_NOPERSIST=1 ;; esac
   [ "$CLAUDE_SCHEMA" = 0 ] && log "claude sem --json-schema — usando invocação legada em texto"
 fi
 
@@ -979,7 +982,9 @@ AGY_ARGS=(--sandbox --print-timeout "$AGY_TIMEOUT" --model "$RC6_AGY_MODEL")
 # plugins). The reviewer's context is 100% the explicit prompt — cheaper per run
 # (no duplicate project payload) AND stronger independence (SC-007).
 CLAUDE_ARGS=(--model sonnet --tools "" --strict-mcp-config --setting-sources "")
-[ "$CLAUDE_SCHEMA" = 1 ] && CLAUDE_ARGS+=(--output-format json --json-schema "$(cat "$SCHEMA")")
+[ "$CLAUDE_NOSLASH" = 1 ]   && CLAUDE_ARGS+=(--disable-slash-commands)
+[ "$CLAUDE_NOPERSIST" = 1 ] && CLAUDE_ARGS+=(--no-session-persistence)
+[ "$CLAUDE_SCHEMA" = 1 ]    && CLAUDE_ARGS+=(--output-format json --json-schema "$(cat "$SCHEMA")")
 
 # Normalize an engine's structured envelope down to the bare review object.
 # The two engines agree on the payload and disagree on the wrapper:
