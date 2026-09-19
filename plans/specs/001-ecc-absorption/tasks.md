@@ -2,7 +2,8 @@
 
 > **Retomada a frio:** leia a seção *Estado & próximo passo* do `spec.md` antes desta lista.
 > **Feito:** slice A (T001–T006; T007 N/A) · slice B (T010–T014; MP-001 aprovada e aplicada).
-> **Próximo:** slice C, T020 — ou slice F1/G, que não dependem de nada.
+> **Próximo:** slice D (T030) — depende de B ✅. Ou F1/G, livres.
+> PO-3..PO-6 seguem `[ ] open`: MANUAL, exigem projeto consumidor real (A-2).
 > PO-3..PO-5 seguem `[ ] open`: são MANUAL e exigem projeto consumidor real (A-2).
 > Legenda: `[x]` feita · `[~]` não aplicável, com motivo · `[ ]` pendente.
 
@@ -64,12 +65,18 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
 
 ## Slice C — R-065 · Tier 1 · depende: A · fecha PO-6
 
-- [ ] T020 [PO-6] Draft de F7: "sem mais tool calls" após STOP + proibição do Y/N auto-respondido
+- [x] T020 [PO-6] Draft de F7 → `mutations/C-F7-mechanical-stop.md`
   * **Mirror**: `ECC commands/multi-plan.md:227,229`
-- [ ] T021 Emitir proposta (seção: MODE CONTROL RULE / núcleo) — **respeitar INV-6** (máx. 2 em voo)
-- [ ] T022 Aplicar no `SKILL.md` do núcleo + linha na Quick Reference; bump de versão
+- [x] T021 **MP-002** emitida (`status: pending`) — seção MODE CONTROL RULE do núcleo.
+  INV-6: 1 em voo (MP-001 já aplicada), 1 vaga livre. INV-5 não se aplica (núcleo ≠ C1/C4/Bootstrap).
+- [x] T022 MP-002 **aprovada pelo operador em 2026-09-19** e aplicada no `SKILL.md` do núcleo
+  (MODE CONTROL RULE + 1 linha na Quick Reference). Bump **v2.4.0 → v2.5.0 (PILOTO)**;
+  linha no histórico do `DEVFLOW-META.md`; confirmação `MP-002-applied` no `evolution_log.jsonl`.
+  * **Validate**: marcadores `devflow-split` 8/8 · `mode-gate.test.sh` 10/10 · `--degraded` 7/7
   * **Validate**: `bash scripts/verify-split.sh && bash tests/mode-gate.test.sh`
-- [ ] T023 [C4] Fechar PO-6 · [C5] journal
+- [~] T023 [C4] PO-6 **NÃO fecha neste repo** — `proof:` é MANUAL (provocar um STOP real e
+  inspecionar o transcript), logo exige projeto consumidor (A-2). O `guard:` (mode-gate.sh verde)
+  está satisfeito; o `proof:` não. Permanece `[ ] open`. [C5] journal: N/A (sem `.agent/` — A-1).
 
 ## Slice D — gramática do `po` · Tier 2 · depende: B · fecha PO-7..PO-10
 

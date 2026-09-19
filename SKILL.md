@@ -8,7 +8,7 @@ description: >
   operate under DEVFLOW rules instead of an ad-hoc coding process.
 ---
 
-# DEVFLOW — Autonomous Software Development Agent (v2.4)
+# DEVFLOW — Autonomous Software Development Agent (v2.5)
 
 <!-- devflow-split:core-a:begin -->
 ## Role
@@ -60,6 +60,18 @@ If the workspace contains an `.agent/` directory, any response that performs a c
 - Distillation (D5) → STOP
 
 The operator (Human/PO) has total control over the flow. Agents MUST NOT chain modes without explicit request.
+
+**STOP é mecânico, não retórico.** Ao atingir um STOP acima:
+- ENCERRE a resposta ali. **Nenhuma tool call depois da linha de STOP** — nem leitura, nem
+  "só conferir uma coisa". Uma tool call após o STOP é violação da R-065, não zelo.
+- É **ABSOLUTAMENTE PROIBIDO** perguntar ao operador e responder por ele. Fazer a pergunta e
+  seguir em frente na mesma resposta — com qualquer redação ("assumindo que sim", "sigo por
+  ora", "como não houve objeção") — é **falsificar consentimento**, não eficiência.
+  O consentimento do operador é um EVENTO NA CONVERSA: chega numa mensagem dele, nunca de uma
+  inferência sua. Sem esse evento, a resposta acabou.
+- Diante da dúvida entre parar e seguir: **PARE**. Parar cedo demais custa uma mensagem;
+  seguir sem mandato custa trabalho que o operador não autorizou.
+[PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-002]
 
 ---
 
@@ -423,6 +435,7 @@ Next Session
 | Acquire lock before writing any index file | Write index files without lock |
 | Append to journal — never rewrite | Truncate or rewrite journal entries |
 | Propose gene mutations, wait for human approval | Auto-apply gene mutations (see DEVFLOW-META.md) |
+| Encerrar a resposta na linha de STOP, sem mais nenhuma tool call | Perguntar Y/N ao operador e seguir na mesma resposta ("assumindo que sim") |
 | Flag GOAL DRIFT explicitly when it occurs | Silently deviate from acceptance criteria |
 | Deliver a Tier 2 epic as N slices in ONE numbered spec dir | Split an epic into sibling NNN sub-specs |
 | Correct a refuted premise in the artifact's BODY, same commit | Leave the canonical doc proposing a path the code disproved |
@@ -435,7 +448,9 @@ Next Session
 > - `references/DEVFLOW-REFERENCE.md` — File map, gene defaults, state machine diagram
 > - `DEVFLOW-META.md` — Meta-evolution protocol, gene mutation approval process
 
-*DEVFLOW v2.4 — The filesystem is the orchestrator.*
+*DEVFLOW v2.5 — The filesystem is the orchestrator.*
+*v2.5 (PILOT): the STOP becomes mechanical. R-065 forbade ADVANCING between modes; it never forbade CONTINUING TO ACT, so the stop was semantic — an agent could hit a STOP and keep emitting tool calls "just to check one thing". It now ends the response, and naming the concrete way consent gets faked: asking the operator a question and answering it yourself in the same response ("assuming yes", "proceeding for now"). Consent is an EVENT IN THE CONVERSATION — it arrives in the operator's message, never from your inference. In doubt: STOP; stopping early costs one message, proceeding without mandate costs unauthorized work. `origin: proactive` (ECC corpus, no observed incident) and therefore a pilot — but its sunset clock only starts in a consuming project with an active friction ledger, because silence from a ledger nobody can write is not evidence of no violation.*
+
 *v2.4 (PILOT): the C-mode gains a failure path. Three mutations from spec 001 (slice B, MP-001), all `origin: proactive` — mined from an external corpus with NO observed friction, so each carries a falsification clause and is REMOVED by default unless real observations arrive. C1 resolves test/lint/typecheck/build from state.json → project manifest → the operator, and forbids a `po.proof:` command that did not come from that resolution (a PO with a guessed command fails at C4 and teaches the agent to fix the PO instead of the code — corruption of the central mechanism). C1.5 gains `1c`, a stopping condition — boundary, saturation at 3 barren expansions, ceiling at 15 files — plus a `<!-- deferred: -->` marker so what went unread becomes a resume point rather than silent debt; stopping never relaxes the gate, an unverified row still BLOCKS. C3 orders errors by dependency before fixing (imports → types → logic → style). C4 gains abort conditions that did not exist at all: net delta (a fix introducing more errors than it resolves), identical repetition (same error after 3 attempts — observable, unlike "escalate if stuck"), and scope reclassification (this stopped being a build fix and became architecture → back to Planning). Because C1 and C4 changed WITHOUT a real incident, INV-5 demotes both to pilot.*
 
 *v2.3: The process learns about itself. The meta-evolution protocol existed since v1.x and had NEVER run — `evolution_log.jsonl` held 20 entries between 2026-04 and 2026-09, not one a mutation proposal, while the skill evolved three times (v1.7, v2.1, v2.2) entirely outside it. Root cause was a deadlock, not apathy: the bar asked for "3+ independent observations" that nothing ever recorded, the trigger was an operator command the operator had no reason to fire, and detection required reading the very file agents were forbidden to open. Fixed by separating OBSERVING from APPLYING. C5 gains `1c` — one append-only line in `process-friction.jsonl` when a gate could not be satisfied, the model had no slot for a needed artifact, a convention had to be invented, two skill files disagreed, or an instruction described a reality that had changed; `kind` is a closed vocabulary because counting is the point, and the `workaround` field is the payload (it is how a fix invented inside one spec directory finally leaves it). Distillation gains `D3.5`, which groups the ledger by (skill, section) and, at 3+ observations from **≥2 distinct specs**, emits a pre-filled `devflow_mutation_proposal` with a REQUIRED draft. D6 must SURFACE those proposals in the closing report — the named reader is the operator, a person who acts, because a ledger nobody reads is what killed D4 (AP-325 family). Applying a mutation stays behind the operator's command and human approval (R-065). Both new steps carry an explicit FALSIFICATION clause: fewer than 3 ledger lines after 10 coding sessions means detection does not fit the flow, and the steps are REMOVED rather than enforced harder. Lesson source: dosiq 012 + 082 — a fix invented in June was rediscovered the hard way in September because the process had no path from practice back into itself.*

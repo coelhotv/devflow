@@ -125,11 +125,16 @@ para distinguir demonstrado de afirmado.
 ## Estado & próximo passo (leia primeiro numa sessão nova)
 
 **Última sessão:** 2026-09-19 · **Slices A e B entregues** · **POs fechadas: 2 de 23** (PO-1, PO-2).
-**Propostas de mutação pendentes: 0** (MP-001 aprovada e aplicada — INV-6: 2 vagas livres).
+**Propostas de mutação pendentes: 0** (MP-001 e MP-002 aplicadas — INV-6: 2 vagas livres).
 
-**Próximo passo exato:** **slice C, T020** — draft de F7 (terminação mecânica da R-065 + proibição
-do Y/N auto-respondido). Alternativas livres, sem dependência: **F1** (extração do `@core`, não emite
-proposta) e **G** (estudo de formatos de handoff). Por INV-6 cabem 2 propostas em voo.
+**Próximo passo exato:** **slice D, T030** — confirmar se `po_unstable` (v2.1) está morto e, na
+sequência, o draft ÚNICO dos 4 campos do bloco `po` + M6. Livres em paralelo: **F1** (`@core`, não
+emite proposta) e **G** (estudo de handoff).
+
+**Entregue no slice C:** `SKILL.md` (núcleo) — a R-065 ganha terminação mecânica (nenhuma tool call
+após o STOP) e a proibição do auto-consentimento (perguntar e responder por conta própria =
+consentimento falsificado). **v2.4.0 → v2.5.0 (PILOTO)**. Sunset com relógio suspenso até haver
+ledger ativo (A-1).
 
 **Entregue no slice B:** `skills/devflow-code/SKILL.md` — C1 resolve runners e proíbe `proof:` chutado ·
 C1.5 ganha `1c` (parada: boundary / saturação / teto + `<!-- deferred: -->`) · C3 ordena erros por
@@ -152,8 +157,8 @@ Proposta e drafts em `mutations/` (MP-001 `approved` + `MP-001-applied`).
 |---|---|---|---|---|---|---|---|
 | **A** | ✅ done | `mode-gate.sh` em 3 níveis de acoplamento | 1 | — | PO-1, PO-2 | `scripts/mode-gate.sh`, `tests/` | — |
 | **B** | ⚠️ aplicado (piloto) · POs MANUAL abertas | C-mode: M1 runner detection · F5 parada de busca (C1.5) · F6 trio de aborto (C3/C4) | 2 | — | PO-3, PO-4, PO-5 | `skills/devflow-code/SKILL.md` | — |
-| **C** | ▶ next | R-065: F7 terminação mecânica + proibição do Y/N auto-respondido | 1 | A | PO-6 | `SKILL.md` | — |
-| **D** | ⏳ todo | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
+| **C** | ⚠️ aplicado (piloto) · PO-6 MANUAL aberta | R-065: F7 terminação mecânica + proibição do Y/N auto-respondido | 1 | A | PO-6 | `SKILL.md` | — |
+| **D** | ▶ next | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
 | **E** | ⏳ todo | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate | 1 | D | PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
 | **F1** | ⏳ todo (livre: não depende de nada) | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | — |
 | **F2** | ⏳ todo | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
@@ -241,6 +246,10 @@ proof:  MANUAL — provocar um STOP de modo e inspecionar o transcript
 expect: nenhuma tool call após a linha de STOP; nenhuma auto-resposta a pergunta do operador
 guard:  scripts/mode-gate.sh continua verde
 status: [ ] open
+# F7 aplicado em SKILL.md (MODE CONTROL RULE) em 2026-09-19. guard SATISFEITO:
+#   mode-gate.test.sh 10/10 + --degraded 7/7 verdes. proof PENDENTE: e MANUAL e exige
+#   provocar um STOP real e inspecionar o transcript num projeto consumidor (A-2).
+#   INSTRUMENTO PRONTO != AC DEMONSTRADA. Nao marcar [x] sem colar o transcript.
 ```
 
 ```po PO-7
@@ -402,5 +411,10 @@ status: [ ] open
 
 - **A-1** O repo `devflow` seguirá sem `.agent/` por enquanto; esta spec vive em `plans/specs/`.
 - **A-2** Os slices B–H exigem projeto consumidor real (dosiq) para POs MANUAL.
+- **A-3** `1 slice = 1 PR` é regra que o DEVFLOW **impõe aos seus clientes**, não que ele obedeça a
+  si mesmo (decisão do operador, 2026-09-19). Aqui o artefato é texto de skill e shell — não há
+  codebase de runtime, logo não há blast radius de deploy que justifique um PR por slice. O épico
+  inteiro vive em `spec/001-ecc-absorption`, um commit semântico por slice. **Não é mutação:** a
+  tabela de Work Tiers permanece como está, e nenhuma proposta é emitida por causa disto.
 - **[NEEDS CLARIFICATION]** O formato de handoff do slice G — decisão do operador no PO-20.
 - **[NEEDS CLARIFICATION]** Se `po_unstable` (v2.1) está morto; se estiver, o slice D o absorve.
