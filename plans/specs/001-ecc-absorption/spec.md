@@ -124,22 +124,17 @@ para distinguir demonstrado de afirmado.
 
 ## Estado & próximo passo (leia primeiro numa sessão nova)
 
-**Última sessão:** 2026-09-19 · **Slice A entregue** · **POs fechadas: 2 de 23** (PO-1, PO-2).
-**Propostas de mutação pendentes: 0** (limite é 2 — INV-6; há espaço para duas).
+**Última sessão:** 2026-09-19 · **Slices A e B entregues** · **POs fechadas: 2 de 23** (PO-1, PO-2).
+**Propostas de mutação pendentes: 0** (MP-001 aprovada e aplicada — INV-6: 2 vagas livres).
 
-**Próximo passo exato:** slice B, task **T010** — redigir o draft de M1 (runner detection no C1)
-com `origin: proactive`, assinatura de atrito prevista e sunset (DT-2). Nenhum arquivo de skill foi
-tocado até aqui; a primeira proposta de mutação da spec nasce no T011.
+**Próximo passo exato:** **slice C, T020** — draft de F7 (terminação mecânica da R-065 + proibição
+do Y/N auto-respondido). Alternativas livres, sem dependência: **F1** (extração do `@core`, não emite
+proposta) e **G** (estudo de formatos de handoff). Por INV-6 cabem 2 propostas em voo.
 
-**Antes de editar qualquer prosa de skill, leia:** INV-4 (nada fora de `devflow_mutation_proposal` +
-aprovação do operador), INV-5 (C1/C4/Bootstrap exigem incidente real — **o slice B mexe no C1**, então
-sem incidente real ele entra rebaixado a piloto) e DT-2 (esta spec é proativa; carrega controles
-compensatórios).
-
-**Entregue no slice A:**
-- `scripts/mode-gate.sh` — gate determinístico de modo, zero LLM, fail-open assimétrico, 3 níveis de acoplamento
-- `tests/mode-gate.test.sh` — 10/10 decisões, 7/7 degradados, `shellcheck` limpo
-- `references/DEVFLOW-REFERENCE.md` — seção *Enforcement Substrate* (arquivo de referência, não prosa de skill)
+**Entregue no slice B:** `skills/devflow-code/SKILL.md` — C1 resolve runners e proíbe `proof:` chutado ·
+C1.5 ganha `1c` (parada: boundary / saturação / teto + `<!-- deferred: -->`) · C3 ordena erros por
+dependência · C4 ganha trio de aborto · 3 linhas na Quick Reference. Núcleo **v2.3 → v2.4.0 (PILOTO)**.
+Proposta e drafts em `mutations/` (MP-001 `approved` + `MP-001-applied`).
 
 **Contexto que não está no repo:** os dois relatórios de garimpo que originaram esta spec vivem em
 `~/SKILLS/ecc-devflow-review-and-plan.md` (1ª rodada) e `~/SKILLS/ecc-devflow-mining-round2.md`
@@ -156,14 +151,18 @@ compensatórios).
 | Slice | Status | Escopo | Tier | Depende de | POs | Arquivos | PR |
 |---|---|---|---|---|---|---|---|
 | **A** | ✅ done | `mode-gate.sh` em 3 níveis de acoplamento | 1 | — | PO-1, PO-2 | `scripts/mode-gate.sh`, `tests/` | — |
-| **B** | ▶ next | C-mode: M1 runner detection · F5 parada de busca (C1.5) · F6 trio de aborto (C3/C4) | 2 | — | PO-3, PO-4, PO-5 | `skills/devflow-code/SKILL.md` | — |
-| **C** | ⏳ todo | R-065: F7 terminação mecânica + proibição do Y/N auto-respondido | 1 | A | PO-6 | `SKILL.md` | — |
+| **B** | ⚠️ aplicado (piloto) · POs MANUAL abertas | C-mode: M1 runner detection · F5 parada de busca (C1.5) · F6 trio de aborto (C3/C4) | 2 | — | PO-3, PO-4, PO-5 | `skills/devflow-code/SKILL.md` | — |
+| **C** | ▶ next | R-065: F7 terminação mecânica + proibição do Y/N auto-respondido | 1 | A | PO-6 | `SKILL.md` | — |
 | **D** | ⏳ todo | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
 | **E** | ⏳ todo | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate | 1 | D | PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
 | **F1** | ⏳ todo (livre: não depende de nada) | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | — |
 | **F2** | ⏳ todo | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
 | **G** | ⏳ todo (estudo pode começar já) | Handoff: estudo de formato → endurecimento do C5 | 1 | — | PO-20, PO-21 | `skills/devflow-code/` (C5) | — |
 | **H** | ⏳ todo | Falsificação: medição de conformidade + caminho `external_corpus` no META | 1 | todos | PO-22, PO-23 | `DEVFLOW-META.md`, `scripts/` | — |
+
+**Branch:** `spec/001-ecc-absorption` — **único para o épico inteiro** (decisão do operador, 2026-09-19;
+renomeado de `spec/001-ecc-absorption-slice-a`). Um commit semântico por slice; não se abre branch por slice.
+A coluna PR da tabela fica vazia enquanto o épico não for aberto como PR.
 
 **Execução:** A → B → C → D → E → F1 → F2 → G (estudo em paralelo desde o início) → H.
 F1 não emite proposta (não toca prosa) — pode correr a qualquer momento.
@@ -206,6 +205,9 @@ proof:  MANUAL — rodar C1 num projeto não-npm e colar a resolução registrad
 expect: os comandos registrados vêm de state.json/manifesto do projeto, não de chute
 guard:  nenhuma PO da sessão cita comando fora dos resolvidos
 status: [ ] open
+# M1 aplicado em skills/devflow-code/SKILL.md (C1, bloco RUNNERS RESOLVIDOS) em 2026-09-19.
+#   Evidencia pendente: proof e MANUAL e exige C1 rodado em projeto nao-npm real (A-2).
+#   INSTRUMENTO PRONTO != AC DEMONSTRADA. Nao marcar [x] sem colar a evidencia.
 ```
 
 ```po PO-4
@@ -215,6 +217,9 @@ proof:  MANUAL — executar um C1.5 Tier 2 e colar o critério de parada dispara
 expect: um dos três critérios nomeado + marcador deferred quando sobrar arquivo
 guard:  o PASS do C1.5 continua exigindo tabela de evidência populada
 status: [ ] open
+# F5 aplicado em skills/devflow-code/SKILL.md (C1.5, item 1c) em 2026-09-19.
+#   Evidencia pendente: proof e MANUAL e exige um C1.5 Tier 2 real (A-2).
+#   INSTRUMENTO PRONTO != AC DEMONSTRADA. Nao marcar [x] sem colar a evidencia.
 ```
 
 ```po PO-5
@@ -224,6 +229,9 @@ proof:  MANUAL — provocar erro repetido e colar o aborto com a condição cita
 expect: a sessão para e escala, citando qual das três condições disparou
 guard:  o caminho feliz do C3/C4 não ganha passo novo
 status: [ ] open
+# F6 aplicado em skills/devflow-code/SKILL.md (C3 + C4, trio de aborto) em 2026-09-19.
+#   Evidencia pendente: proof e MANUAL e exige um loop de correcao real (A-2).
+#   INSTRUMENTO PRONTO != AC DEMONSTRADA. Nao marcar [x] sem colar a evidencia.
 ```
 
 ```po PO-6

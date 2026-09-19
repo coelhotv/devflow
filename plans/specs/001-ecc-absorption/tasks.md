@@ -1,7 +1,9 @@
 # 001 — Tasks
 
 > **Retomada a frio:** leia a seção *Estado & próximo passo* do `spec.md` antes desta lista.
-> **Feito:** slice A (T001–T006; T007 N/A). **Próximo:** T010, slice B.
+> **Feito:** slice A (T001–T006; T007 N/A) · slice B (T010–T014; MP-001 aprovada e aplicada).
+> **Próximo:** slice C, T020 — ou slice F1/G, que não dependem de nada.
+> PO-3..PO-5 seguem `[ ] open`: são MANUAL e exigem projeto consumidor real (A-2).
 > Legenda: `[x]` feita · `[~]` não aplicável, com motivo · `[ ]` pendente.
 
 Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de slices em `spec.md`.
@@ -35,15 +37,30 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
 
 ## Slice B — C-mode · Tier 2 · ▶ PRÓXIMO · depende: — · fecha PO-3..PO-5
 
-- [ ] T010 [PO-3] Redigir o draft de M1 (runner detection no C1) com `origin: proactive`, assinatura de atrito e sunset
-- [ ] T011 [PO-3] Emitir `devflow_mutation_proposal` (seção C1) — **verificar INV-5**: sem incidente real, entra como piloto
-- [ ] T012 [PO-4] Draft de F5 (parada de busca no C1.5: 3 critérios + marcador `deferred`)
+- [x] T010 [PO-3] Draft de M1 → `mutations/B-M1-runner-detection.md` (origin proactive, assinatura de atrito, sunset)
+- [x] T011 [PO-3] `devflow_mutation_proposal` **MP-001** emitida em `mutations/evolution_log.jsonl`
+  (status `pending`; seções C1, C1.5, C3, C4 numa proposta só — INV-6: 1 em voo, sobra 1 para o slice C).
+  INV-5 aplicado: M1 (C1) e F6 (C4) sem incidente real → **rebaixados a piloto** com critério de remoção.
+- [x] T012 [PO-4] Draft de F5 → `mutations/B-F5-stop-condition.md` (3 critérios + marcador `deferred`)
   * **Mirror**: `ECC agents/spec-miner.md:57-68`
-- [ ] T013 [PO-5] Draft de F6 (trio de aborto + ordenação por dependência)
+- [x] T013 [PO-5] Draft de F6 → `mutations/B-F6-abort-trio.md` (trio de aborto + ordenação por dependência)
   * **Mirror**: `ECC commands/build-fix.md:26-28,40-46`
-- [ ] T014 Após aprovação: aplicar em `skills/devflow-code/SKILL.md` preservando os marcadores `devflow-split`
+- [x] T014 MP-001 **aprovada pelo operador em 2026-09-19** e aplicada em `skills/devflow-code/SKILL.md`
+  (C1, C1.5/`1c`, C3, C4 + 3 linhas na Quick Reference). Marcadores `devflow-split` intactos (4/4).
+  Núcleo bumpado v2.3 → **v2.4.0 (PILOTO)**; linha no histórico do `DEVFLOW-META.md`;
+  confirmação `MP-001-applied` append-only no `evolution_log.jsonl`.
+  * **Validate (corrigido)**: `grep -c devflow-split` == 4 **+** `bash tests/mode-gate.test.sh` (10/10)
+    **+** `--degraded` (7/7). ⚠️ O `Validate` original citava `scripts/verify-split.sh`, que está
+    **APOSENTADO** desde 2026-09-05 (cabeçalho do próprio script: "NÃO É GATE") e já falhava em HEAD
+    limpo antes desta edição — por construção, já que prova um evento histórico, não um invariante.
   * **Validate**: `bash scripts/verify-split.sh`
-- [ ] T015 [C4] Fechar PO-3..PO-5 · [C5] journal + linha na Quick Reference do modo
+- [~] T015 [C4] PO-3..PO-5 **NÃO fecham neste repo** — são `MANUAL` e exigem um C1/C1.5/C4 rodado
+  num projeto consumidor real (A-2). Fechar aqui seria `[x]` sem evidência: a violação exata que as
+  POs existem para impedir. Permanecem `[ ] open`; a evidência vem da primeira sessão de C-mode no dosiq.
+  [C5] linha da Quick Reference: **feita** no T014. Journal: N/A (sem `.agent/` — A-1).
+  **Atrito registrado aqui** (`kind: instruction_describes_stale_reality`): o `Validate` do T014
+  mandava rodar `scripts/verify-split.sh`, aposentado há duas semanas. `workaround`: validar por
+  marcadores + suíte do slice A. Candidato a alimentar o ledger reativo quando `.agent/` existir.
 
 ## Slice C — R-065 · Tier 1 · depende: A · fecha PO-6
 

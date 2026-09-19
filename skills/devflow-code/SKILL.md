@@ -63,9 +63,18 @@ Verify before writing any code (do not skip):
   [ ] No duplicate files: same find command, count == 1
   [ ] Path aliases confirmed (check vite.config.js / tsconfig.json / equivalent)
   [ ] Relevant contracts identified from CONTRACTS_INDEX.md
-  [ ] Test framework confirmed per workspace: read package.json in the TARGET workspace
-      (do not assume root framework applies — workspaces may differ, e.g. Jest vs Vitest)
-      NEVER mix vi.fn()/jest.fn() or vitest/jest imports across workspaces.
+  [ ] RUNNERS RESOLVIDOS E REGISTRADOS — antes de qualquer gate ou `po.proof:`.
+      Resolva test / lint / typecheck / build nesta ordem de precedência, parando na primeira que responde:
+        1. state.json (.knowledge) — comandos já resolvidos em sessão anterior
+        2. manifesto do projeto — package.json:scripts | Cargo.toml | pyproject.toml | Makefile | go.mod
+        3. PERGUNTE ao operador. Não chute.
+      REGISTRE os 4 comandos resolvidos no transcript, citando a fonte de cada um
+      (ex.: `test: bun test — package.json:scripts.test`). Comando não resolvido = `NONE (ausente)`,
+      e quem depende dele fecha `[!] unavailable`, nunca `[x]`.
+      PROIBIDO escrever em `po.proof:` (aqui, no S4 ou no C4) comando que não veio desta resolução.
+      Em monorepo, resolva POR WORKSPACE-ALVO — nunca assuma que o runner da raiz vale
+      (Jest vs Vitest; NUNCA misture vi.fn()/jest.fn() ou imports vitest/jest entre workspaces).
+      [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-001]
 
   [ ] Spec exists in plans/ for this task (or created in P3) — AND read it COMPLETELY:
       ⚠️  Do NOT skim — read the entire spec from start to finish before proceeding.
@@ -191,6 +200,19 @@ Write output to plans/specs/NNN-feature-name/analysis.md — or, when the epic i
    A promise that fails here is NOT a task to code: it is a DECISION to take back to the operator
    (approximate, or migrate the schema) and the FR/PO must be rewritten to promise what the chosen
    option delivers. Shipping the query anyway ships a number that answers a different question.
+
+1c. CONDIÇÃO DE PARADA — a Evidence Table diz o que verificar, não quando parar. Sem isto o agente
+   lê de menos (e o PASS vira carimbo) ou espirala. PARE de buscar quando UMA destas disparar, e
+   DECLARE qual foi, no analysis.md:
+     (i) BOUNDARY — a cadeia de chamadas alcançou uma fronteira externa (SDK, rede, DB, binário).
+    (ii) SATURAÇÃO — 3 arquivos expandidos consecutivos sem nenhuma asserção comportamental nova.
+   (iii) TETO — 15 arquivos lidos para esta capacidade (3 arquivos de alta relevância batem 10 medíocres).
+   Sobrou arquivo por ler? REGISTRE no fim do analysis.md:
+     <!-- deferred: path/a.ts, path/b.sql — motivo: teto atingido; retomar por aqui -->
+   O marcador `deferred:` é ponto de retomada da próxima sessão — não é dívida silenciosa.
+   Parada NÃO afrouxa o gate: o PASS continua exigindo Evidence Table populada (item 1). Parar com
+   linha ❌/UNVERIFIED na tabela é BLOQUEIO, não parada.
+   [PILOTO 2026-09 · origin: proactive]
 
 2. CROSS-FILE CONSISTENCY — spec.md ↔ plan.md ↔ tasks.md ↔ analysis.md must AGREE.
    Flag any contradiction (e.g. plan says "insert direct" while analysis says "via RPC").
@@ -349,6 +371,9 @@ Follow this order when touching multiple layers:
 
 Apply all relevant R-NNN rules during implementation.
 Check anti-patterns before each significant operation.
+
+Falhou o gate? ORDENE os erros por dependência antes de corrigir: imports/resolução de módulo →
+tipos/schemas → lógica → estilo. Corrigir lógica antes do tipo gera retrabalho e mascara a causa.
 ```
 
 ### C4 — Quality Gates
@@ -361,6 +386,19 @@ Run project-specific quality commands (from state.json or knowledge.json):
   Lint:   [project lint command]
   Tests:  [project test command for changed files]
   Build:  [project build command if applicable]
+
+LOOP DE CORREÇÃO — CONDIÇÕES DE ABORTO (só se aplica quando um gate falhou):
+  PARE, não tente de novo, e ESCALE ao operador citando QUAL condição disparou:
+    (a) DELTA LÍQUIDO — a correção introduziu mais erros do que resolveu (conte antes e depois; o
+        sinal é o delta, não o número de tentativas).
+    (b) REPETIÇÃO IDÊNTICA — o MESMO erro (mesma mensagem/stack) persiste após 3 tentativas.
+        Critério observável; "escale se estiver travado" não é, porque o agente sempre acha que a
+        próxima tentativa resolve.
+    (c) RECLASSIFICAÇÃO DE ESCOPO — o conserto exige mudança arquitetural, não conserto de build.
+        Isto deixou de ser C-mode: volta para Planning. Não é apelo à disciplina, é condição.
+  Ao abortar: NÃO commite, NÃO push, NÃO marque PO como `[x]`. Registre o estado e pare a resposta
+  (R-065: sem mais tool calls após o STOP).
+  [PILOTO 2026-09 · origin: proactive]
 
 Verify R-221 SQP release evidence independently from lint/tests:
   - platform(s) identified
@@ -929,6 +967,9 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 | Audit the POs this slice OWNS in RC5 Pass 0 | Demand every PO of a sliced epic close before any slice may land |
 | Log DEVFLOW friction as one line at C5/1c, with the workaround | Invent a convention the skill lacks and leave it inside your spec dir |
 | Fill a Behavioral Failure-Modes table (NULL/0/boundary/missing-join) for every new function + a negative-path test each | Verify only that a symbol exists/matches the repo and call it robust |
+| Resolver test/lint/typecheck/build no C1 e citar a fonte de cada um | Escrever `proof:` com comando chutado (`npm test` em projeto Bun/Cargo) |
+| Nomear o critério de parada do C1.5 e marcar `deferred:` o que ficou por ler | Parar de ler sem dizer por quê, ou espiralar até o contexto estourar |
+| Abortar citando delta líquido, erro idêntico 3× ou reclassificação de escopo | Tentar "mais uma vez" indefinidamente, ou commitar com gate vermelho |
 | Run RC5 (code review) on every Tier 1+ PR before push | Push without RC5 on Tier 2 work (safety net against regression) |
 | Use check-review skill post-push if an external reviewer is configured | Skip RC5 just because an external reviewer exists (defense in depth) |
 <!-- devflow-split:qr:end -->
