@@ -90,6 +90,33 @@ For any significant architectural decision in scope:
   IF ADR exists with status "proposed" → flag for human review before implementation
 ```
 
+### P2.5 — Pattern Grounding (Tier 2 apenas)
+```
+Antes de escrever o plano, ancore-o nas convenções QUE JÁ EXISTEM no repositório. O modo de falha
+que isto evita: o plano introduz um utilitário novo ao lado de um equivalente que já existe, e
+nenhum gate reclama porque o código novo está correto — só está duplicado e divergente.
+
+Preencha a tabela. Cada célula traz um `file:line` REAL, obtido com grep/find/Read nesta sessão —
+nunca de memória — ou a string literal `NENHUM PADRÃO EXISTENTE`. Célula vazia BLOQUEIA o P3.
+
+| Dimensão        | Padrão vigente | Evidência (file:line) |
+|-----------------|----------------|-----------------------|
+| Naming          |                |                       |
+| Error handling  |                |                       |
+| Data access     |                |                       |
+| Tests           |                |                       |
+
+REGRAS:
+  - PROIBIDO inventar convenção. Se o grep não achou, a célula é `NENHUM PADRÃO EXISTENTE` — e isso
+    é um achado legítimo, não uma falha sua.
+  - PROIBIDO introduzir utilitário/helper novo quando a linha correspondente aponta um padrão
+    existente. Quer divergir? Então é decisão arquitetural: volta ao P2 e vira ADR.
+  - `NENHUM PADRÃO EXISTENTE` em Data access ou Error handling num repo maduro é SUSPEITO — quase
+    sempre significa que a busca foi rasa. Varie os termos uma vez antes de aceitar.
+  - Tier 1 NÃO preenche esta tabela: herda a ancoragem pelo campo `Mirror:` de cada task (P3).
+  [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-004]
+```
+
 ### P3 — Spec Creation (tier-aware)
 ```
 Tier 1 (Standard): plan.md is OPTIONAL. If the approach is obvious from spec.md,
@@ -122,6 +149,19 @@ Each task MUST:
   - Link the PO(s) it closes via `[PO-N]` (Tier 1+). A task with no linked PO has no
     end criterion — it is undone work. Plan the ORDER in which POs are demonstrated:
     which POs are checkpoints and when.
+  - Declarar os três campos de ancoragem, um por linha, logo abaixo do título da task:
+      * **Target**: `path/do/arquivo` (`[NEW]` | `[MODIFY]` | `[DELETE]`) — o arquivo que DEFINE o
+        símbolo, nunca um chamador (mesma regra do C1). Vários alvos ⇒ várias linhas Target.
+      * **Mirror**: `file:line` do exemplar a imitar, ou `NENHUM` — o que ancora a task no padrão
+        real do repo (é como o Tier 1 herda o P2.5 sem preencher a tabela).
+      * **Validate**: UM comando isolado, executável, que prova ESTA task — resolvido no C1
+        (runners), nunca chutado. É o comando que o C3 roda após cada arquivo.
+    `Validate` é por-task; `guard:` continua sendo do bloco `po` e fecha no C4. Não confunda:
+    `Validate` responde "este arquivo ficou de pé?", `guard:` responde "nada regrediu?".
+    ⚠️ Se o `Validate` de toda task for IGUAL ao gate global do C4, a granularidade não existe —
+    isso é o sinal de falsificação deste campo, não um detalhe de estilo.
+    Task de C5 (registro/memória) pode declarar `Validate: NONE (ausente)` — é honesto e visível.
+    [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-004]
   - Cover every deliverable, acceptance criterion, quality gate, and C5 step
 ```
 

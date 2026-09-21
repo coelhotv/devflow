@@ -102,6 +102,15 @@ Tier 1 (lite) — keep it to one screen:
     and citable. Tier 1+: an AC without a PO is INVALID.
   - Functional Requirements (FR-###)
   - Success Criteria (SC-###) — include SC: "100% of ACs have a closed PO (status [x]) by end of C-mode"
+  - **`## Non-Goals`** — ≥2 itens, obrigatório em T1 e T2 (T0 não tem spec). Cada item nomeia algo
+    ADJACENTE que alguém razoavelmente esperaria desta spec e que ela RECUSA, com o motivo em uma
+    linha. "Não refatorar o resto" é ritual, não Non-Goal: não nomeia nada adjacente nem diz por quê.
+    O teste do item: alguém poderia ter escrito um FR para ele? Se não poderia, não é um Non-Goal.
+  - **`## Invariants`** — regras que nenhuma parte da implementação pode violar, numeradas `INV-N`.
+    Ressalva de promoção: um invariante que sobrevive à entrega e passa a valer para OUTRO trabalho
+    deixou de ser desta spec — promova-o a `CON-NNN` no CONTRACTS_INDEX e deixe aqui só a referência.
+    Invariante que ninguém fora desta spec vai ler fica aqui mesmo.
+    [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-004]
   - Assumptions / Open Questions
 
 Tier 2 (full) — also:
@@ -174,4 +183,6 @@ STOP. Awaiting Planning mode invocation.
 | DO | DO NOT |
 |----|--------|
 | Register/update the spec row in the specs index/README on creation AND every status change | Create a spec dir or change its status without updating the specs index (silent drift) |
+| Escrever ≥2 Non-Goals que nomeiem um FR adjacente recusado | Escrever "não refatorar o resto" e chamar de Non-Goal |
+| Promover a CON-NNN o invariante que vale fora desta spec | Deixar `INV-N` local virar contrato implícito do projeto |
 <!-- devflow-split:qr:end -->

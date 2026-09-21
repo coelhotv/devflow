@@ -114,19 +114,46 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
 > estava entre as seções aprovadas na MP-003. Viaja na MESMA proposta do E — uma vaga de INV-6 em
 > vez de duas, uma aprovação em vez de duas.
 
-- [ ] T040 [PO-11] Draft M3 (Non-Goals + Invariantes no S4, com a ressalva CON-NNN)
-- [ ] T041 [PO-12] Draft M4 (P2.5 Pattern Grounding, só Tier 2)
-- [ ] T042 [PO-12] Draft M5 (task grammar `Target`/`Mirror`/`Validate` no P3)
-- [ ] T043 [PO-13] Draft M2 (RC5 Pass 1: limiar >80%, prova para HIGH/CRITICAL, zero findings válido) — **sem duplicar Suppressions**
-- [ ] T039 [PO-10] Draft do `uncertainty:` no **C1.5** do `devflow-code` (e a menção no C4):
+- [x] T040 [PO-11] Draft M3 → `mutations/E-M3-non-goals-invariants.md` (Non-Goals ≥2 + Invariants
+  com a ressalva de promoção a CON-NNN; T1 e T2, não T0)
+  * **Mirror**: o `spec.md` desta spec — as duas seções nasceram à mão, sem o S4 as exigir
+- [x] T041 [PO-12] Draft M4 → `mutations/E-M4-pattern-grounding.md` (P2.5 entre P2 e P3, só Tier 2;
+  célula vazia bloqueia o P3; Tier 1 herda via `Mirror:`)
+- [x] T042 [PO-12] Draft M5 → `mutations/E-M5-task-grammar.md`. Achado: o C3 (MP-001, já no disco)
+  manda rodar o `Validate:` da task e **ninguém era obrigado a escrevê-lo** — o M5 fecha uma
+  dependência pendente, não é adição especulativa
+- [x] T043 [PO-13] Draft M2 → `mutations/E-M2-pre-report-gate.md` (limiar >80%, prova (a)(b)(c) para
+  HIGH/CRITICAL, zero findings válido). Suppressions **referenciada, não duplicada**; +2 linhas (teto)
+- [x] T039 [PO-10] Draft do `uncertainty:` no **C1.5** do `devflow-code` (e a menção no C4):
   onde registrar ignorância sem fabricar conteúdo. **Entra na mesma proposta do T044.**
   * **Mirror**: a tabela canônica do núcleo já DEFINE o campo (`SKILL.md`) — aqui ele é USADO
   * **Guard**: o limite de 3 marcadores `[NEEDS CLARIFICATION]` do S4 permanece
   * **Validate**: `grep -n 'uncertainty:' skills/devflow-code/SKILL.md` deixa de sair vazio
-- [ ] T044 Emitir propostas serializadas (2 em voo, INV-6) — **incluindo o T039** — e aplicar
-  após aprovação do operador
-  * **Validate**: `bash scripts/verify-split.sh`
-- [ ] T045 [C4] Fechar **PO-10**, PO-11..PO-13 · [C5] journal
+  * Draft → `mutations/E-PO10-uncertainty-c15.md`. Baseline confirmada no disco 2026-09-20:
+    o grep retorna **vazio** hoje (0 hits) — o GAP é real, não é falta de acesso.
+    **INV-5 aplica-se à parte do C4** ⇒ rebaixada a piloto.
+- [x] T044 **MP-004 emitida, APROVADA pelo operador em 2026-09-21 e aplicada** no `evolution_log.jsonl`, 2026-09-20 —
+  proposta **ÚNICA** com as 6 seções (S4 · P2.5 · P3 · RC5 Pass 1 · C1.5 · C4), fechando
+  PO-10..PO-13. Aplicada em 3 arquivos + Quick Reference (spec e code); `MP-004-applied`
+  append-only no `evolution_log.jsonl`. Bump **v2.6.0 → v2.7.0 (PILOTO)** no núcleo + linha no
+  `DEVFLOW-META.md`. ⚠️ `devflow-plan` **não tem bloco `qr`** (2 marcadores, não 4) — por isso não
+  ganhou linha de Quick Reference. Fato do disco, não omissão.
+  ⚠️ **Correção de verdade (C5/4b):** esta linha dizia "propostas serializadas (2 em voo)" —
+  contradizia o `spec.md`, que decidiu (2026-09-19) juntar o C1.5 na MESMA proposta do E,
+  gastando uma vaga de INV-6 em vez de duas. O `spec.md` é a autoridade; a linha foi corrigida.
+  ⚠️ O `Validate` original mandava rodar `scripts/verify-split.sh`, **APOSENTADO** desde
+  2026-09-05 (mesmo atrito do T014, `kind: instruction_describes_stale_reality`).
+  * **Validate (corrigido)**: marcadores `devflow-split` (4 em devflow-code, 8 no núcleo,
+    2 em spec, 2 em plan) + `bash tests/mode-gate.test.sh` + `--degraded`
+    + `bash tests/no-core-shadowing.test.sh`
+- [~] T045 [C4] **PO-10 FECHADA** com evidência colada (`evidence_class: execution`): o grep do
+  `proof:` saiu de **0 → 7 hits** em `skills/devflow-code/SKILL.md`; guard (`Limit to 3 markers`)
+  intacto. **PO-11..PO-13 seguem `[ ] open`**: são MANUAL e exigem projeto consumidor real (A-2) —
+  instrumento pronto e anotado bloco a bloco. O guard da PO-13 (Suppressions não duplicada) foi
+  verificado e ESTÁ satisfeito. [C5] journal: N/A (sem `.agent/` — A-1).
+  **Atrito registrado aqui** (`kind: instruction_describes_stale_reality`, **3ª ocorrência** —
+  T014, T033 e agora T044): o `Validate` citava `verify-split.sh`, aposentado. Três ocorrências é
+  a barra de mutação do META; vira proposta quando houver `.agent/` para escrever o ledger.
 
 ## Slice F1 — extração do `@core` · Tier 2 · depende: — · fecha PO-14, PO-15
 

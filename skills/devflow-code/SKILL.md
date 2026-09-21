@@ -214,6 +214,22 @@ Write output to plans/specs/NNN-feature-name/analysis.md — or, when the epic i
    linha ❌/UNVERIFIED na tabela é BLOQUEIO, não parada.
    [PILOTO 2026-09 · origin: proactive]
 
+1d. REGISTRE A IGNORÂNCIA EM VEZ DE PREENCHÊ-LA. O `1c` diz quando PARAR; este diz o que fazer com
+   o que sobrou sabendo. Toda linha da Evidence Table que não fechou `✅`, e toda promessa do `1b`
+   cuja obtenibilidade você não conseguiu decidir, vai para `uncertainty:` — no bloco `po` da AC
+   correspondente quando existe, ou numa lista `## Uncertainty` no fim do `analysis.md` quando não.
+   Uma linha por item: o que você não sabe · o que faria para saber · o que assumiu enquanto isso.
+   REGRA DURA: é PROIBIDO transformar ignorância em conteúdo plausível. Um `uncertainty:` populado
+   NUNCA bloqueia o PASS; uma linha ❌/UNVERIFIED na Evidence Table continua bloqueando (item 1).
+   Os dois não se confundem: `UNVERIFIED` é uma afirmação da spec que você não conferiu — dívida de
+   verificação; `uncertainty` é algo que você conferiu e segue sem resposta — dívida de conhecimento.
+   `uncertainty:` vazio significa "nada a declarar", NUNCA "verifiquei tudo".
+   ⚠️ Isto NÃO é um canal novo de pergunta ao operador: o limite de 3 marcadores
+   [NEEDS CLARIFICATION] do S4 permanece intacto e continua sendo o único caminho para ambiguidade
+   que muda escopo, UX, segurança, arquitetura ou modelo de dados. `uncertainty:` é registro, não
+   pergunta — se o item PRECISA de decisão do operador, ele é um marcador do S4, não uma linha aqui.
+   [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-004]
+
 2. CROSS-FILE CONSISTENCY — spec.md ↔ plan.md ↔ tasks.md ↔ analysis.md must AGREE.
    Flag any contradiction (e.g. plan says "insert direct" while analysis says "via RPC").
    Contradiction between artifacts = HIGH at minimum.
@@ -432,6 +448,11 @@ CLOSE EVERY PROOF OBLIGATION (Tier 1+). For each `po` block of the task whose st
     proof: MANUAL — → `execution` (ação feita, evidência colada) ou `[!]` com motivo.
   Não pôde rodar? `status: [!] unavailable — <motivo>`. NÃO invente saída, NÃO marque `[x]`,
   NÃO trave a sessão. `[!]` é dívida visível e o Pass 0 a reporta como gate desarmado.
+  Fechou com `execution` mas sobrou algo que você não sabe — um caminho que a prova não cobriu, um
+  ambiente que não pôde exercitar? Declare em `uncertainty:` no MESMO bloco, ao fechar. Prova forte
+  com ponto cego declarado é honesta; prova forte com ponto cego calado é como o `[x]` sem evidência
+  se parece por dentro. `uncertainty:` NÃO rebaixa a `evidence_class` nem reabre a PO.
+  [PILOTO 2026-09 · origin: proactive · INV-5: sem incidente real ⇒ piloto]
   [PILOTO 2026-09 · origin: proactive]
 
 Verify every acceptance criterion and DoD item extracted in C1 spec read.
@@ -723,6 +744,28 @@ These prevent the agent from rationalizing away real issues:
 - If claiming "tests cover this" → name the test file and method
 - NEVER say "likely handled" or "probably tested" — verify or flag as unknown
 
+#### Pre-Report Gate (Tier 1+; antes de escrever qualquer achado)
+
+Um achado que não passa nos três testes abaixo NÃO é reportado. Isto é o simétrico do
+*Verification of Claims*: aquele impede descartar bug real, este impede inventar bug irreal.
+
+1. **LIMIAR.** Reporte apenas o que você sustentaria numa aposta — acima de ~80% de confiança de
+   que é defeito real neste código, não uma preferência sua. Abaixo disso, CALE. Não é uma nota
+   numérica a registrar: é o teste verbal "eu apostaria que isto quebra?".
+2. **PROVA OBRIGATÓRIA para HIGH e CRITICAL.** Severidade alta sem as três partes é rebaixada a
+   MEDIUM ou descartada:
+     (a) o snippet exato (`file:line`) onde o defeito mora;
+     (b) input / estado concreto → desfecho errado (o mesmo par do `failure_scenario`);
+     (c) **por que as guardas atuais não pegam** — qual teste, tipo, schema ou lint deveria ter
+         barrado e não barra. Sem (c) o achado é uma hipótese, e hipótese não é CRITICAL.
+3. **ZERO ACHADOS É RESULTADO CORRETO E ESPERADO.** `Pre-Landing Review: No issues found.` é uma
+   saída válida e frequente. NÃO fabrique achado para justificar a execução do RC5 — inventar um
+   MEDIUM para a revisão "render algo" é a falha que este gate existe para impedir, e custa mais
+   caro que não revisar, porque ensina o operador a ignorar a saída.
+
+O catálogo de falsos positivos NÃO se repete aqui: ver *Suppressions — DO NOT flag*, abaixo.
+[PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-004]
+
 #### Fix-First Protocol
 
 This heuristic determines what is auto-fixed vs what requires operator judgment:
@@ -752,6 +795,9 @@ AUTO-FIX (agent fixes without asking):     ASK (needs human judgment):
 - Regex edge cases on constrained inputs where the edge case never occurs in practice
 - Tests that exercise multiple guards simultaneously — that's fine
 - Eval threshold changes tuned empirically
+- Número mágico cujo significado é óbvio no contexto imediato (`* 1000` para ms, `/ 100` para %)
+- Falta de try/catch sob um error boundary, middleware ou supervisor que já captura — cite o
+  captador ao suprimir; sem citá-lo, isto não é supressão, é suposição
 - ANYTHING already addressed in the diff being reviewed — read the FULL diff before commenting
 
 #### Specialists Dispatch (Conditional on /cavecrew)
@@ -994,4 +1040,7 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 | Declarar `evidence_class:` ao fechar e confrontá-la com o `proof:` no Pass 0 | Fechar com `static-read` um proof que prometia execução |
 | Run RC5 (code review) on every Tier 1+ PR before push | Push without RC5 on Tier 2 work (safety net against regression) |
 | Use check-review skill post-push if an external reviewer is configured | Skip RC5 just because an external reviewer exists (defense in depth) |
+| Fechar a revisão com `No issues found` quando não há achado | Fabricar um MEDIUM para justificar a execução do RC5 |
+| Dar snippet + input→desfecho + por que as guardas não pegam em todo HIGH/CRITICAL | Reportar CRITICAL que é hipótese sem a parte (c) |
+| Registrar em `uncertainty:` o que ficou sem resposta no C1.5/C4 | Converter ignorância em conteúdo plausível na Evidence Table |
 <!-- devflow-split:qr:end -->

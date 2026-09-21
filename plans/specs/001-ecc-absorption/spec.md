@@ -2,7 +2,7 @@
 
 **Feature Directory:** `plans/specs/001-ecc-absorption/`
 **Created:** 2026-09-19
-**Status:** in-progress — slice A entregue, slice B é o próximo
+**Status:** in-progress — slices A, B, C, D, E, F1 entregues; F2 é o próximo (G livre em paralelo)
 **Tier:** 2
 **Input:** garimpo de `/Users/coelhotv/git/Everything-Claude-Code` em duas rodadas
 (`~/SKILLS/ecc-devflow-review-and-plan.md`, `~/SKILLS/ecc-devflow-mining-round2.md`)
@@ -124,9 +124,9 @@ para distinguir demonstrado de afirmado.
 
 ## Estado & próximo passo (leia primeiro numa sessão nova)
 
-**Última sessão:** 2026-09-19 · **Slices A, B, C, D, F1 entregues** · **POs fechadas: 5 de 23**
-(PO-1, PO-2, PO-7, PO-14, PO-15) · **Propostas pendentes: 0** (INV-6: 2 vagas livres).
-**Versão do DEVFLOW:** v2.3 → **v2.6.0 (PILOTO)** ao longo destes slices.
+**Última sessão:** 2026-09-21 · **Slices A, B, C, D, E, F1 entregues** · **POs fechadas: 6 de 23**
+(PO-1, PO-2, PO-7, **PO-10**, PO-14, PO-15) · **Propostas pendentes: 0** (INV-6: 2 vagas livres).
+**Versão do DEVFLOW:** v2.3 → **v2.7.0 (PILOTO)** ao longo destes slices.
 
 ### Como esta spec é executada (combinado com o operador — não redescubra)
 
@@ -151,15 +151,15 @@ para distinguir demonstrado de afirmado.
 
 ### Próximo passo exato
 
-**Slice E, T040** — e o E ficou **maior do que a tabela original dizia**: por decisão do operador
-(2026-09-19) ele absorve a **dívida da PO-10**, que é adicionar `uncertainty:` ao **C1.5** do
-`devflow-code`. Motivo: o E já emite proposta para S4/P2.5/P3/RC5, então o C1.5 viaja na MESMA
-proposta — uma vaga de INV-6 em vez de duas, uma aprovação em vez de duas.
-
-Ordem sugerida: T040 (M3) → T041 (M4) → T042 (M5) → T043 (M2) → **T039 (PO-10 / C1.5)** → T044.
+**Slice F2** — `scripts/second-opinion.sh` sobre o `@core` do F1, + os clientes (RC1–RC4 com F8,
+C1.5 Tier 2). Tier 2, depende de C, D e F1 — **todos entregues**, logo está desbloqueado.
+Ordem da tasks.md: T060 → T061 → T062 → T063 → T064.
 
 **Livre, sem dependência:** slice **G** (estudo de formatos de handoff — Tier 1, só comparação e
 decisão do operador; nenhuma edição no C5 antes da escolha).
+
+⚠️ **Antes do F2, leia o AC-1 abaixo**: o `ai-review.sh` morre em repo sem
+`ANTI_PATTERNS_INDEX.md`, e o F2 mexe justamente no fail-open. A decisão do operador segue pendente.
 
 ### Decisão pendente do operador
 
@@ -187,6 +187,10 @@ Ver *Achados colaterais*. Recomendação: spec própria Tier 0/1, não empurrar 
 - **D** · gramática do `po`: `evidence_class` (T1+), `boundary` (T2), `uncertainty`/`red`
   (opcionais), `status: [!] unavailable`; Pass 0 ganha `3b` e `3c`. PO-7 ✅ · PO-8/9 MANUAL ·
   PO-10 → slice E
+- **E** · `devflow-spec`: S4 exige `## Non-Goals` (≥2) e `## Invariants` · `devflow-plan`: P2.5
+  Pattern Grounding (T2) + `Target`/`Mirror`/`Validate` nas tasks · `devflow-code`: Pre-Report Gate
+  no RC5 Pass 1 (+2 Suppressions) e `uncertainty:` no C1.5 (`1d`) e no C4. MP-004 aprovada e
+  aplicada; **v2.6.0 → v2.7.0 (PILOTO)**. **PO-10 ✅** · PO-11..PO-13 MANUAL (A-2)
 - **F1** · `scripts/lib/engine-core.sh` (9 funções, `ENGINE_CORE_VERSION`) · `ai-review.sh`
   consome e valida a versão · `tests/ai-review-baseline.sh` (determinística) ·
   `tests/no-core-shadowing.test.sh`. **PO-14, PO-15 ✅**
@@ -207,9 +211,9 @@ Ver *Achados colaterais*. Recomendação: spec própria Tier 0/1, não empurrar 
 | **B** | ⚠️ aplicado (piloto) · POs MANUAL abertas | C-mode: M1 runner detection · F5 parada de busca (C1.5) · F6 trio de aborto (C3/C4) | 2 | — | PO-3, PO-4, PO-5 | `skills/devflow-code/SKILL.md` | — |
 | **C** | ⚠️ aplicado (piloto) · PO-6 MANUAL aberta | R-065: F7 terminação mecânica + proibição do Y/N auto-respondido | 1 | A | PO-6 | `SKILL.md` | — |
 | **D** | ⚠️ aplicado (piloto) · PO-7 ✅ · PO-8/9 MANUAL · **PO-10 transferida para E** | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
-| **E** | ▶ next | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate · **+ `uncertainty:` no C1.5 (dívida da PO-10)** | 1 | D | **PO-10**, PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
+| **E** | ✅ done — PO-10 fechada · PO-11..13 MANUAL | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate · **+ `uncertainty:` no C1.5 (dívida da PO-10)** | 1 | D | **PO-10**, PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
 | **F1** | ✅ done — PO-14, PO-15 fechadas | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | — |
-| **F2** | ⏳ todo | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
+| **F2** | ▶ next | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
 | **G** | ⏳ todo (estudo pode começar já) | Handoff: estudo de formato → endurecimento do C5 | 1 | — | PO-20, PO-21 | `skills/devflow-code/` (C5) | — |
 | **H** | ⏳ todo | Falsificação: medição de conformidade + caminho `external_corpus` no META | 1 | todos | PO-22, PO-23 | `DEVFLOW-META.md`, `scripts/` | — |
 
@@ -357,7 +361,17 @@ boundary: não vale fechar isto apontando o campo na tabela do núcleo — a AC 
 proof:  rtk grep -n 'uncertainty:' skills/devflow-code/SKILL.md
 expect: o campo existe e a instrução proíbe inventar quando ele é aplicável
 guard:  o limite de 3 marcadores [NEEDS CLARIFICATION] do S4 permanece
-status: [ ] open
+evidence_class: execution
+status: [x] done
+# evidencia 2026-09-21 (MP-004 aplicada): `grep -n 'uncertainty:' skills/devflow-code/SKILL.md`
+#   -> 7 hits (exit 0), ANTES era 0. C1.5 item `1d` nas linhas 219-229 (onde o agente TEM a
+#   ignorancia) + C4 linhas 452-454 (ao fechar a PO) + linha 1045 na Quick Reference.
+#   A instrucao PROIBE inventar: "e PROIBIDO transformar ignorancia em conteudo plausivel" (:222).
+#   BOUNDARY RESPEITADO: nao fechei apontando a tabela do nucleo — as 7 linhas estao em
+#   skills/devflow-code/SKILL.md, que e o arquivo que a AC nomeia (C1.5 e C4).
+#   guard: `Limit to 3 markers` intacto em skills/devflow-spec/SKILL.md:141.
+#   INV-5: a linha do C4 entrou REBAIXADA A PILOTO (sem incidente real).
+# --- historico do gap (nao apagar) ---
 # GAP REAL 2026-09-19, nao e falta de acesso: `uncertainty` entrou na gramatica do NUCLEO
 #   (SKILL.md, tabela canonica), mas NAO no C1.5 nem no C4 do devflow-code — o grep do proof
 #   retorna vazio hoje. A MP-003 aprovou as secoes Proof Obligations, C3, C4, Pass 0 e S4;
@@ -373,6 +387,11 @@ proof:  MANUAL — criar uma spec Tier 1 de teste e inspecionar as seções
 expect: ambas as seções presentes e específicas, não genéricas
 guard:  Tier 0 continua sem spec
 status: [ ] open
+# INSTRUMENTO PRONTO 2026-09-21 (MP-004): S4 do `devflow-spec` exige `## Non-Goals` (>=2 itens,
+#   cada um nomeando algo adjacente recusado) e `## Invariants` com a ressalva CON-NNN
+#   (skills/devflow-spec/SKILL.md:105-113). `proof` e MANUAL: exige criar uma spec T1 de teste e
+#   julgar se as secoes sairam especificas ou genericas — julgamento que so vale num projeto
+#   consumidor real (A-2). INSTRUMENTO PRONTO != AC DEMONSTRADA. Nao marcar [x] sem colar as secoes.
 ```
 
 ```po PO-12
@@ -382,6 +401,12 @@ proof:  MANUAL — rodar P2.5 Tier 2 e colar a tabela
 expect: nenhuma célula vazia; convenções inventadas rejeitadas
 guard:  Tier 1 não é obrigado a P2.5
 status: [ ] open
+# INSTRUMENTO PRONTO 2026-09-21 (MP-004): P2.5 criado em skills/devflow-plan/SKILL.md:93-118
+#   (4 dimensoes, `file:line` obtido por grep NESTA sessao ou a string literal
+#   `NENHUM PADRAO EXISTENTE`, celula vazia BLOQUEIA o P3) + M5 em :148-161 (`Target`/`Mirror`/
+#   `Validate` no bloco `Each task MUST`), que e como o Tier 1 herda a ancoragem.
+#   `proof` e MANUAL: exige rodar um P2.5 T2 num repo com codigo real (A-2).
+#   INSTRUMENTO PRONTO != AC DEMONSTRADA. Nao marcar [x] sem colar a tabela preenchida.
 ```
 
 ```po PO-13
@@ -391,6 +416,17 @@ proof:  MANUAL — revisar um diff limpo e colar a saída
 expect: Pre-Landing Review: No issues found, sem achados fabricados
 guard:  a lista de Suppressions não é duplicada em lugar nenhum
 status: [ ] open
+# INSTRUMENTO PRONTO 2026-09-21 (MP-004): Pre-Report Gate em skills/devflow-code/SKILL.md:742-763,
+#   entre *Verification of Claims* e *Fix-First Protocol* — limiar ~80% como aposta verbal (nao
+#   rubrica numerica: Non-Goal 3), prova (a)(b)(c) obrigatoria para HIGH/CRITICAL, e a autorizacao
+#   explicita de que zero achados e resultado correto.
+#   A PARTE GUARD DA AC ESTA SATISFEITA E FOI VERIFICADA: `grep -n 'Suppressions — DO NOT flag'`
+#   -> 2 hits, e os dois sao legitimos: :766 e a REFERENCIA que o gate faz ("ver *Suppressions*,
+#   abaixo") e :789 e o CABECALHO da secao, que continua unica. Uma unica lista, citada de um lugar
+#   novo — o gate acrescenta 2 linhas (teto do garimpo) e nao a duplica.
+#   (Corrigido em 2026-09-21: a primeira redacao desta nota dizia "1 ocorrencia", contando errado
+#   por nao prever a propria linha de referencia. O numero certo e 2, e o guard segue satisfeito.) O `proof` e MANUAL: exige revisar um diff limpo real (A-2).
+#   INSTRUMENTO PRONTO != AC DEMONSTRADA. Nao marcar [x] sem colar a saida da revisao.
 ```
 
 ```po PO-14
