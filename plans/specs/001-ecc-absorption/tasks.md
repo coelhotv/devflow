@@ -1,13 +1,15 @@
 # 001 — Tasks
 
 > **Retomada a frio:** leia a seção *Estado & próximo passo* do `spec.md` antes desta lista.
-> **Feito:** slices **A, B, C, D, F1**. POs fechadas: 5 de 23 (PO-1, PO-2, PO-7, PO-14, PO-15).
-> Propostas: MP-001, MP-002, MP-003 — todas aprovadas e aplicadas. DEVFLOW em **v2.6.0 (PILOTO)**.
-> **Próximo:** slice **E** (T040), que agora inclui **T039 — a dívida da PO-10** (`uncertainty:`
-> no C1.5), transferida do slice D por decisão do operador. Livre em paralelo: **G**.
-> PO-3..PO-6 seguem `[ ] open`: MANUAL, exigem projeto consumidor real (A-2).
-> PO-3..PO-5 seguem `[ ] open`: são MANUAL e exigem projeto consumidor real (A-2).
-> Legenda: `[x]` feita · `[~]` não aplicável, com motivo · `[ ]` pendente.
+> **Feito:** slices **A, B, C, D, E, F1**. POs fechadas: **6 de 23** (PO-1, PO-2, PO-7, PO-10,
+> PO-14, PO-15). Propostas: MP-001..MP-004 — todas aprovadas e aplicadas.
+> DEVFLOW em **v2.7.0 (PILOTO)**.
+> **Próximo:** slice **F2** (T060), desbloqueado — C, D e F1 entregues. Livre em paralelo: **G**.
+> **Repo:** branch `spec/001-ecc-absorption`, 11 commits à frente de `main`, árvore limpa, sem PR.
+> `.agent/` agora existe mas é **INIT PARCIAL** — leia `.agent/README.md`.
+> POs `[ ] open` que NÃO são pendência de trabalho: PO-3..PO-6, PO-8, PO-9, PO-11..PO-13 são
+> MANUAL e exigem projeto consumidor real (A-2); o instrumento está pronto e anotado em cada bloco.
+> Legenda: `[x]` feita · `[~]` não aplicável ou parcial, com motivo · `[ ]` pendente.
 
 Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de slices em `spec.md`.
 
@@ -38,7 +40,7 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
   `devflow-spec --to specifying` como violação, quando é transição legítima concedida pelo
   operador). Corrigido no próprio slice; `kind: test_expectation_wrong`.
 
-## Slice B — C-mode · Tier 2 · ▶ PRÓXIMO · depende: — · fecha PO-3..PO-5
+## Slice B — C-mode · Tier 2 · ✅ APLICADO (piloto v2.4) · PO-3..PO-5 `[ ] open` (MANUAL, A-2)
 
 - [x] T010 [PO-3] Draft de M1 → `mutations/B-M1-runner-detection.md` (origin proactive, assinatura de atrito, sunset)
 - [x] T011 [PO-3] `devflow_mutation_proposal` **MP-001** emitida em `mutations/evolution_log.jsonl`
@@ -65,7 +67,7 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
   mandava rodar `scripts/verify-split.sh`, aposentado há duas semanas. `workaround`: validar por
   marcadores + suíte do slice A. Candidato a alimentar o ledger reativo quando `.agent/` existir.
 
-## Slice C — R-065 · Tier 1 · depende: A · fecha PO-6
+## Slice C — R-065 · Tier 1 · ✅ APLICADO (piloto v2.5) · PO-6 `[ ] open` (MANUAL, A-2) · depende: A
 
 - [x] T020 [PO-6] Draft de F7 → `mutations/C-F7-mechanical-stop.md`
   * **Mirror**: `ECC commands/multi-plan.md:227,229`
@@ -80,7 +82,7 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
   inspecionar o transcript), logo exige projeto consumidor (A-2). O `guard:` (mode-gate.sh verde)
   está satisfeito; o `proof:` não. Permanece `[ ] open`. [C5] journal: N/A (sem `.agent/` — A-1).
 
-## Slice D — gramática do `po` · Tier 2 · depende: B · fecha PO-7..PO-10
+## Slice D — gramática do `po` · Tier 2 · ✅ APLICADO (piloto v2.6) · PO-7 ✅ · PO-8/9 MANUAL · PO-10 → E · depende: B
 
 - [x] T030 `po_unstable` está **VIVO** (`skills/devflow-distill/SKILL.md:42,47`) — o slice D integra,
   não absorve. Achado extra: **`evidence:` já existe** no núcleo (`SKILL.md:364`) com OUTRO
@@ -107,7 +109,7 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
   Correção de verdade (C5/4b): a AC da PO-7 dizia "Tier 1+" e foi corrigida para **T2**, que é o
   que o orçamento aprovado entregou. [C5] journal: N/A (sem `.agent/` — A-1).
 
-## Slice E — Spec & Plan · Tier 1 · depende: D · fecha **PO-10**, PO-11..PO-13
+## Slice E — Spec & Plan · Tier 1 · ✅ CONCLUÍDO (piloto v2.7) · **PO-10 fechada** · PO-11..13 MANUAL · depende: D
 
 > **Escopo ampliado em 2026-09-19** (decisão do operador): o E absorve a dívida da PO-10, deixada
 > aberta pelo slice D. `uncertainty:` entrou na gramática do núcleo mas não no C1.5, e o C1.5 não
@@ -155,7 +157,7 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
   T014, T033 e agora T044): o `Validate` citava `verify-split.sh`, aposentado. Três ocorrências é
   a barra de mutação do META; vira proposta quando houver `.agent/` para escrever o ledger.
 
-## Slice F1 — extração do `@core` · Tier 2 · depende: — · fecha PO-14, PO-15
+## Slice F1 — extração do `@core` · Tier 2 · ✅ CONCLUÍDO · PO-14 e PO-15 fechadas
 
 - [x] T050 [PO-14] Baseline determinística em `tests/ai-review-baseline.sh` (repo-fixture com diff
   `.js`/`.ts` real + `RC6_MEASURE=1`, que para ANTES do engine). O `proof:` original era
@@ -174,7 +176,38 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
   Achado colateral **AC-1** registrado na spec: `ai-review.sh` morre em repo sem
   `ANTI_PATTERNS_INDEX.md` (`set -e` + `pipefail`). Não consertado aqui de propósito — violaria a PO-14.
 
-## Slice F2 — `second-opinion.sh` · Tier 2 · depende: C, D, F1 · fecha PO-16..PO-19
+## Interlúdio — manutenção descoberta pelo épico · 2026-09-21 · fecha PO nenhuma
+
+> Não é slice: não estava na tabela e não tem PO. Fica registrado porque aparece no `git log` do
+> branch e, sem isto, o próximo leitor não saberia de onde vieram dois commits entre E e F2.
+
+- [x] TX01 Conserto do **AC-1** — `ai-review.sh` morria (exit 1 mudo) em repo sem
+  `.agent/memory/ANTI_PATTERNS_INDEX.md`
+  * **Target**: `scripts/ai-review.sh` (`[MODIFY]`) — `|| true` nas DUAS guardas de
+    `emit_wiki_block` (:492 e :493) + `return 0` explícito
+  * **Mirror**: `scripts/ai-review.sh:1208` — a MESMA classe já tinha sido consertada e comentada
+    ali; foi a 2ª ocorrência de um conserto entendido uma vez e não generalizado
+  * **Validate**: `bash tests/ai-review-no-agent.test.sh` (RED 0/3 → GREEN 3/3)
+  * ⚠️ **O primeiro fixture passou por engano**: com tudo em `main`, `base == head`, o diff saía
+    vazio e o script encerrava em "No code changes" ANTES do `emit_wiki_block`. Mesmo modo de
+    falha que a PO-14 documentou. Por isso o teste assere 3 coisas — um `exit 0` prematuro não
+    pode passar como conserto
+- [x] TX02 `tests/ai-review-no-agent.test.sh` (`[NEW]`) — fixture espelho do da PO-14, com
+  `.agent/` AUSENTE. O fixture da baseline o CRIA de propósito, logo não cobria este caso
+  * **Validate**: `bash tests/ai-review-baseline.sh` antes/depois → `Files are identical`
+- [~] TX03 **AP NÃO cunhado** — este repo não tem `ANTI_PATTERNS_INDEX.md`, por decisão
+  (`.agent/README.md`). A defesa durável virou o TESTE. AP candidato anotado em prosa, nomeando o
+  mecanismo: *"guarda `[ -f ]` como último comando de função sob `set -e`"*.
+  Registrado no ledger como `kind: no-slot`
+- [x] TX04 **Init parcial do `.agent/`** — `memory/process-friction.jsonl` (5 linhas),
+  `memory/attempts.jsonl` (vazio), `README.md`. **Sem** `state.json`, **sem** `*_INDEX.md`
+  * **Target**: `.agent/` (`[NEW]`)
+  * **Validate**: `python3 -c "import json;[json.loads(l) for l in open('.agent/memory/process-friction.jsonl')]"`
+- [x] TX05 Migração do atrito da tabela do `spec.md` para o ledger, traduzindo os `kind` para o
+  **vocabulário fechado** do C5/1c. Achado da migração: `stale` tem 3 ocorrências mas **todas da
+  spec 001** — bate a barra do META em número, não em dispersão. Pergunta registrada para o **H**
+
+## Slice F2 — `second-opinion.sh` · Tier 2 · ▶ PRÓXIMO · depende: C, D, F1 (**todos entregues**) · fecha PO-16..PO-19
 
 - [ ] T060 [PO-16] Escrever `scripts/second-opinion.sh` sobre o core, com adaptadores `plan|analysis|spec`
   * **Mirror**: `scripts/ai-review.sh` (montagem de contexto e schema JSON estrito)
@@ -184,7 +217,7 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
 - [ ] T063 [PO-19] Ligar C1.5 Tier 2 como cliente do script
 - [ ] T064 [C4] Fechar PO-16..PO-19 · [C5] journal
 
-## Slice G — handoff · Tier 1 · depende: — (estudo em paralelo) · fecha PO-20, PO-21
+## Slice G — handoff · Tier 1 · ⏳ TODO (livre, estudo pode começar já) · fecha PO-20, PO-21
 
 - [ ] T070 [PO-20] Comparar 4 formatos (journal · arquivo por sessão · `state.json` · `attempts.jsonl` estendido)
   pelos 3 critérios: é lido na sessão seguinte sem o operador pedir? sobrevive a compact? quem mantém?
@@ -193,7 +226,7 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
   * **Mirror**: `ECC commands/save-session.md:101-110`
 - [ ] T073 [C4] Fechar PO-20, PO-21 · [C5] journal
 
-## Slice H — falsificação · Tier 1 · depende: todos · fecha PO-22, PO-23
+## Slice H — falsificação · Tier 1 · ⏳ TODO · depende: todos · fecha PO-22, PO-23
 
 - [ ] T080 [PO-22] Montar a medição de conformidade em 3 níveis de rigor (supportive/neutral/competing)
   * **Mirror**: `ECC skills/skill-comply/SKILL.md:12-17`

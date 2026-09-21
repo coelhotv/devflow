@@ -17,6 +17,8 @@ Nenhuma prosa de skill é editada fora do fluxo `devflow_mutation_proposal` + ap
 | RC6 já é multi-agente, contexto frio, flag-only, fail-open | `skills/devflow-code/SKILL.md:738-850` | A mecânica a generalizar já existe; F2 é cliente novo, não reinvenção |
 | Máx. 2 propostas pendentes; C1/C4/Bootstrap exigem incidente real | `DEVFLOW-META.md:101-102` | Emissão serializada; slices B e D entram rebaixados a piloto quando faltar incidente |
 | `agents/openai.yaml` existe | `agents/` | Empacotamento multi-vendor já é premissa → INV-2 |
+| `emit_wiki_block` terminava num `[ -f ]` sob `set -euo pipefail` | `scripts/ai-review.sh:487-495` | **AC-1 — CONSERTADO em 2026-09-21** (`\|\| true` nas duas guardas). Descoberto ao montar a baseline do F1; era a 2ª ocorrência da classe já comentada em `:1208` |
+| `.agent/` passou a existir, **parcial** | `.agent/README.md` | Ledger de atrito ativo; **nenhum** índice de memória e **nenhum** relógio de sunset. A-1 e A-2 intactos |
 
 ## Arquitetura
 
@@ -67,3 +69,22 @@ do core for redefinida localmente (PO-15).
 - `bash -n` + `shellcheck` em todo script novo
 - testes por slice conforme as POs
 - nenhum slice fecha com PO `[ ] open` (RC5 Pass 0, recortado pelo `slice:`)
+  ⚠️ **Exceto PO MANUAL**: exigem projeto consumidor (A-2) e ficam `[ ] open` com o instrumento
+  anotado. Ler como "pendência de trabalho" é o erro — é pendência de ACESSO.
+
+### Suítes vivas (estado em 2026-09-21)
+
+| Suíte | Cobre | Verde |
+|---|---|---|
+| `tests/mode-gate.test.sh` (+ `--degraded`) | transição de modo e fail-open assimétrico | 10/10 · 7/7 |
+| `tests/no-core-shadowing.test.sh` | nenhum consumidor redefine função do `@core` | 3/3 |
+| `tests/ai-review-baseline.sh` | equivalência byte-a-byte do `ai-review.sh` (fixture **com** `.agent/`) | `Files are identical` |
+| `tests/ai-review-no-agent.test.sh` | sobrevivência em repo **sem** `.agent/` (AC-1) | 3/3 |
+
+`scripts/verify-split.sh` **não é gate** (aposentado). Marcadores `devflow-split` no disco:
+núcleo 8 · `devflow-code` 4 · `devflow-spec` 4 · `devflow-plan` **2** (não tem bloco `qr`).
+
+### Runners deste repo (resolução do C1, não rechutar)
+
+Sem `package.json`/`Makefile`/`Cargo.toml`/`pyproject.toml`. `test:` suítes de `tests/` ·
+`lint:` `shellcheck` + `bash -n` · `typecheck:` `NONE (ausente)` · `build:` `NONE (ausente)`.

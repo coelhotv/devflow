@@ -119,6 +119,12 @@ para distinguir demonstrado de afirmado.
 - **SC-003** Nunca mais de 2 propostas pendentes ao mesmo tempo (INV-6).
 - **SC-004** Toda mutação desta spec carrega `origin: proactive`, assinatura de atrito prevista e sunset.
 - **SC-005** `ai-review.sh` mantém comportamento byte-idêntico após a extração do `@core`.
+  ⚠️ **Escopo precisado em 2026-09-21** (C5/4b): este SC vale para **a extração** (slice F1), não é
+  um congelamento permanente do script. O conserto do AC-1, feito DEPOIS e em commit próprio,
+  mudou comportamento de propósito — passou a sobreviver em repo sem `.agent/`. A redação original
+  admitia a leitura "o `ai-review.sh` nunca mais muda", que nunca foi a intenção e teria proibido
+  consertar um bug. A prova de não-regressão continua sendo a baseline, e ela seguiu
+  `Files are identical` porque o fixture dela TEM `.agent/` — o caminho consertado não é o medido.
 
 ---
 
@@ -127,6 +133,16 @@ para distinguir demonstrado de afirmado.
 **Última sessão:** 2026-09-21 · **Slices A, B, C, D, E, F1 entregues** · **POs fechadas: 6 de 23**
 (PO-1, PO-2, PO-7, **PO-10**, PO-14, PO-15) · **Propostas pendentes: 0** (INV-6: 2 vagas livres).
 **Versão do DEVFLOW:** v2.3 → **v2.7.0 (PILOTO)** ao longo destes slices.
+
+**Estado do repositório** (conferido no disco, 2026-09-21):
+
+| | |
+|---|---|
+| Branch | `spec/001-ecc-absorption` — **11 commits à frente de `main`**, árvore limpa |
+| PR | **nenhum aberto.** O épico inteiro vive no branch; a coluna PR da tabela de slices fica vazia até o épico virar PR (A-3) |
+| Último commit | `bf1c893` — init parcial do `.agent/` + migração do ledger |
+| Testes verdes | `mode-gate` 10/10 · `--degraded` 7/7 · `no-core-shadowing` 3/3 · `ai-review-no-agent` 3/3 · baseline `Files are identical` |
+| `.agent/` | **EXISTE, mas é INIT PARCIAL** — leia `.agent/README.md` antes de concluir qualquer coisa a partir disso. A-1 e A-2 continuam de pé e nenhum relógio de sunset começou a correr |
 
 ### Como esta spec é executada (combinado com o operador — não redescubra)
 
@@ -142,12 +158,23 @@ para distinguir demonstrado de afirmado.
 4. **PO MANUAL não fecha neste repo.** Exigem projeto consumidor real (A-2). Anote
    "instrumento pronto ≠ AC demonstrada" no bloco e siga. Nunca `[x]` sem evidência colada.
 5. **`verify-split.sh` está APOSENTADO** — não use como gate (falha em HEAD limpo, por construção).
-   Validação real: contagem de marcadores `devflow-split` + `tests/mode-gate.test.sh` +
-   `tests/no-core-shadowing.test.sh` + `tests/ai-review-baseline.sh`.
+   ⚠️ Já foi citado por engano 3x (T014, T033, T044): se você o encontrar num `Validate:`, é a
+   instrução que está velha, não o seu ambiente. Validação real:
+   contagem de marcadores `devflow-split` + `tests/mode-gate.test.sh` (+ `--degraded`) +
+   `tests/no-core-shadowing.test.sh` + `tests/ai-review-baseline.sh` + `tests/ai-review-no-agent.test.sh`.
+   ⚠️ **Marcadores por arquivo, medidos no disco:** núcleo 8 · `devflow-code` 4 · `devflow-spec` 4 ·
+   `devflow-plan` **2**. O `devflow-plan` **não tem bloco `qr`** — 2 é o número certo, não uma falta.
 6. **Janela de tokens do Claude é o gargalo, não a do `agy`.** O operador liberou `agy -p` à
    vontade para leitura pesada, inventário e geração de prova. Guia de operação medido em
    `/Users/coelhotv/git/maestro/plans/OPERAR-MOTOR-EXTERNO.md`. **Saída de agente é dado, não
    evidência**: confira contra o disco antes de citar (ele já citou arquivos fora do corpus).
+7. **Runners deste repo, resolvidos no C1 (não rechute):** não há `package.json`, `Makefile`,
+   `Cargo.toml` nem `pyproject.toml`. `test:` as suítes de `tests/` · `lint:` `shellcheck` +
+   `bash -n` · `typecheck:` **`NONE (ausente)`** · `build:` **`NONE (ausente)`**.
+8. **O `.agent/` daqui é PARCIAL por decisão** (2026-09-21): só `process-friction.jsonl` e
+   `attempts.jsonl`. Sem `state.json`, sem `*_INDEX.md`. Consequência prática para quem codar
+   aqui: o C5 vai mandar cunhar um `AP-NNN` e **não há catálogo** — a lição vira teste, e o AP
+   candidato fica anotado em prosa nomeando o MECANISMO. Já registrado como `no-slot` no ledger.
 
 ### Próximo passo exato
 
@@ -174,6 +201,9 @@ Ver *Achados colaterais*. Recomendação: spec própria Tier 0/1, não empurrar 
 | Log de mutações | `mutations/evolution_log.jsonl` (MP-001..MP-003, todas `applied`) |
 | Histórico versionado | `DEVFLOW-META.md`, tabela no fim |
 | Relatórios de garimpo | `~/SKILLS/ecc-devflow-review-and-plan.md` e `~/SKILLS/ecc-devflow-mining-round2.md` — **`~/SKILLS` não é repo git**; leia do disco |
+| Ledger de atrito | `.agent/memory/process-friction.jsonl` (5 linhas) — vocabulário FECHADO |
+| Por que o `.agent/` é parcial | `.agent/README.md` — **leia antes de assumir que os relógios correm** |
+| Suítes de teste | `tests/` — `mode-gate` · `no-core-shadowing` · `ai-review-baseline` · `ai-review-no-agent` |
 
 ### Entregue por slice
 
@@ -191,6 +221,12 @@ Ver *Achados colaterais*. Recomendação: spec própria Tier 0/1, não empurrar 
   Pattern Grounding (T2) + `Target`/`Mirror`/`Validate` nas tasks · `devflow-code`: Pre-Report Gate
   no RC5 Pass 1 (+2 Suppressions) e `uncertainty:` no C1.5 (`1d`) e no C4. MP-004 aprovada e
   aplicada; **v2.6.0 → v2.7.0 (PILOTO)**. **PO-10 ✅** · PO-11..PO-13 MANUAL (A-2)
+- **Interlúdio (2026-09-21, fora da tabela de slices)** · conserto do **AC-1** (`|| true` nas duas
+  guardas de `emit_wiki_block` + `tests/ai-review-no-agent.test.sh`, RED 0/3 → GREEN 3/3, baseline
+  idêntica) · **init parcial do `.agent/`** (`process-friction.jsonl` com 5 linhas, `attempts.jsonl`
+  vazio, `README.md` explicando o que NÃO está lá) · migração do atrito que morava em tabela
+  markdown. **Não é slice e não fecha PO nenhuma** — é trabalho de manutenção que o épico
+  descobriu, registrado aqui para não parecer que apareceu do nada no `git log`
 - **F1** · `scripts/lib/engine-core.sh` (9 funções, `ENGINE_CORE_VERSION`) · `ai-review.sh`
   consome e valida a versão · `tests/ai-review-baseline.sh` (determinística) ·
   `tests/no-core-shadowing.test.sh`. **PO-14, PO-15 ✅**
