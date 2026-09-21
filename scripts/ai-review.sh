@@ -488,10 +488,18 @@ emit_wiki_block() {
   local packs="$1"
   if [ "$INDEXES" != 0 ]; then
     echo; echo "===== RULES_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
-    [ -f "$RULES_IDX" ] && filtered_index "$RULES_IDX" rules "$packs"
+    { [ -f "$RULES_IDX" ] && filtered_index "$RULES_IDX" rules "$packs"; } || true
     echo; echo "===== ANTI_PATTERNS_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
-    [ -f "$AP_IDX" ] && filtered_index "$AP_IDX" anti-patterns "$packs"
+    { [ -f "$AP_IDX" ] && filtered_index "$AP_IDX" anti-patterns "$packs"; } || true
   fi
+  # `|| true` nas duas guardas, e NAO so na ultima: sob `set -e` um `[ -f ]` falso como ULTIMO
+  # comando da funcao vira o exit status DELA, e `set -o pipefail` no pipeline de WIKI_BYTES
+  # (:563) derrubava o script inteiro com exit 1 MUDO em repo sem `.agent/` (AC-1, spec 001).
+  # A de cima nao explodia hoje so por ordenacao — blindar uma e deixar a outra convida a
+  # reintroduzir o bug ao reordenar o bloco. Mesma classe ja tratada em :1208.
+  # Indice ausente e DEGRADACAO legitima (bloco vazio), nunca causa de morte.
+  # Guarda: tests/ai-review-no-agent.test.sh
+  return 0
 }
 
 emit_preamble() {

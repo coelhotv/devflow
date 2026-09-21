@@ -548,7 +548,7 @@ status: [ ] open
 
 ## Achados colaterais (não previstos pela spec)
 
-### AC-1 · `ai-review.sh` morre em repo sem `.agent/memory/ANTI_PATTERNS_INDEX.md`
+### AC-1 · ~~`ai-review.sh` morre em repo sem `.agent/memory/ANTI_PATTERNS_INDEX.md`~~ → **RESOLVIDO 2026-09-21**
 Descoberto ao montar a baseline do F1. `emit_wiki_block` termina num `[ -f "$AP_IDX" ]` que
 retorna 1 quando o arquivo não existe; a função é o elo esquerdo do pipeline que alimenta
 `WIKI_BYTES="$(emit_wiki_block "" | wc -c | tr -d ' ')"`, e `set -o pipefail` + `set -e`
@@ -562,8 +562,25 @@ extração. Consertar um bug no mesmo slice destruiria a própria prova de equiv
 refactor que muda comportamento "de leve" é exatamente o que a PO existe para impedir. O fixture da
 baseline cria `.agent/memory/` (é o que um consumidor DEVFLOW tem) e o defeito fica registrado aqui.
 
-**Decisão pendente do operador:** virar spec própria (Tier 0/1, ~3 linhas de conserto) ou entrar
-como task do slice F2, que já mexe no fail-open. Recomendo spec própria — F2 tem escopo demais.
+**Decisão do operador (2026-09-21):** nem spec própria, nem F2 — **conserto Tier 0 em commit
+isolado**, feito antes de retomar os slices. Motivo que mudou a recomendação original: a classe do
+bug JÁ estava diagnosticada neste arquivo (`ai-review.sh:1208` carrega um `|| true` com o
+comentário explicando o mesmo mecanismo). Não era bug novo — era a 2ª ocorrência de um conserto
+entendido uma vez e não generalizado. Spec dir para 2 caracteres é o ritual que o DT-1 proíbe.
+
+**Como foi consertado:** `|| true` nas DUAS guardas de `emit_wiki_block` (`:492` e `:493`) + um
+`return 0` explícito. Blindar só a última convidaria a reintroduzir o bug ao reordenar o bloco.
+
+**Evidência (RED → GREEN):** `tests/ai-review-no-agent.test.sh` — espelho do fixture da PO-14 com
+`.agent/` AUSENTE. Antes: `0 passaram, 3 falharam`, `exit 1` mudo logo após a linha do `selector`.
+Depois: `3 passaram, 0 falharam`. **Não-regressão:** `tests/ai-review-baseline.sh` antes/depois →
+`Files are identical` (o fixture da baseline TEM `.agent/`, então o caminho consertado não é
+exercitado ali — é exatamente por isso que o teste novo precisou de fixture próprio).
+
+**O AP não foi cunhado:** este repo não tem `ANTI_PATTERNS_INDEX.md` — por decisão, não por
+esquecimento (ver `.agent/README.md`). A defesa durável passa a ser o TESTE, não o catálogo. Se um
+dia houver catálogo aqui, o candidato é: *"guarda `[ -f ]` como último comando de função sob
+`set -e`"* — nomeando o mecanismo, nunca o arquivo.
 
 ## Assumptions & Open Questions
 
