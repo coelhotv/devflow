@@ -195,13 +195,27 @@ Ver *Achados colaterais*. Recomendação: spec própria Tier 0/1, não empurrar 
   consome e valida a versão · `tests/ai-review-baseline.sh` (determinística) ·
   `tests/no-core-shadowing.test.sh`. **PO-14, PO-15 ✅**
 
-### Atritos registrados (vão para o ledger quando `.agent/` existir)
+### Atritos registrados — **MIGRADOS para o ledger em 2026-09-21**
 
-| kind | O quê |
-|---|---|
-| `test_expectation_wrong` | teste do slice A nasceu tratando transição legítima como violação |
-| `instruction_describes_stale_reality` | `Validate` do T014 mandava rodar `verify-split.sh`, aposentado |
-| `gate_unsatisfiable` | `proof:` da PO-14 passava por construção (sem `.js` no repo, diff sempre vazio) |
+Fonte de verdade agora é `.agent/memory/process-friction.jsonl` (5 linhas). Esta tabela era o
+workaround de não haver ledger; virou histórico. ⚠️ Ao migrar, os `kind` foram traduzidos para o
+**vocabulário fechado** que o C5/1c define (`unsatisfiable | no-slot | reinvented | contradiction |
+stale`) — os nomes usados aqui (`test_expectation_wrong`, `gate_unsatisfiable`,
+`instruction_describes_stale_reality`) eram livres, e vocabulário livre não se conta. Contar é o
+ponto inteiro do mecanismo.
+
+| kind original (livre) | kind no ledger (fechado) | O quê |
+|---|---|---|
+| `test_expectation_wrong` | `unsatisfiable` | teste do slice A nasceu tratando transição legítima como violação |
+| `instruction_describes_stale_reality` | `stale` | `Validate` do T014 mandava rodar `verify-split.sh`, aposentado |
+| `gate_unsatisfiable` | `unsatisfiable` | `proof:` da PO-14 passava por construção (sem `.js` no repo, diff sempre vazio) |
+| — (novo) | `stale` | **3ª ocorrência** da mesma classe no T044 |
+| — (novo) | `no-slot` | o C5 manda cunhar AP e este repo não tem catálogo (AC-1) |
+
+⚠️ **Nota para o slice H:** a barra do META pede *3+ observações de ≥2 specs distintas*. O `stale`
+já tem **3 ocorrências**, mas **todas da spec 001** — bate em número, não em dispersão. Num repo
+com uma spec só, a exigência de dispersão pode ser inatingível por construção. Isso é uma pergunta
+para o H, não algo a afrouxar aqui.
 
 ## Tabela de slices — autoridade da ordem
 
