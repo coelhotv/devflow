@@ -1,22 +1,33 @@
 #!/usr/bin/env bash
-# DEVFLOW Setup Script v1.7.0
-# Usage: bash setup.sh <project-path> <project-name> <stack-csv>
+# DEVFLOW Setup Script v3.0.0
+# Usage: bash setup.sh <project-path> <project-name> <stack-csv> [--with-git-hook]
 # Example: bash setup.sh ~/git/my-app "my-app" "react,vite,supabase,typescript"
+#
+# Idempotente (spec 002 / INV-1): nunca sobrescreve arquivo existente em .agent/. Rodar de novo
+# so cria o que falta e reporta o que foi pulado.
 
 set -e
 
 DEVFLOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ─── Args ────────────────────────────────────────────────────────────────────
-PROJECT_PATH="${1:?Usage: setup.sh <project-path> <project-name> <stack-csv>}"
-PROJECT_NAME="${2:?Usage: setup.sh <project-path> <project-name> <stack-csv>}"
+PROJECT_PATH="${1:?Usage: setup.sh <project-path> <project-name> <stack-csv> [--with-git-hook]}"
+PROJECT_NAME="${2:?Usage: setup.sh <project-path> <project-name> <stack-csv> [--with-git-hook]}"
 STACK_CSV="${3:-unknown}"
+shift 3 2>/dev/null || true
+WITH_GIT_HOOK=0
+for a in "$@"; do
+  case "$a" in
+    --with-git-hook) WITH_GIT_HOOK=1 ;;
+    *) echo "flag desconhecida: $a" >&2; exit 2 ;;
+  esac
+done
 PROJECT_SLUG=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
 CURRENT_SPRINT=$(date +%Y-W%V)
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
-echo "║  DEVFLOW v1.7 Setup — $PROJECT_NAME"
+echo "║  DEVFLOW v3.0 Setup — $PROJECT_NAME"
 echo "╚══════════════════════════════════════════╝"
 echo ""
 
@@ -50,10 +61,13 @@ echo "  ✓ Directory tree created with 5 categories"
 ln -sf "$DEVFLOW_DIR/DEVFLOW.md" "$AGENT_DIR/DEVFLOW.md"
 echo "  ✓ DEVFLOW.md symlinked"
 
-# ─── 3. Initialize state.json ────────────────────────────────────────────────
-cat > "$AGENT_DIR/state.json" << EOF
+# ─── 3. Initialize state.json (idempotente — INV-1) ─────────────────────────
+if [ -f "$AGENT_DIR/state.json" ]; then
+  echo "  · state.json ja existe — pulado"
+else
+  cat > "$AGENT_DIR/state.json" << EOF
 {
-  "schema_version": "1.7",
+  "schema_version": "3.0",
   "project": {
     "name": "$PROJECT_NAME",
     "slug": "$PROJECT_SLUG",
@@ -67,7 +81,8 @@ cat > "$AGENT_DIR/state.json" << EOF
     "mode": null,
     "goal": null,
     "goal_type": null,
-    "status": "idle"
+    "status": "idle",
+    "handoff": null
   },
   "memory": {
     "rules_count": 0,
@@ -79,7 +94,7 @@ cat > "$AGENT_DIR/state.json" << EOF
     "journal_entries_since_distillation": 0
   },
   "evolution": {
-    "genes_version": "1.7",
+    "genes_version": "3.0",
     "pending_mutations": []
   },
   "quality_gates": {
@@ -88,11 +103,15 @@ cat > "$AGENT_DIR/state.json" << EOF
   }
 }
 EOF
-echo "  ✓ state.json initialized (v1.7 schema)"
+  echo "  ✓ state.json initialized (v3.0 schema)"
+fi
 
 # ─── 4. Generate empty INDEX.md files ────────────────────────────────────────
 
 # RULES_INDEX.md
+if [ -f "$MEMORY_DIR/RULES_INDEX.md" ]; then
+  echo "  · RULES_INDEX.md ja existe — pulado"
+else
 cat > "$MEMORY_DIR/RULES_INDEX.md" << 'EOF'
 # DEVFLOW Rules Index
 
@@ -125,9 +144,13 @@ Index is auto-populated as rules are added. Rules are organized by category.
 - [Template](./templates/examples/RULE_TEMPLATE.md) — Copy to create new rule
 - [DEVFLOW Schema](../DEVFLOW.md) — Full specification
 EOF
-echo "  ✓ RULES_INDEX.md created"
+  echo "  ✓ RULES_INDEX.md created"
+fi
 
 # ANTI_PATTERNS_INDEX.md
+if [ -f "$MEMORY_DIR/ANTI_PATTERNS_INDEX.md" ]; then
+  echo "  · ANTI_PATTERNS_INDEX.md ja existe — pulado"
+else
 cat > "$MEMORY_DIR/ANTI_PATTERNS_INDEX.md" << 'EOF'
 # DEVFLOW Anti-Patterns Index
 
@@ -160,9 +183,13 @@ Index is auto-populated as anti-patterns are added. Patterns are organized by ca
 - [Template](./templates/examples/ANTI_PATTERN_TEMPLATE.md) — Copy to create new pattern
 - [DEVFLOW Schema](../DEVFLOW.md) — Full specification
 EOF
-echo "  ✓ ANTI_PATTERNS_INDEX.md created"
+  echo "  ✓ ANTI_PATTERNS_INDEX.md created"
+fi
 
 # DECISIONS_INDEX.md
+if [ -f "$MEMORY_DIR/DECISIONS_INDEX.md" ]; then
+  echo "  · DECISIONS_INDEX.md ja existe — pulado"
+else
 cat > "$MEMORY_DIR/DECISIONS_INDEX.md" << 'EOF'
 # DEVFLOW Decisions Index
 
@@ -195,9 +222,13 @@ Architecture Decision Records (ADRs) are organized by category.
 - [Template](./templates/examples/ADR_TEMPLATE.md) — Copy to create new ADR
 - [DEVFLOW Schema](../DEVFLOW.md) — Full specification
 EOF
-echo "  ✓ DECISIONS_INDEX.md created"
+  echo "  ✓ DECISIONS_INDEX.md created"
+fi
 
 # CONTRACTS_INDEX.md
+if [ -f "$MEMORY_DIR/CONTRACTS_INDEX.md" ]; then
+  echo "  · CONTRACTS_INDEX.md ja existe — pulado"
+else
 cat > "$MEMORY_DIR/CONTRACTS_INDEX.md" << 'EOF'
 # DEVFLOW Contracts Index
 
@@ -230,9 +261,13 @@ Service contracts, API specs, and interfaces organized by category.
 - [Template](./templates/examples/CONTRACT_TEMPLATE.md) — Copy to create new contract
 - [DEVFLOW Schema](../DEVFLOW.md) — Full specification
 EOF
-echo "  ✓ CONTRACTS_INDEX.md created"
+  echo "  ✓ CONTRACTS_INDEX.md created"
+fi
 
 # KNOWLEDGE_INDEX.md
+if [ -f "$MEMORY_DIR/KNOWLEDGE_INDEX.md" ]; then
+  echo "  · KNOWLEDGE_INDEX.md ja existe — pulado"
+else
 cat > "$MEMORY_DIR/KNOWLEDGE_INDEX.md" << 'EOF'
 # DEVFLOW Knowledge Index
 
@@ -265,21 +300,74 @@ Reusable facts, specs, and technical information organized by category.
 - [Template](./templates/examples/KNOWLEDGE_TEMPLATE.md) — Copy to create new fact
 - [DEVFLOW Schema](../DEVFLOW.md) — Full specification
 EOF
-echo "  ✓ KNOWLEDGE_INDEX.md created"
+  echo "  ✓ KNOWLEDGE_INDEX.md created"
+fi
 
-# ─── 5. Create .gitignore entry ──────────────────────────────────────────────
-if [ -f "$PROJECT_PATH/.gitignore" ]; then
-  if ! grep -q ".agent/" "$PROJECT_PATH/.gitignore"; then
-    echo "" >> "$PROJECT_PATH/.gitignore"
-    echo "# DEVFLOW runtime" >> "$PROJECT_PATH/.gitignore"
-    echo ".agent/sessions/" >> "$PROJECT_PATH/.gitignore"
-    echo ".agent/evolution/" >> "$PROJECT_PATH/.gitignore"
-    echo ".agent/state.json" >> "$PROJECT_PATH/.gitignore"
-    echo "# Keep memory (rules, ADRs, etc.) in git" >> "$PROJECT_PATH/.gitignore"
+# ─── 4b. Create the two lifecycle ledgers (PO-2 / spec 002) ─────────────────
+# Vazios de proposito: o relogio de cada um so comeca a contar quando o arquivo e
+# COMMITADO (FR-003 — derivado do git, Q1 decidida). Ver aviso no resumo final.
+for ledger in process-friction.jsonl attempts.jsonl; do
+  L="$MEMORY_DIR/$ledger"
+  if [ -f "$L" ]; then
+    echo "  · $ledger ja existe — pulado"
+  else
+    : > "$L"
+    echo "  ✓ $ledger created (vazio)"
   fi
-  echo "  ✓ .gitignore updated"
+done
+
+# ─── 5. .gitignore: cria se falta, completa linha a linha se parcial ────────
+GITIGNORE="$PROJECT_PATH/.gitignore"
+GITIGNORE_LINES=(".agent/sessions/" ".agent/evolution/" ".agent/state.json")
+if [ ! -f "$GITIGNORE" ]; then
+  {
+    echo "# DEVFLOW runtime"
+    for l in "${GITIGNORE_LINES[@]}"; do echo "$l"; done
+    echo "# Keep memory (rules, ADRs, etc.) in git"
+  } > "$GITIGNORE"
+  echo "  ✓ .gitignore created"
 else
-  echo "  ⚠ No .gitignore found (skip)"
+  added=0
+  for l in "${GITIGNORE_LINES[@]}"; do
+    grep -qxF "$l" "$GITIGNORE" || { echo "$l" >> "$GITIGNORE"; added=$((added+1)); }
+  done
+  if [ "$added" -gt 0 ]; then
+    echo "  ✓ .gitignore updated ($added linha(s) adicionada(s))"
+  else
+    echo "  · .gitignore ja tem todas as entradas — pulado"
+  fi
+fi
+
+# ─── 5b2. --with-git-hook: nivel 2 do FR-003 (mode-gate.sh), opcional ──────
+if [ "$WITH_GIT_HOOK" = 1 ]; then
+  GIT_HOOKS_DIR="$PROJECT_PATH/.git/hooks"
+  if [ -d "$GIT_HOOKS_DIR" ]; then
+    HOOK_FILE="$GIT_HOOKS_DIR/pre-commit"
+    if [ -e "$HOOK_FILE" ]; then
+      echo "  ⚠ $HOOK_FILE ja existe — nao sobrescrito (instale a mao se quiser o mode-gate)"
+    else
+      cat > "$HOOK_FILE" << HOOKEOF
+#!/usr/bin/env bash
+# Instalado por setup.sh --with-git-hook (spec 002, FR-006).
+# Nivel 2 do FR-003 (spec 001): so INVOCA o nivel 1 (mode-gate.sh), nunca copia sua logica.
+# Fail-open por design — ver o cabecalho de mode-gate.sh.
+GATE="$DEVFLOW_DIR/scripts/mode-gate.sh"
+[ -x "\$GATE" ] || exit 0
+[ -f .agent/state.json ] || exit 0
+out="\$("\$GATE" --state .agent/state.json)"
+ok="\$(printf '%s' "\$out" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ok", True))' 2>/dev/null)"
+if [ "\$ok" = "False" ]; then
+  echo "DEVFLOW mode-gate bloqueou o commit: \$out" >&2
+  exit 1
+fi
+exit 0
+HOOKEOF
+      chmod +x "$HOOK_FILE"
+      echo "  ✓ pre-commit hook instalado ($HOOK_FILE)"
+    fi
+  else
+    echo "  ⚠ $GIT_HOOKS_DIR nao existe (repo sem git init?) — hook nao instalado"
+  fi
 fi
 
 # ─── 5b. Install the DEVFLOW sub-skills ─────────────────────────────────────
@@ -301,7 +389,11 @@ fi
 
 # ─── 6. Print summary ────────────────────────────────────────────────────────
 echo ""
-echo "✓ DEVFLOW v1.7 setup complete!"
+echo "✓ DEVFLOW v3.0 setup complete!"
+echo ""
+echo "⚠ O relogio dos ledgers so comeca no commit que adicionar cada arquivo ao git"
+echo "  (process-friction.jsonl / attempts.jsonl — marco derivado do git, spec 002 Q1)."
+echo "  Ate la, cada ledger conta como inativo."
 echo ""
 echo "Next steps:"
 echo "  1. Add rules: cp templates/examples/RULE_TEMPLATE.md .agent/memory/rules/react_and_ui/R-001.md"

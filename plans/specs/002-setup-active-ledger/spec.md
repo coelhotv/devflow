@@ -2,7 +2,7 @@
 
 **Feature Directory:** `plans/specs/002-setup-active-ledger/`
 **Created:** 2026-09-22
-**Status:** specified
+**Status:** delivered — PO-1..3 fechadas com evidência de execução; regressão (6 suítes) verde
 **Tier:** 1
 **Input:** diagnóstico pós-merge da spec 001 (v3.0.0). O `setup.sh` foi rodado num repo descartável
 em 2026-09-22 e o resultado foi comparado com o que a v3 exige de um consumidor.
@@ -41,7 +41,13 @@ ac:     rodar o setup sobre um .agent/ existente não altera nenhum arquivo que 
 proof:  tests/setup.test.sh — caso "rerun preserva" (checksum de todo arquivo antes e depois)
 expect: checksums idênticos; a saída do setup diz quais arquivos foram pulados
 guard:  caso "repo novo" do mesmo teste segue verde
-status: [ ] open
+status: [x] done
+evidence_class: execution
+note:   `bash tests/setup.test.sh` → "19 passaram, 0 falharam" (2026-09-22). Reforçado por SC-002 com
+        cópia REAL do .agent/ do dosiq (940 arquivos, symlink resolvido via `cp -RL`): checksum
+        idêntico antes/depois do rerun. guard "repo novo" verde no mesmo run.
+uncertainty: nenhum caminho conhecido ficou sem cobertura; os 6 pontos de `cat >` do setup.sh
+        (state.json + 5 INDEX.md) e os 2 ledgers são exercitados individualmente pelo teste.
 ```
 
 ### US2 — Um repo novo nasce com o ledger ativo e com data de início (P1)
@@ -59,7 +65,12 @@ proof:  tests/setup.test.sh — caso "ledger ativo"
 expect: os 2 arquivos existem e estão vazios; antes do commit, `git log --diff-filter=A` sobre o
         ledger sai vazio (inativo); depois de um commit no repo descartável, devolve uma data ISO
 guard:  nenhum kind novo no process-friction.jsonl (vocabulário fechado do C5/1c intacto)
-status: [ ] open
+status: [x] done
+evidence_class: execution
+note:   `bash tests/setup.test.sh` → casos "PO-2" e "PO-2 guard" verdes (2026-09-22). Mecanismo
+        confirmado ao vivo neste repo antes de codar: `git log --diff-filter=A --format=%cI -- .agent/memory/process-friction.jsonl`
+        devolveu `2026-09-21T10:39:16-03:00` (commitado) vs. string vazia p/ caminho não commitado.
+uncertainty: nenhuma.
 ```
 
 ### US3 — O estado local não vaza para o git (P2)
@@ -76,7 +87,12 @@ ac:     depois do setup, git check-ignore confirma state.json, sessions/ e evolu
 proof:  tests/setup.test.sh — casos "sem .gitignore" e "com .gitignore parcial"
 expect: `git check-ignore` casa os 3 caminhos; os ledgers e os índices NÃO são ignorados
 guard:  rodar duas vezes não duplica nenhuma linha
-status: [ ] open
+status: [x] done
+evidence_class: execution
+note:   `bash tests/setup.test.sh` → casos "PO-3" (sem .gitignore / parcial) e "PO-3 guard" verdes
+        (2026-09-22). `git check-ignore` confirmado sobre os 3 caminhos nos dois cenários;
+        `memory/RULES_INDEX.md` explicitamente testado como NÃO ignorado.
+uncertainty: nenhuma.
 ```
 
 ## Functional Requirements
@@ -135,3 +151,26 @@ status: [ ] open
     `.agent/evolution/` (`setup.sh:276`), então o marco não seria versionado.
 - **A-1** O `~/SKILLS/devflow` é o caminho canônico do clone (as skills já assumem isso).
 - **A-2** O SC-002 usa uma **cópia** do `.agent/` do dosiq em diretório descartável, nunca o repo real.
+
+## Próximo passo exato (handoff — sem state.json neste repo)
+
+**Escrito em:** 2026-09-22.
+
+**Next step:** nenhum — PO-1..3 fechadas, T001-T008 completas, SC-001..003 satisfeitos. Falta só
+push + PR (branch `spec/002-setup-active-ledger`), que é decisão do operador (R-065).
+
+**Failed:** nenhuma tentativa revertida nesta sessão. `failed: []`.
+
+**Worked (evidência DESTA sessão):**
+- Idempotência dos 6 pontos `cat >` via guarda `[ -f ... ]` — `bash tests/setup.test.sh` → "19
+  passaram, 0 falharam".
+- Marco de início derivado de `git log --diff-filter=A --format=%cI` — testado ao vivo neste repo
+  E na suíte (caso "ledger ativo").
+- SC-002 com cópia real do `.agent/` do dosiq (940 arquivos) — checksum idêntico, sem uso de mock.
+- Regressão completa (6 suítes: ai-review-no-agent, mode-gate, no-core-shadowing, second-opinion,
+  setup, skill-comply) — 0 falha, `shellcheck` limpo.
+
+**Not tried:** `--with-git-hook` não foi exercitado contra um `mode-gate.sh` real bloqueando um
+commit de verdade (só verificado que o arquivo é instalado e é executável — ver friction logada em
+`process-friction.jsonl`, `kind: no-slot`, sobre a ambiguidade do conteúdo do hook). Se o operador
+quiser essa garantia mais forte, é o próximo item natural, não coberto por PO-1..3.
