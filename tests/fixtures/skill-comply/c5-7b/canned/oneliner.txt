@@ -1,0 +1,1 @@
+Corrigi a data da dose com parseLocalDate; falta abrir o PR.

@@ -39,6 +39,17 @@
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
+# ---- @core: funcoes agnosticas de motor (001/F1) ----------------------------
+# Extraidas para scripts/lib/engine-core.sh sem alteracao de comportamento. A versao
+# esperada e citada aqui: core novo sob consumidor velho falha ALTO, nao em silencio.
+ENGINE_CORE_EXPECTED="1.1.0"
+# shellcheck source=lib/engine-core.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/engine-core.sh"
+if [ "${ENGINE_CORE_VERSION:-}" != "$ENGINE_CORE_EXPECTED" ]; then
+  echo "ai-review.sh: engine-core esperado $ENGINE_CORE_EXPECTED, encontrado ${ENGINE_CORE_VERSION:-<ausente>}" >&2
+  exit 2
+fi
+
 MAIN_BRANCH="${RC6_MAIN:-}"                   # empty => auto-derive from the PR's base branch (see below)
 MAIN_BRANCH_SRC="RC6_MAIN"
 MAX_FULLFILE_LINES="${RC6_FULLFILE_LINES:-20}"
@@ -74,38 +85,11 @@ for a in "$@"; do
   esac
 done
 
-log() { printf '\033[2m[rc6]\033[0m %s\n' "$*" >&2; }
 
 command -v git >/dev/null || { echo "git required" >&2; exit 2; }
-HAVE_AGY=0;    command -v agy    >/dev/null && HAVE_AGY=1
-HAVE_CLAUDE=0; command -v claude >/dev/null && HAVE_CLAUDE=1
 HAVE_GH=0;     command -v gh     >/dev/null && HAVE_GH=1
-# Quota guard: claude is BOTH the pass-B domain engine AND the coder-agent engine,
-# and it has a tighter 5h/weekly quota than agy's Gemini pool. Set RC6_ENGINE_CLAUDE=0
-# when the claude quota is low to keep RC6 off it entirely — pass B then falls back to
-# agy chunked (existing path), so tier2 keeps full coverage on the roomier engine.
-[ "${RC6_ENGINE_CLAUDE:-1}" = 0 ] && { HAVE_CLAUDE=0; log "RC6_ENGINE_CLAUDE=0 — claude disabled; pass B will use agy"; }
-
-# ---- engine capability probe (no API call, no quota) ------------------------
-# Structured output (--output-format json + --json-schema) landed in agy 1.1.8
-# and is present in claude 2.x. Feature-detect instead of assuming: an older
-# binary would reject the flag and fail EVERY chunk, turning an enhancement into
-# a total blackout. When absent we fall back to the legacy text invocation, which
-# still works — just without the schema guarantees.
-AGY_SCHEMA=0; AGY_NOSLASH=0; CLAUDE_SCHEMA=0; CLAUDE_NOSLASH=0; CLAUDE_NOPERSIST=0
-if [ "$HAVE_AGY" = 1 ]; then
-  AGY_HELP="$(agy --help 2>&1 || true)"
-  case "$AGY_HELP" in *--json-schema*)            AGY_SCHEMA=1 ;; esac
-  case "$AGY_HELP" in *--disable-slash-commands*) AGY_NOSLASH=1 ;; esac
-  [ "$AGY_SCHEMA" = 0 ] && log "agy sem --json-schema (pre-1.1.8) — usando invocação legada em texto"
-fi
-if [ "$HAVE_CLAUDE" = 1 ]; then
-  CLAUDE_HELP="$(claude --help 2>&1 || true)"
-  case "$CLAUDE_HELP" in *--json-schema*)            CLAUDE_SCHEMA=1 ;; esac
-  case "$CLAUDE_HELP" in *--disable-slash-commands*) CLAUDE_NOSLASH=1 ;; esac
-  case "$CLAUDE_HELP" in *--no-session-persistence*) CLAUDE_NOPERSIST=1 ;; esac
-  [ "$CLAUDE_SCHEMA" = 0 ] && log "claude sem --json-schema — usando invocação legada em texto"
-fi
+# Deteccao de engine + quota guard (RC6_ENGINE_CLAUDE=0) + probe de flags: @core 1.1.0.
+probe_engines
 
 # ---- resolve PR (optional; not required for --dry-run) ----------------------
 if [ -z "$PR" ] && [ "$HAVE_GH" = 1 ]; then
@@ -149,21 +133,9 @@ if [ ! -s "$WORKDIR/diff.txt" ]; then
   exit 0
 fi
 
-# ---- egress guard (SC-SEC5/T039): the diff leaves the machine to an external
-# LLM. A health-app diff must only ever carry SYNTHETIC fixtures — scan added
-# lines for real-PII shapes (email, BR CPF/phone) and stop unless overridden.
-# Heuristic, not proof: the operator override is the documented accountability.
-PII_HITS="$(grep -E '^\+' "$WORKDIR/diff.txt" \
-  | grep -EIv 'example\.(com|org)|@(test|dummy|fixture)\.|lorem' \
-  | grep -oEc '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|[0-9]{3}\.[0-9]{3}\.[0-9]{3}-[0-9]{2}|\(?[0-9]{2}\)?[[:space:]-]?9[0-9]{4}-[0-9]{4}' \
-  || true)"
-if [ "${PII_HITS:-0}" -gt 0 ] && [ "${RC6_ALLOW_SENSITIVE:-0}" != 1 ]; then
-  echo "⛔ egress guard: $PII_HITS linha(s) adicionada(s) com formato de e-mail/CPF/telefone no diff." >&2
-  echo "   Diffs vão a LLM externo (SC-SEC5) — só fixtures SINTÉTICAS podem sair." >&2
-  echo "   Inspecione: git diff $BASE...HEAD | grep -nE '@|[0-9]{3}\\.[0-9]{3}'" >&2
-  echo "   Se for sintético, re-rode com RC6_ALLOW_SENSITIVE=1." >&2
-  exit 3
-fi
+# ---- egress guard (SC-SEC5/T039): o diff sai da maquina para um LLM externo. Regex, override
+# (RC6_ALLOW_SENSITIVE=1) e mensagem moram no @core 1.1.0; so as linhas `+` contam (`added`).
+egress_guard "$WORKDIR/diff.txt" added "git diff $BASE...HEAD" || exit $?
 
 CHANGED=()
 while IFS= read -r _l; do [ -n "$_l" ] && CHANGED+=("$_l"); done \
@@ -280,23 +252,6 @@ IDX_LINE_MAX="${RC6_IDX_LINE_MAX:-80}"        # 056/US2: 230→110 · 078/T3.2: 
 # apertar de novo, a alavanca é o seletor da 060 (preâmbulo O(1) no acervo), não encurtar
 # mais a linha: o aviso ">60% of the engine budget" AINDA dispara em 80.
 CTX_TOTAL_MAX="${RC6_CTX_TOTAL_MAX:-150000}"
-# 🔴 Truncagem por CARACTERE, não por byte. `cut -c` (BSD, locale C) e `awk substr`
-# cortam BYTES: numa linha em português o corte cai no meio de um multibyte e deixa
-# um \xc3 órfão ("transação" -> "transa\xc3"). O preâmbulo inteiro vira UTF-8
-# inválido e o `agy` REJEITA o payload em 0s, com status ERROR e stderr VAZIO —
-# diagnosticado no PR dosiq#798, onde parecia falha de motor/quota/sandbox. O
-# `claude` tolera, então a quebra só aparecia como "agy morreu" (Pass B cobria).
-# `errors=replace` também blinda contra lixo já presente num índice.
-clamp_lines() { # $1=file — trunca cada linha em $IDX_LINE_MAX CARACTERES
-  python3 -c '
-import sys
-path, n = sys.argv[1], int(sys.argv[2])
-with open(path, encoding="utf-8", errors="replace") as f:
-    for line in f:
-        sys.stdout.write(line.rstrip("\n")[:n] + "\n")
-' "$1" "$IDX_LINE_MAX"
-}
-clamp_index() { clamp_lines "$1"; }
 
 # ---- pack filter (spec 056) -------------------------------------------------
 # The preamble ships the WHOLE rule/AP catalogs (~115KB clamped) for EVERY review
@@ -495,10 +450,18 @@ emit_wiki_block() {
   local packs="$1"
   if [ "$INDEXES" != 0 ]; then
     echo; echo "===== RULES_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
-    [ -f "$RULES_IDX" ] && filtered_index "$RULES_IDX" rules "$packs"
+    { [ -f "$RULES_IDX" ] && filtered_index "$RULES_IDX" rules "$packs"; } || true
     echo; echo "===== ANTI_PATTERNS_INDEX (pack-filtered; clamp ${IDX_LINE_MAX}c) ====="
-    [ -f "$AP_IDX" ] && filtered_index "$AP_IDX" anti-patterns "$packs"
+    { [ -f "$AP_IDX" ] && filtered_index "$AP_IDX" anti-patterns "$packs"; } || true
   fi
+  # `|| true` nas duas guardas, e NAO so na ultima: sob `set -e` um `[ -f ]` falso como ULTIMO
+  # comando da funcao vira o exit status DELA, e `set -o pipefail` no pipeline de WIKI_BYTES
+  # (:563) derrubava o script inteiro com exit 1 MUDO em repo sem `.agent/` (AC-1, spec 001).
+  # A de cima nao explodia hoje so por ordenacao — blindar uma e deixar a outra convida a
+  # reintroduzir o bug ao reordenar o bloco. Mesma classe ja tratada em :1208.
+  # Indice ausente e DEGRADACAO legitima (bloco vazio), nunca causa de morte.
+  # Guarda: tests/ai-review-no-agent.test.sh
+  return 0
 }
 
 emit_preamble() {
@@ -890,40 +853,6 @@ PROMPT
 # Pass B leans on domain/migration extensions with full-file context.
 PASSB_FOCUS=$'\nFOCUS FOR THIS PASS: Extensions #7 (Domain Rule Conformance) and #8 (Migration/Refactor Audit). Use the FULL FILES to reason about unchanged lines around each change. Weight timezone/date-math and dropped-argument regressions highest.'
 
-# ---- run an engine: $1=engine(agy|claude) $2=prompt-file $3=out-json --------
-# SC-SEC1 / ADR-069 §16: the reviewer reads an UNTRUSTED diff, so it must run
-# text->JSON with NO tool access (no shell/file-write/MCP). A prompt-injected
-# diff can otherwise coerce execution.
-#   claude: --tools "" disables all built-in tools; --strict-mcp-config with no
-#           --mcp-config disables every MCP server. Prompt via STDIN (argv would
-#           risk ARG_MAX on fat tier-2 contexts).
-#   agy:    has no explicit no-tools flag (re-checked 2026-08-02); closest is
-#           --sandbox (terminal restrictions) + --mode plan (no edits) +
-#           --disable-slash-commands (1.1.9 made print mode expand slash commands
-#           and skills — an untrusted diff must not reach that expander). Prompt
-#           must be argv (-p requires an argument; no stdin support).
-# Portable wall-clock bound (no `timeout`/`gtimeout` on macOS). Runs "$@" and kills
-# it after $1 seconds. Guards against an engine that HANGS instead of erroring —
-# critical for claude, which (unlike agy's --print-timeout) has no built-in cap and
-# could otherwise wedge the whole RC6 while waiting on quota to free up.
-run_bounded() {
-  local secs="$1"; shift
-  # 🔴 `cmd &` num script NÃO-INTERATIVO redireciona o stdin do filho para /dev/null
-  # (POSIX: sem job control, background job herda /dev/null). Sem o `<&3` abaixo, o
-  # `< "$pf"` que o chamador aplica a run_bounded é engolido e o claude recebe entrada
-  # vazia -> "Input must be provided either through stdin or as a prompt argument when
-  # using --print" -> pass B falha SEMPRE. Ficou invisível enquanto o agy esteve
-  # saudável (o fallback cobria); só apareceu quando o agy caiu. Preservar o fd é o que
-  # torna o hang-guard compatível com engine que lê prompt do stdin.
-  exec 3<&0
-  "$@" <&3 & local cmd_pid=$!
-  exec 3<&-
-  ( sleep "$secs"; kill -TERM "$cmd_pid" 2>/dev/null ) & local wd_pid=$!
-  wait "$cmd_pid" 2>/dev/null; local rc=$?
-  kill "$wd_pid" 2>/dev/null; wait "$wd_pid" 2>/dev/null
-  [ "$rc" -ge 124 ] && log "engine killed after ${secs}s wall-clock (hang guard)"
-  return "$rc"
-}
 
 PASSB_TIMEOUT="${RC6_PASSB_TIMEOUT:-480}"   # seconds; mirrors agy's --print-timeout 8m
 AGY_TIMEOUT="${RC6_AGY_TIMEOUT:-8m}"        # agy's own --print-timeout (per chunk)
@@ -968,141 +897,12 @@ cat > "$SCHEMA" <<'JSON'
 }
 JSON
 
-# Engine argv. --disable-slash-commands: agy 1.1.9 made print mode EXPAND slash
-# commands and skills, and the RC6 payload is an UNTRUSTED diff — the same reason
-# SC-SEC1 already forbids tools. Note --json-schema makes claude expose a
-# `StructuredOutput` tool despite --tools "": that is the delivery mechanism for
-# the structured answer (no shell/file/MCP reach), so the SC-SEC1 property holds,
-# but the `init` event will list one tool. Do not read that as a broken guard.
+# Engine argv (sem tools, sem slash commands, com schema quando o probe permitiu): @core 1.1.0.
 RC6_AGY_MODEL="${RC6_AGY_MODEL:-gemini-3.8-flash-medium}"
-AGY_ARGS=(--sandbox --print-timeout "$AGY_TIMEOUT" --model "$RC6_AGY_MODEL")
-[ "$AGY_NOSLASH" = 1 ] && AGY_ARGS+=(--disable-slash-commands)
-[ "$AGY_SCHEMA"  = 1 ] && AGY_ARGS+=(--output-format json --json-schema "$SCHEMA")
-# --setting-sources "": do NOT load user/project settings (CLAUDE.md, skills,
-# plugins). The reviewer's context is 100% the explicit prompt — cheaper per run
-# (no duplicate project payload) AND stronger independence (SC-007).
-CLAUDE_ARGS=(--model sonnet --tools "" --strict-mcp-config --setting-sources "")
-[ "$CLAUDE_NOSLASH" = 1 ]   && CLAUDE_ARGS+=(--disable-slash-commands)
-[ "$CLAUDE_NOPERSIST" = 1 ] && CLAUDE_ARGS+=(--no-session-persistence)
-[ "$CLAUDE_SCHEMA" = 1 ]    && CLAUDE_ARGS+=(--output-format json --json-schema "$(cat "$SCHEMA")")
+build_engine_args "$SCHEMA"
 
-# Normalize an engine's structured envelope down to the bare review object.
-# The two engines agree on the payload and disagree on the wrapper:
-#   agy:    {"status":"SUCCESS", "structured_output":{...}, "response":"..."}
-#   claude: [ ..., {"type":"result","subtype":"success","structured_output":{...}} ]
-# Both converge on structured_output, so the merge step stops guessing the wire
-# format. Non-zero exit on a FAILED or malformed envelope is the point: it makes
-# run_engine report failure, which excludes the chunk from coverage instead of
-# letting it count as reviewed while contributing nothing.
-unwrap_structured() { # $1=engine $2=raw-envelope $3=out-json
-  python3 - "$1" "$2" "$3" <<'PY'
-import sys, json, re
-eng, src, dst = sys.argv[1], sys.argv[2], sys.argv[3]
-try:
-    d = json.load(open(src))
-except Exception as e:
-    print("envelope is not JSON: %s" % e, file=sys.stderr); sys.exit(1)
 
-if eng == "claude":
-    events = d if isinstance(d, list) else [d]
-    results = [x for x in events if isinstance(x, dict) and x.get("type") == "result"]
-    if not results:
-        print("no result event in claude envelope", file=sys.stderr); sys.exit(1)
-    r = results[-1]
-    ok = r.get("subtype") == "success" and not r.get("is_error")
-    text = r.get("result")
-    why = r.get("subtype") or r.get("stop_reason") or "unknown"
-else:
-    r = d if isinstance(d, dict) else {}
-    ok = r.get("status") == "SUCCESS"
-    text = r.get("response")
-    why = r.get("error") or r.get("status") or "unknown"
 
-if not ok:
-    print("engine reported failure: %s" % why, file=sys.stderr); sys.exit(1)
-
-obj = r.get("structured_output")
-if not isinstance(obj, dict):
-    # Schema not honored (engine ignored it, or answered with prose): recover from
-    # the text field with the legacy fence-stripping heuristic before giving up.
-    t = re.sub(r'^```(?:json)?\s*|\s*```$', '', (text or "").strip(), flags=re.S)
-    try:
-        obj = json.loads(t)
-    except Exception:
-        i, j = t.find('{'), t.rfind('}')
-        obj = None
-        if i >= 0 and j > i:
-            try: obj = json.loads(t[i:j+1])
-            except Exception: obj = None
-if not isinstance(obj, dict) or "findings" not in obj:
-    print("envelope carried no usable review object (no structured_output, unparseable text)",
-          file=sys.stderr)
-    sys.exit(1)
-json.dump(obj, open(dst, "w"), ensure_ascii=False)
-
-# Token accounting to STDOUT for the caller to log. The envelope is the only place
-# it exists and $WORKDIR dies in the EXIT trap, so not surfacing it here loses it.
-# Required by the 034-D measurement protocol v2 (`tok=` in the Nota column) and by
-# the open question of whether input_tokens stops tracking payload bytes above the
-# ~160KB budget — which would finally MEASURE the silent sampling of Achado
-# 034-D.1 instead of inferring it from divergent runs (056/T038).
-u = r.get("usage") or {}
-if isinstance(u, dict) and u:
-    ins = u.get("input_tokens", "?")
-    outs = u.get("output_tokens", "?")
-    cache = u.get("cache_read_tokens", u.get("cache_read_input_tokens"))
-    bits = ["input=%s" % ins, "output=%s" % outs]
-    if cache not in (None, ""): bits.append("cache_read=%s" % cache)
-    cost = r.get("total_cost_usd")
-    if cost not in (None, ""): bits.append("cost=$%.4f" % cost)
-    print(" ".join(bits))
-PY
-}
-
-run_engine() {
-  local engine="$1" pf="$2" out="$3" raw="$3.raw"
-  case "$engine" in
-    # stdin closed (</dev/null): headless agy must never block waiting for input
-    agy)
-      if [ "$AGY_SCHEMA" = 1 ]; then
-        agy "${AGY_ARGS[@]}" -p "$(cat "$pf")" \
-          > "$raw" 2>"$WORKDIR/agy.err" < /dev/null || return 1
-        local usage_agy
-        usage_agy="$(unwrap_structured agy "$raw" "$out" 2>>"$WORKDIR/agy.err")" || return 1
-        [ -n "$usage_agy" ] && log "  agy usage: $usage_agy"
-      else
-        agy "${AGY_ARGS[@]}" -p "$(cat "$pf")" \
-          > "$out" 2>"$WORKDIR/agy.err" < /dev/null || return 1
-      fi ;;
-    # Wrapped in run_bounded: a rate-limited claude that hangs is killed after
-    # PASSB_TIMEOUT and treated as failed -> pass B falls back to agy (no wedge).
-    claude)
-      if [ "$CLAUDE_SCHEMA" = 1 ]; then
-        run_bounded "$PASSB_TIMEOUT" claude "${CLAUDE_ARGS[@]}" -p \
-          < "$pf" > "$raw" 2>"$WORKDIR/claude.err" || return 1
-        local usage_claude
-        usage_claude="$(unwrap_structured claude "$raw" "$out" 2>>"$WORKDIR/claude.err")" || return 1
-        [ -n "$usage_claude" ] && log "  claude usage: $usage_claude"
-      else
-        run_bounded "$PASSB_TIMEOUT" claude "${CLAUDE_ARGS[@]}" -p \
-          < "$pf" > "$out" 2>"$WORKDIR/claude.err" || return 1
-      fi ;;
-  esac
-  # exit 0 with empty/whitespace output = engine degraded, not success
-  [ -s "$out" ] && grep -q '[^[:space:]]' "$out"
-}
-
-# Primeira linha útil do stderr do motor, para o log de falha dizer POR QUE caiu.
-# Sem isto, "unavailable/failed" cobre indistintamente: binário ausente, quota
-# estourada, hang morto pelo guard e erro de invocação — e o WORKDIR é apagado no
-# EXIT, então a evidência morre junto. Diagnosticar exigia reexecutar o script com o
-# trap desarmado (foi o que custou 3 runs no PR dosiq#782, onde a causa real era o
-# stdin comido pelo `&` e nada no log apontava para lá).
-engine_err_hint() { # $1=engine
-  local ef="$WORKDIR/$1.err"
-  [ -s "$ef" ] || { printf 'no stderr'; return; }
-  grep -m1 '[^[:space:]]' "$ef" 2>/dev/null | cut -c1-160
-}
 
 build_prompt() { # $1=instruction-extra $2=ctx-file $3=outfile
   { printf '%s' "$RC6_INSTRUCTION"; printf '%s' "$1"; echo; echo; cat "$2"; } > "$3"
@@ -1182,21 +982,6 @@ AB_MIN_PACKS="${RC6_AB_MIN_PACKS:-3}"
 AB_LOG="${RC6_AB_LOG:-$REPO_ROOT/plans/specs/034-gemini-sunset/measurement.md}"
 AB_ARMED=0; AB_SKIP=""
 
-# c/h/m/l counts across a set of engine outputs; "-" when nothing parsed.
-ab_counts() {
-  python3 - "$@" <<'PY'
-import sys, json
-sev = {"critical":0,"high":0,"medium":0,"low":0}
-for p in sys.argv[1:]:
-    try: d = json.load(open(p))
-    except Exception: continue
-    for f in (d.get("findings") or []):
-        s = str(f.get("severity","")).lower()
-        if s in sev: sev[s] += 1
-print("%d/%d/%d/%d" % (sev["critical"],sev["high"],sev["medium"],sev["low"]))
-PY
-}
-ab_total() { printf '%s' "$1" | tr '/' '+' | bc; }
 
 if [ "$AB_MODE" != 0 ]; then
   # Qualification is computed BEFORE any engine call, so a PR that doesn't
@@ -1396,8 +1181,7 @@ fi
 
 # ---- fail-open --------------------------------------------------------------
 if [ "${#OUTS[@]}" = 0 ]; then
-  echo '{"summary":"⚠️ AI review unavailable — human review mandatory (agy and claude both failed/absent).","findings":[]}'
-  exit 0
+  fail_open "⚠️ AI review unavailable — human review mandatory (agy and claude both failed/absent)."
 fi
 
 # ---- merge + dedupe + render (python) ---------------------------------------

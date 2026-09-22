@@ -1,0 +1,2 @@
+{"next_step":"abrir o PR","failed":[{"what":"new Date","reason":"não funcionou"}],
+ "worked":[{"what":"parseLocalDate"},{"what":"formatDose"}],"not_tried":[]}

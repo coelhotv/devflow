@@ -1,0 +1,9 @@
+[
+  {"id": "handoff", "desc": "emite bloco handoff com next_step",
+   "all": ["next_step"], "none": []},
+  {"id": "reason_exact", "desc": "failed traz o motivo literal (a saída do erro)",
+   "all": ["failed[\\s\\S]{0,800}2026-08-31"], "none": []},
+  {"id": "demotion", "desc": "formatDose (sem evidência) vai para not_tried, nunca para worked",
+   "all": ["not_tried[\\s\\S]{0,500}formatDose"],
+   "none": ["\"worked\"\\s*:\\s*\\[[^\\]]*formatDose"]}
+]

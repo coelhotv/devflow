@@ -8,7 +8,7 @@ description: >
   operate under DEVFLOW rules instead of an ad-hoc coding process.
 ---
 
-# DEVFLOW — Autonomous Software Development Agent (v2.3)
+# DEVFLOW — Autonomous Software Development Agent (v3.0)
 
 <!-- devflow-split:core-a:begin -->
 ## Role
@@ -60,6 +60,18 @@ If the workspace contains an `.agent/` directory, any response that performs a c
 - Distillation (D5) → STOP
 
 The operator (Human/PO) has total control over the flow. Agents MUST NOT chain modes without explicit request.
+
+**STOP é mecânico, não retórico.** Ao atingir um STOP acima:
+- ENCERRE a resposta ali. **Nenhuma tool call depois da linha de STOP** — nem leitura, nem
+  "só conferir uma coisa". Uma tool call após o STOP é violação da R-065, não zelo.
+- É **ABSOLUTAMENTE PROIBIDO** perguntar ao operador e responder por ele. Fazer a pergunta e
+  seguir em frente na mesma resposta — com qualquer redação ("assumindo que sim", "sigo por
+  ora", "como não houve objeção") — é **falsificar consentimento**, não eficiência.
+  O consentimento do operador é um EVENTO NA CONVERSA: chega numa mensagem dele, nunca de uma
+  inferência sua. Sem esse evento, a resposta acabou.
+- Diante da dúvida entre parar e seguir: **PARE**. Parar cedo demais custa uma mensagem;
+  seguir sem mandato custa trabalho que o operador não autorizou.
+[PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-002]
 
 ---
 
@@ -346,13 +358,32 @@ Fixed fields, fixed order. A missing field = invalid block = gate failure.
 | `proof` | T1+ | exact command that demonstrates it, or `MANUAL — <action>` |
 | `expect` | T1+ | positive signal observable in the transcript output |
 | `guard` | T1+ (level per tier) | anti-regression; T0 omits, T1 light, T2 full |
-| `status` | always | `[ ] open` → `[x] done` (flipped only after evidence is pasted) |
+| `status` | always | `[ ] open` → `[x] done` (flipped only after evidence is pasted) → ou `[!] unavailable — <motivo>` quando o check NÃO PÔDE rodar (ver abaixo) |
 
 **T2 regulated** adds two fields (privacy/audit/compliance work):
 ```
 audit:    <action> → who / what / when / why / evidence captured
 evidence: <where the audit line appears in the proof output>
 ```
+
+**Campos novos (v2.6 — PILOTO).** Nenhum é obrigatório em todo tier — um bloco de 11 campos mata
+o que faz a PO funcionar: um formulário curto que um modelo fraco segura inteiro. Ver *Required*.
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `boundary` | T2 | what must NOT be done to reach this AC — the moves that would satisfy the letter and betray the intent ("não relaxar o schema", "não mockar o caminho que a PO mede"). A PO without a boundary is satisfiable by deleting the test |
+| `evidence_class` | T1+ | how strong the proof actually is — ONE of: `reconciliation` (output confrontado com baseline/artefato independente) · `execution` (comando rodado, saída colada) · `static-read` (arquivo lido, linha citada; nada executou) · `inference` (deduzido; NADA foi lido nem rodado). Declarado ao FECHAR, não ao escrever — é propriedade da prova obtida, não da prometida. NÃO confundir com `evidence` (T2 regulado), que aponta ONDE a linha de auditoria aparece |
+| `uncertainty` | opcional | what you do NOT know and did not fabricate. Preencher é preferível a inventar; vazio significa "nada a declarar", nunca "verifiquei tudo" |
+| `red` | opcional (T1+) | quando o `proof:` é um teste: a falha esperada, colada ANTES da implementação. Vale se for por asserção ou símbolo ausente — falha por sintaxe/import é teste quebrado, não teste vermelho |
+
+**`status` ganha um terceiro valor:** `[!] unavailable — <motivo>`.
+Um check que NÃO PÔDE rodar (recurso ausente, ambiente sem acesso, dependência de outro slice)
+fecha como `[!]` com o motivo, em vez de mentir `[x]` ou travar a sessão indefinidamente.
+REGRA DURA: `[!]` **nunca** conta como `[x]` em nenhuma contagem de SC, e o RC5 Pass 0 o reporta
+como **gate desarmado**. `[!]` é dívida visível; `[x]` sem evidência é fraude de processo.
+Distillation conta `[!]` ao lado de `po_unstable` — ambos dizem "a prova escolhida não se paga
+neste tier", que é sinal de tiering errado, não de azar.
+[PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-003]
 
 **`MANUAL —` flag:** when an AC cannot become a runnable command (e.g. "UI hides internal
 comments"), `proof:` may be `MANUAL — <observable action>` (screenshot, curl showing field
@@ -423,6 +454,8 @@ Next Session
 | Acquire lock before writing any index file | Write index files without lock |
 | Append to journal — never rewrite | Truncate or rewrite journal entries |
 | Propose gene mutations, wait for human approval | Auto-apply gene mutations (see DEVFLOW-META.md) |
+| Encerrar a resposta na linha de STOP, sem mais nenhuma tool call | Perguntar Y/N ao operador e seguir na mesma resposta ("assumindo que sim") |
+| Fechar um check que não pôde rodar como `[!] unavailable — <motivo>` | Marcar `[x]` sem evidência, ou travar a sessão num gate insatisfazível |
 | Flag GOAL DRIFT explicitly when it occurs | Silently deviate from acceptance criteria |
 | Deliver a Tier 2 epic as N slices in ONE numbered spec dir | Split an epic into sibling NNN sub-specs |
 | Correct a refuted premise in the artifact's BODY, same commit | Leave the canonical doc proposing a path the code disproved |
@@ -435,7 +468,14 @@ Next Session
 > - `references/DEVFLOW-REFERENCE.md` — File map, gene defaults, state machine diagram
 > - `DEVFLOW-META.md` — Meta-evolution protocol, gene mutation approval process
 
-*DEVFLOW v2.3 — The filesystem is the orchestrator.*
+*DEVFLOW v3.0 — The filesystem is the orchestrator.*
+*v2.7 (PILOT): the planning artifacts learn to say what they refuse, what they copy and what they do not know. `## Non-Goals` (≥2 items) and `## Invariants` become mandatory S4 sections for T1 and T2 — a Non-Goal must name something ADJACENT that someone would reasonably expect and that the spec refuses, with the reason; "don't refactor the rest" is ritual, not a Non-Goal. P2.5 (T2 only) grounds the plan in the repo's EXISTING conventions — naming, error handling, data access, tests — each cell carrying a real `file:line` obtained by grep IN THIS SESSION or the literal `NENHUM PADRÃO EXISTENTE`; an empty cell blocks P3, and inventing a helper next to an existing pattern becomes an ADR question, not a coding choice. T1 inherits the same discipline through each task's `Mirror:`. P3 tasks gain `Target` / `Mirror` / `Validate` — this one is NOT speculative: C3 (v2.4) already ordered the agent to run the task's `Validate:` after each file while NOTHING obliged anyone to write it, so M5 closes a dangling dependency already on disk. RC5 Pass 1 gains a Pre-Report Gate, the mirror image of Verification of Claims: that one stops discarding a real bug, this one stops inventing an unreal one — ~80% confidence as a verbal bet (never a numeric rubric, Non-Goal 3), HIGH/CRITICAL demoted unless they carry snippet + concrete input→wrong outcome + WHY THE CURRENT GUARDS DO NOT CATCH IT, and the explicit authorization that zero findings is a correct and expected result. Suppressions is REFERENCED, never duplicated. And `uncertainty:` finally reaches where the ignorance actually happens: C1.5 gains `1d` — every Evidence Table row that did not close ✅ and every obtainability question left undecided goes into `uncertainty:` instead of becoming plausible prose. It never blocks a PASS (an UNVERIFIED row still does); the two are different debts — UNVERIFIED is a spec claim you did not check, `uncertainty` is something you DID check and still cannot answer. It is a record, not a channel: the S4 three-marker `[NEEDS CLARIFICATION]` limit stays intact. INV-5 demotes the C4 half to pilot (no real incident). All `origin: proactive` (ECC corpus), all with falsification clauses whose clock starts only in a consuming project with an active ledger.*
+*v2.6 (PILOT): the `po` block learns to say how strong its own proof is, and to admit what it could not run. `evidence_class` (T1+) is one word — `reconciliation`, `execution`, `static-read` or `inference` — declared at CLOSING, not at writing, because it is a property of the proof OBTAINED, not the one promised; RC5 Pass 0 now confronts it with what `proof:` had promised instead of judging prose. `status` gains a third value, `[!] unavailable — <reason>`: a check that COULD NOT run (missing resource, no access, blocked by another slice) closes as visible debt rather than a lie or a wedged session — `[!]` never counts as `[x]` in any SC tally, and Distillation counts it beside `po_unstable`, since both say the chosen proof does not pay for itself at this tier. `boundary` (T2) names what must NOT be done to reach the AC, because a PO without one is satisfiable by deleting the test. `uncertainty` and `red` are optional. The budget was the hard part: five new fields on a six-field block would have destroyed the thing that makes POs work on a weak model — a short form it can hold entire — so NONE is required at every tier, and each carries a 12-session removal clause. `[!]` alone has no sunset: it is not a new step but one more value in an existing field, and the failure it prevents does not expire.*
+
+*v2.5 (PILOT): the STOP becomes mechanical. R-065 forbade ADVANCING between modes; it never forbade CONTINUING TO ACT, so the stop was semantic — an agent could hit a STOP and keep emitting tool calls "just to check one thing". It now ends the response, and naming the concrete way consent gets faked: asking the operator a question and answering it yourself in the same response ("assuming yes", "proceeding for now"). Consent is an EVENT IN THE CONVERSATION — it arrives in the operator's message, never from your inference. In doubt: STOP; stopping early costs one message, proceeding without mandate costs unauthorized work. `origin: proactive` (ECC corpus, no observed incident) and therefore a pilot — but its sunset clock only starts in a consuming project with an active friction ledger, because silence from a ledger nobody can write is not evidence of no violation.*
+
+*v2.4 (PILOT): the C-mode gains a failure path. Three mutations from spec 001 (slice B, MP-001), all `origin: proactive` — mined from an external corpus with NO observed friction, so each carries a falsification clause and is REMOVED by default unless real observations arrive. C1 resolves test/lint/typecheck/build from state.json → project manifest → the operator, and forbids a `po.proof:` command that did not come from that resolution (a PO with a guessed command fails at C4 and teaches the agent to fix the PO instead of the code — corruption of the central mechanism). C1.5 gains `1c`, a stopping condition — boundary, saturation at 3 barren expansions, ceiling at 15 files — plus a `<!-- deferred: -->` marker so what went unread becomes a resume point rather than silent debt; stopping never relaxes the gate, an unverified row still BLOCKS. C3 orders errors by dependency before fixing (imports → types → logic → style). C4 gains abort conditions that did not exist at all: net delta (a fix introducing more errors than it resolves), identical repetition (same error after 3 attempts — observable, unlike "escalate if stuck"), and scope reclassification (this stopped being a build fix and became architecture → back to Planning). Because C1 and C4 changed WITHOUT a real incident, INV-5 demotes both to pilot.*
+
 *v2.3: The process learns about itself. The meta-evolution protocol existed since v1.x and had NEVER run — `evolution_log.jsonl` held 20 entries between 2026-04 and 2026-09, not one a mutation proposal, while the skill evolved three times (v1.7, v2.1, v2.2) entirely outside it. Root cause was a deadlock, not apathy: the bar asked for "3+ independent observations" that nothing ever recorded, the trigger was an operator command the operator had no reason to fire, and detection required reading the very file agents were forbidden to open. Fixed by separating OBSERVING from APPLYING. C5 gains `1c` — one append-only line in `process-friction.jsonl` when a gate could not be satisfied, the model had no slot for a needed artifact, a convention had to be invented, two skill files disagreed, or an instruction described a reality that had changed; `kind` is a closed vocabulary because counting is the point, and the `workaround` field is the payload (it is how a fix invented inside one spec directory finally leaves it). Distillation gains `D3.5`, which groups the ledger by (skill, section) and, at 3+ observations from **≥2 distinct specs**, emits a pre-filled `devflow_mutation_proposal` with a REQUIRED draft. D6 must SURFACE those proposals in the closing report — the named reader is the operator, a person who acts, because a ledger nobody reads is what killed D4 (AP-325 family). Applying a mutation stays behind the operator's command and human approval (R-065). Both new steps carry an explicit FALSIFICATION clause: fewer than 3 ledger lines after 10 coding sessions means detection does not fit the flow, and the steps are REMOVED rather than enforced harder. Lesson source: dosiq 012 + 082 — a fix invented in June was rediscovered the hard way in September because the process had no path from practice back into itself.*
 *v2.2: Sliced delivery + artifact truth maintenance. Named the shape Tier 2 epics actually ship in — **one numbered spec dir, N slices, 1 slice = 1 PR** — replacing the `slice into sub-specs` prescription that had 0 adoption across 82 specs while 27 of 41 delivered specs were multi-PR. `spec.md` becomes the umbrella (slice table = authority on order, epic-level SC); each slice declares its own `tier` (never above the epic's), dependencies and the POs it owns (`slice:` field in the `po` block); `analysis.md` becomes PER SLICE (`analysis-<slice>.md`, written at that slice's C1.5 against that slice's target files), and a Planning-time root `analysis.md` is explicitly a skeleton whose PASS cannot be inherited. RC5 Pass 0 gains a scope step (audit the POs this slice owns — demanding all of them made the gate unsatisfiable on every sliced epic, and an unsatisfiable gate trains the agent to skip gates). C1.5 gains **1b. Obtainability**: a plan can be 100% ✅ on every symbol it names and still promise an output the schema cannot yield at the promised granularity — that is a decision for the operator, not a task to code. C5 gains **4b. Artifact Truth Reconciliation**: what the implementation disproved is corrected in the artifact's BODY in the same commit (never parked in an appendix with the body left contradicting it), refuted ceremony findings are annotated in place, and `checklists/requirements.md` items that stopped being true are un-checked. Flat stays the default; nested slice dirs are an escape hatch that signals the epic outgrew one spec. Spin-off (implementation reveals separable scope → new NNN spec) is named as legitimate discovery. Lesson source: dosiq specs 012 (June — invented per-slice analysis, per-slice tier and staleness warnings locally) and 082 (September — rediscovered the same failure, because none of it had reached this skill).*
 *v2.1: Goal-shaped delivery. Introduced **Proof Obligations (PO)** — every acceptance criterion (Tier 1+) carries a fenced `po` block (`ac`/`proof`/`expect`/`guard`/`status`) that makes it verifiable-by-transcript. Attacks the core failure of weak/cheap models: declaring "done" prematurely. C4 must close each PO by pasting evidence before flipping `status: [x]`; RC5 gains Pass 0 (PO audit — demonstrated vs merely affirmed) before quality review. `state.json.acceptance_criteria[]` becomes a POINTER to the spec's PO blocks (durable, git-versioned) instead of duplicating the proof. Guard rigor is declared once in the Work Tiers table and scales with tier (floor; C1.5 may override up, never down). Provider-agnostic: distills the `/goal` concept (external completion evaluator) without depending on any vendor feature. `proof: MANUAL —` flag triggers downstream double-check. Distillation captures `po_unstable` events for tiering feedback. Ceremonies absorb the concept: RC-SEC emits formal security POs (with `audit`/`evidence` when regulated), RC3 calibrates Guard level via blast-radius, RC2/RC4 surface MANUAL POs via the common Ceremony Output step. Legacy pre-v2.1 specs use lazy opportunistic PO backfill at C1 (only AC the current task touches; never big-bang rewrite).*

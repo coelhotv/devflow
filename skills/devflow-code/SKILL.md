@@ -36,6 +36,12 @@ Upon entering Coding mode, **IMMEDIATELY** update state.json BEFORE proceeding t
 
 Checklist: Read current state.json → update mode/status/goal/goal_type → write to disk → verify write (check mtime changed) → proceed to C1.
 
+Existe `session.handoff` no state.json que você acabou de ler? MOSTRE-O antes do C1: next_step,
+cada `failed` com seu `reason`, e `not_tried`. Um item de `failed` que o plano desta sessão repete
+EXIGE nova evidência de que a causa mudou; sem ela, não repita. Um item de `not_tried` nunca é
+tratado como feito. Handoff de outra spec (campo `spec` diferente do goal): mostre e ignore.
+[PILOTO 2026-09 · origin: proactive · MP-006]
+
 ### C1 — Pre-Code Checklist
 ```
 Verify before writing any code (do not skip):
@@ -63,9 +69,18 @@ Verify before writing any code (do not skip):
   [ ] No duplicate files: same find command, count == 1
   [ ] Path aliases confirmed (check vite.config.js / tsconfig.json / equivalent)
   [ ] Relevant contracts identified from CONTRACTS_INDEX.md
-  [ ] Test framework confirmed per workspace: read package.json in the TARGET workspace
-      (do not assume root framework applies — workspaces may differ, e.g. Jest vs Vitest)
-      NEVER mix vi.fn()/jest.fn() or vitest/jest imports across workspaces.
+  [ ] RUNNERS RESOLVIDOS E REGISTRADOS — antes de qualquer gate ou `po.proof:`.
+      Resolva test / lint / typecheck / build nesta ordem de precedência, parando na primeira que responde:
+        1. state.json (.knowledge) — comandos já resolvidos em sessão anterior
+        2. manifesto do projeto — package.json:scripts | Cargo.toml | pyproject.toml | Makefile | go.mod
+        3. PERGUNTE ao operador. Não chute.
+      REGISTRE os 4 comandos resolvidos no transcript, citando a fonte de cada um
+      (ex.: `test: bun test — package.json:scripts.test`). Comando não resolvido = `NONE (ausente)`,
+      e quem depende dele fecha `[!] unavailable`, nunca `[x]`.
+      PROIBIDO escrever em `po.proof:` (aqui, no S4 ou no C4) comando que não veio desta resolução.
+      Em monorepo, resolva POR WORKSPACE-ALVO — nunca assuma que o runner da raiz vale
+      (Jest vs Vitest; NUNCA misture vi.fn()/jest.fn() ou imports vitest/jest entre workspaces).
+      [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-001]
 
   [ ] Spec exists in plans/ for this task (or created in P3) — AND read it COMPLETELY:
       ⚠️  Do NOT skim — read the entire spec from start to finish before proceeding.
@@ -191,6 +206,50 @@ Write output to plans/specs/NNN-feature-name/analysis.md — or, when the epic i
    A promise that fails here is NOT a task to code: it is a DECISION to take back to the operator
    (approximate, or migrate the schema) and the FR/PO must be rewritten to promise what the chosen
    option delivers. Shipping the query anyway ships a number that answers a different question.
+
+1c. CONDIÇÃO DE PARADA — a Evidence Table diz o que verificar, não quando parar. Sem isto o agente
+   lê de menos (e o PASS vira carimbo) ou espirala. PARE de buscar quando UMA destas disparar, e
+   DECLARE qual foi, no analysis.md:
+     (i) BOUNDARY — a cadeia de chamadas alcançou uma fronteira externa (SDK, rede, DB, binário).
+    (ii) SATURAÇÃO — 3 arquivos expandidos consecutivos sem nenhuma asserção comportamental nova.
+   (iii) TETO — 15 arquivos lidos para esta capacidade (3 arquivos de alta relevância batem 10 medíocres).
+   Sobrou arquivo por ler? REGISTRE no fim do analysis.md:
+     <!-- deferred: path/a.ts, path/b.sql — motivo: teto atingido; retomar por aqui -->
+   O marcador `deferred:` é ponto de retomada da próxima sessão — não é dívida silenciosa.
+   Parada NÃO afrouxa o gate: o PASS continua exigindo Evidence Table populada (item 1). Parar com
+   linha ❌/UNVERIFIED na tabela é BLOQUEIO, não parada.
+   [PILOTO 2026-09 · origin: proactive]
+
+1d. REGISTRE A IGNORÂNCIA EM VEZ DE PREENCHÊ-LA. O `1c` diz quando PARAR; este diz o que fazer com
+   o que sobrou sabendo. Toda linha da Evidence Table que não fechou `✅`, e toda promessa do `1b`
+   cuja obtenibilidade você não conseguiu decidir, vai para `uncertainty:` — no bloco `po` da AC
+   correspondente quando existe, ou numa lista `## Uncertainty` no fim do `analysis.md` quando não.
+   Uma linha por item: o que você não sabe · o que faria para saber · o que assumiu enquanto isso.
+   REGRA DURA: é PROIBIDO transformar ignorância em conteúdo plausível. Um `uncertainty:` populado
+   NUNCA bloqueia o PASS; uma linha ❌/UNVERIFIED na Evidence Table continua bloqueando (item 1).
+   Os dois não se confundem: `UNVERIFIED` é uma afirmação da spec que você não conferiu — dívida de
+   verificação; `uncertainty` é algo que você conferiu e segue sem resposta — dívida de conhecimento.
+   `uncertainty:` vazio significa "nada a declarar", NUNCA "verifiquei tudo".
+   ⚠️ Isto NÃO é um canal novo de pergunta ao operador: o limite de 3 marcadores
+   [NEEDS CLARIFICATION] do S4 permanece intacto e continua sendo o único caminho para ambiguidade
+   que muda escopo, UX, segurança, arquitetura ou modelo de dados. `uncertainty:` é registro, não
+   pergunta — se o item PRECISA de decisão do operador, ele é um marcador do S4, não uma linha aqui.
+   [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-004]
+
+1e. SEGUNDA OPINIÃO INDEPENDENTE (Tier 2, opcional; Tier 0/1: NÃO chame). Com o analysis.md
+   escrito e ANTES de declarar PASS, você pode pedir um leitor que não é você:
+     ~/SKILLS/devflow/scripts/second-opinion.sh --artifact analysis \
+       --spec-dir plans/specs/NNN-feature --file plans/specs/NNN-feature/analysis[-<slice>].md
+   Processo frio: o motor vê o analysis, a spec e o plano — nada desta sessão. Recomendado quando a
+   análise achou ZERO gaps num Tier 2 (a regra de honestidade abaixo já chama isso de suspeito).
+   Cada finding devolvido vira UMA linha no analysis.md, e só uma de duas:
+     acolhido — com a evidência (file:line) que você foi buscar por causa dele; ou
+     recusado — com o motivo, citando o trecho que o contradiz.
+   A opinião é INSUMO, não veredito: não altera sozinha a severidade nem o gate. Um HIGH acolhido
+   bloqueia porque VOCÊ o acolheu com evidência, não porque o script o emitiu.
+   Saída "unavailable" (nenhum motor) é fail-open: anote no analysis.md e siga — a ausência da
+   segunda opinião nunca bloqueia o C1.5.
+   [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-005]
 
 2. CROSS-FILE CONSISTENCY — spec.md ↔ plan.md ↔ tasks.md ↔ analysis.md must AGREE.
    Flag any contradiction (e.g. plan says "insert direct" while analysis says "via RPC").
@@ -349,6 +408,18 @@ Follow this order when touching multiple layers:
 
 Apply all relevant R-NNN rules during implementation.
 Check anti-patterns before each significant operation.
+
+A ordem acima é de DEPENDÊNCIA, não cronograma: schemas antes de services porque services
+dependem deles, não porque a semana começa no schema.
+Tier 1+: quando o `proof:` de uma PO é um teste, escreva o teste ANTES da implementação e cole a
+falha esperada no campo `red:` do bloco. Vale se a falha for por asserção ou símbolo ausente;
+falha por sintaxe/import é teste quebrado, não teste vermelho. Tier 0 pula (anti-bloat).
+Após CADA arquivo, rode o `Validate:` da task (comandos resolvidos no C1). Não avance com erro
+pendente. O `guard:` NÃO migra para cá — o C4 segue sendo o portão único de fechamento.
+[PILOTO 2026-09 · origin: proactive]
+
+Falhou o gate? ORDENE os erros por dependência antes de corrigir: imports/resolução de módulo →
+tipos/schemas → lógica → estilo. Corrigir lógica antes do tipo gera retrabalho e mascara a causa.
 ```
 
 ### C4 — Quality Gates
@@ -361,6 +432,19 @@ Run project-specific quality commands (from state.json or knowledge.json):
   Lint:   [project lint command]
   Tests:  [project test command for changed files]
   Build:  [project build command if applicable]
+
+LOOP DE CORREÇÃO — CONDIÇÕES DE ABORTO (só se aplica quando um gate falhou):
+  PARE, não tente de novo, e ESCALE ao operador citando QUAL condição disparou:
+    (a) DELTA LÍQUIDO — a correção introduziu mais erros do que resolveu (conte antes e depois; o
+        sinal é o delta, não o número de tentativas).
+    (b) REPETIÇÃO IDÊNTICA — o MESMO erro (mesma mensagem/stack) persiste após 3 tentativas.
+        Critério observável; "escale se estiver travado" não é, porque o agente sempre acha que a
+        próxima tentativa resolve.
+    (c) RECLASSIFICAÇÃO DE ESCOPO — o conserto exige mudança arquitetural, não conserto de build.
+        Isto deixou de ser C-mode: volta para Planning. Não é apelo à disciplina, é condição.
+  Ao abortar: NÃO commite, NÃO push, NÃO marque PO como `[x]`. Registre o estado e pare a resposta
+  (R-065: sem mais tool calls após o STOP).
+  [PILOTO 2026-09 · origin: proactive]
 
 Verify R-221 SQP release evidence independently from lint/tests:
   - platform(s) identified
@@ -378,6 +462,19 @@ CLOSE EVERY PROOF OBLIGATION (Tier 1+). For each `po` block of the task whose st
   The turn does NOT close while any PO is still `[ ] open`. `[x]` without pasted evidence is a
   protocol violation — it is the exact prematurely-"done" failure POs exist to prevent.
   MANUAL POs require concrete pasted evidence too (screenshot/curl/output), not just a claim.
+
+  DECLARE `evidence_class:` ao fechar e confronte com o que o `proof:` prometia:
+    proof: era comando executável → `execution` ou `reconciliation`. Fechar com `static-read` ou
+      `inference` um proof que prometia execução é REJEITADO no Pass 0.
+    proof: MANUAL — → `execution` (ação feita, evidência colada) ou `[!]` com motivo.
+  Não pôde rodar? `status: [!] unavailable — <motivo>`. NÃO invente saída, NÃO marque `[x]`,
+  NÃO trave a sessão. `[!]` é dívida visível e o Pass 0 a reporta como gate desarmado.
+  Fechou com `execution` mas sobrou algo que você não sabe — um caminho que a prova não cobriu, um
+  ambiente que não pôde exercitar? Declare em `uncertainty:` no MESMO bloco, ao fechar. Prova forte
+  com ponto cego declarado é honesta; prova forte com ponto cego calado é como o `[x]` sem evidência
+  se parece por dentro. `uncertainty:` NÃO rebaixa a `evidence_class` nem reabre a PO.
+  [PILOTO 2026-09 · origin: proactive · INV-5: sem incidente real ⇒ piloto]
+  [PILOTO 2026-09 · origin: proactive]
 
 Verify every acceptance criterion and DoD item extracted in C1 spec read.
 All gates must pass AND all DoD items must be checked before proceeding to C5.
@@ -525,6 +622,30 @@ Execute this checklist IN ORDER:
         - CHANGELOG.md entry summary
         - store-note relevance for mobile changes
 
+  [ ] 7b. HANDOFF — o que a PRÓXIMA sessão precisa saber, onde ela lê sem o operador pedir.
+      O journal (7) é lido só pelo distill e o attempts.jsonl (1b) só pela busca do C5: nenhum dos
+      dois chega à sessão seguinte. O state.json chega (Bootstrap, passo 1). Grave nele, no mesmo
+      write do item 8, o bloco `session.handoff` — SOBRESCREVE o da sessão anterior:
+        {"written_at":"<ISO>","spec":"<NNN ou null>",
+         "next_step":"<a próxima ação concreta, uma linha>",
+         "failed":[{"what":"<abordagem>","reason":"<motivo EXATO: mensagem, saída, file:line>",
+                    "attempt":"<id/terms no attempts.jsonl, ou null>"}],
+         "worked":[{"what":"...","evidence":"<comando+saída ou file:line DESTA sessão>"}],
+         "not_tried":["<ideia ou item sem evidência>"]}
+      REGRAS DURAS:
+        - `reason` é o erro ou a saída literal. "não funcionou", "deu problema", "falhou" sem o
+          porquê é PROIBIDO: sem o motivo exato a próxima sessão tenta de novo.
+        - DEMOÇÃO: um item vai em `worked` só com evidência colada NESTA sessão. Sem evidência, ele
+          vai para `not_tried`, mesmo que você "tenha certeza". Isto vale para o que foi herdado
+          do handoff anterior: evidência de outra sessão não conta como evidência desta.
+        - Falha que foi uma intervenção REVERTIDA: primeiro registre no attempts.jsonl (1b) e
+          aponte para ela em `attempt`. O histórico durável fica no ledger; o handoff pode ser
+          sobrescrito sem perder nada. Journal e attempts.jsonl continuam APPEND-ONLY.
+        - Nada falhou? `failed: []`. Lista vazia é um resultado válido. Não invente falha.
+      SEM state.json (repo com .agent/ parcial, como o próprio devflow): escreva o mesmo conteúdo
+      na seção "Próximo passo exato" da spec. Sem spec, escreva no fim da resposta final.
+      [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-006]
+
   [ ] 8. UPDATE state.json (FINAL STEP — DO NOT SKIP):
       ✅ Set session.status = "completed"
       ✅ Increment memory.journal_entries_since_distillation
@@ -597,6 +718,10 @@ do it without architectural judgment:
 2. For each in-scope PO: is status `[x] done`? If any is still `[ ] open`, the work is INCOMPLETE — reject, return to C4.
 3. For each `[x]`: is there pasted evidence in the transcript showing `expect:`? A `[x]` with no
    evidence is "affirmed, not demonstrated" — treat as a critical finding, return to C4.
+3b. Confronte `evidence_class:` com o que o `proof:` prometia. Comando executável fechado com
+   `static-read` ou `inference` = "afirmado, não demonstrado" → rejeite, volte ao C4.
+3c. `[!] unavailable` NÃO é `[x]`: conte-o à parte e REPORTE cada um como gate desarmado, com o
+   motivo. Um slice pode landar com `[!]`; o que não pode é o `[!]` passar despercebido.
 4. MANUAL POs: scrutinize harder — the evidence is human-judged, so confirm it actually shows the claim.
 5. Confirm each PO's `guard:` ran and showed no regression at the tier level.
 ```
@@ -664,6 +789,28 @@ These prevent the agent from rationalizing away real issues:
 - If claiming "tests cover this" → name the test file and method
 - NEVER say "likely handled" or "probably tested" — verify or flag as unknown
 
+#### Pre-Report Gate (Tier 1+; antes de escrever qualquer achado)
+
+Um achado que não passa nos três testes abaixo NÃO é reportado. Isto é o simétrico do
+*Verification of Claims*: aquele impede descartar bug real, este impede inventar bug irreal.
+
+1. **LIMIAR.** Reporte apenas o que você sustentaria numa aposta — acima de ~80% de confiança de
+   que é defeito real neste código, não uma preferência sua. Abaixo disso, CALE. Não é uma nota
+   numérica a registrar: é o teste verbal "eu apostaria que isto quebra?".
+2. **PROVA OBRIGATÓRIA para HIGH e CRITICAL.** Severidade alta sem as três partes é rebaixada a
+   MEDIUM ou descartada:
+     (a) o snippet exato (`file:line`) onde o defeito mora;
+     (b) input / estado concreto → desfecho errado (o mesmo par do `failure_scenario`);
+     (c) **por que as guardas atuais não pegam** — qual teste, tipo, schema ou lint deveria ter
+         barrado e não barra. Sem (c) o achado é uma hipótese, e hipótese não é CRITICAL.
+3. **ZERO ACHADOS É RESULTADO CORRETO E ESPERADO.** `Pre-Landing Review: No issues found.` é uma
+   saída válida e frequente. NÃO fabrique achado para justificar a execução do RC5 — inventar um
+   MEDIUM para a revisão "render algo" é a falha que este gate existe para impedir, e custa mais
+   caro que não revisar, porque ensina o operador a ignorar a saída.
+
+O catálogo de falsos positivos NÃO se repete aqui: ver *Suppressions — DO NOT flag*, abaixo.
+[PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-004]
+
 #### Fix-First Protocol
 
 This heuristic determines what is auto-fixed vs what requires operator judgment:
@@ -693,6 +840,9 @@ AUTO-FIX (agent fixes without asking):     ASK (needs human judgment):
 - Regex edge cases on constrained inputs where the edge case never occurs in practice
 - Tests that exercise multiple guards simultaneously — that's fine
 - Eval threshold changes tuned empirically
+- Número mágico cujo significado é óbvio no contexto imediato (`* 1000` para ms, `/ 100` para %)
+- Falta de try/catch sob um error boundary, middleware ou supervisor que já captura — cite o
+  captador ao suprimir; sem citá-lo, isto não é supressão, é suposição
 - ANYTHING already addressed in the diff being reviewed — read the FULL diff before commenting
 
 #### Specialists Dispatch (Conditional on /cavecrew)
@@ -913,6 +1063,7 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 
 | DO | DO NOT |
 |----|--------|
+| C1.5 T2 com zero gaps: pedir `second-opinion.sh --artifact analysis` e responder cada finding | Tratar a segunda opinião como veredito, ou chamá-la em Tier 0/1 |
 | Draft ADR before breaking any contract | Break a contract without ADR |
 | `git fetch origin` + sync local before creating new branch OR spawning sub-agent on shared files | Spawn from outdated branch — sub-agent will duplicate files |
 | Verify canonical path with find/grep before editing | Assume file location from its name or the spec |
@@ -928,7 +1079,15 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 | Ask whether the promised output is obtainable at the promised granularity | Verify every symbol exists and call the deliverable implementable |
 | Audit the POs this slice OWNS in RC5 Pass 0 | Demand every PO of a sliced epic close before any slice may land |
 | Log DEVFLOW friction as one line at C5/1c, with the workaround | Invent a convention the skill lacks and leave it inside your spec dir |
+| Gravar `session.handoff` no C5/7b com o motivo exato de cada falha e o não-evidenciado em `not_tried` | Escrever "não funcionou" sem o porquê, ou pôr em `worked` o que não tem evidência desta sessão |
 | Fill a Behavioral Failure-Modes table (NULL/0/boundary/missing-join) for every new function + a negative-path test each | Verify only that a symbol exists/matches the repo and call it robust |
+| Resolver test/lint/typecheck/build no C1 e citar a fonte de cada um | Escrever `proof:` com comando chutado (`npm test` em projeto Bun/Cargo) |
+| Nomear o critério de parada do C1.5 e marcar `deferred:` o que ficou por ler | Parar de ler sem dizer por quê, ou espiralar até o contexto estourar |
+| Abortar citando delta líquido, erro idêntico 3× ou reclassificação de escopo | Tentar "mais uma vez" indefinidamente, ou commitar com gate vermelho |
+| Declarar `evidence_class:` ao fechar e confrontá-la com o `proof:` no Pass 0 | Fechar com `static-read` um proof que prometia execução |
 | Run RC5 (code review) on every Tier 1+ PR before push | Push without RC5 on Tier 2 work (safety net against regression) |
 | Use check-review skill post-push if an external reviewer is configured | Skip RC5 just because an external reviewer exists (defense in depth) |
+| Fechar a revisão com `No issues found` quando não há achado | Fabricar um MEDIUM para justificar a execução do RC5 |
+| Dar snippet + input→desfecho + por que as guardas não pegam em todo HIGH/CRITICAL | Reportar CRITICAL que é hipótese sem a parte (c) |
+| Registrar em `uncertainty:` o que ficou sem resposta no C1.5/C4 | Converter ignorância em conteúdo plausível na Evidence Table |
 <!-- devflow-split:qr:end -->

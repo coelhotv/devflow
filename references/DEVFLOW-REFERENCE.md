@@ -142,3 +142,22 @@ DISTILLATION MODE:
 - Update `session.status` EXACTLY as documented at each phase transition
 - Append to `events.jsonl` ONLY at final state of each mode (P4, C5, R5, D6)
 - NEVER modify `session.status` outside the documented phases
+
+## Enforcement Substrate (spec 001)
+
+Regras do DEVFLOW podem ser aplicadas em três substratos. A escolha não é estética:
+
+| Substrato | Determinismo | Portabilidade | Exemplos |
+|---|---|---|---|
+| Prosa na skill | ~50–80% (o modelo decide se obedece) | total | HARD STOP, R-065 |
+| Hook do cliente (`settings.json`) | 100% | **apenas Claude Code** | — |
+| **Script / CLI + job de CI** | 100% | **qualquer agente com shell** | `ai-review.sh`, `reflect-gate.sh`, `mode-gate.sh` |
+
+O DEVFLOW usa a terceira linha. Um hook de cliente pode existir como conveniência, mas apenas
+invocando o CLI: nenhum comportamento pode depender dele, sob pena de amarrar a skill a um único
+produto ("Designed for Claude Code **or similar products**").
+
+**Assimetria obrigatória em todo gate.** `ok:false` exige violação positiva — a checagem rodou e
+contradisse. Qualquer indecisão (arquivo ausente, JSON malformado, dependência faltando) passa com
+marca. Bloquear trabalho legítimo com o carimbo de um gate que não conseguiu decidir é o modo de
+falha inaceitável. Ver `scripts/reflect-gate.sh` e `scripts/mode-gate.sh`.
