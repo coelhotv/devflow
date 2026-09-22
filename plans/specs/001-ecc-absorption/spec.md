@@ -139,7 +139,7 @@ para distinguir demonstrado de afirmado.
 | | |
 |---|---|
 | Branch | `spec/001-ecc-absorption` — **17 commits à frente de `main`**, árvore limpa |
-| PR | **nenhum aberto.** O épico inteiro vive no branch; a coluna PR da tabela de slices fica vazia até o épico virar PR (A-3) |
+| PR | **#1** (https://github.com/coelhotv/devflow/pull/1), aberto 2026-09-22 como REGISTRO do épico — sem revisão de motor externo, por decisão do operador |
 | Último commit | slice H — falsificação + porta proativa (MP-007, v3.0.0) |
 | Testes verdes | `mode-gate` 10/10 · `--degraded` 7/7 · `no-core-shadowing` 4/4 (2 consumidores) · `ai-review-no-agent` 3/3 · `second-opinion` 23/23 · `skill-comply` 10/10 · `no-core-shadowing` com 3 consumidores · baseline e `ai-review-paths` `Files are identical` |
 | `.agent/` | **EXISTE, mas é INIT PARCIAL** — leia `.agent/README.md` antes de concluir qualquer coisa a partir disso. A-1 e A-2 continuam de pé e nenhum relógio de sunset começou a correr |
@@ -260,15 +260,15 @@ para o H, não algo a afrouxar aqui.
 
 | Slice | Status | Escopo | Tier | Depende de | POs | Arquivos | PR |
 |---|---|---|---|---|---|---|---|
-| **A** | ✅ done | `mode-gate.sh` em 3 níveis de acoplamento | 1 | — | PO-1, PO-2 | `scripts/mode-gate.sh`, `tests/` | — |
-| **B** | ⚠️ aplicado (piloto) · POs MANUAL abertas | C-mode: M1 runner detection · F5 parada de busca (C1.5) · F6 trio de aborto (C3/C4) | 2 | — | PO-3, PO-4, PO-5 | `skills/devflow-code/SKILL.md` | — |
-| **C** | ⚠️ aplicado (piloto) · PO-6 MANUAL aberta | R-065: F7 terminação mecânica + proibição do Y/N auto-respondido | 1 | A | PO-6 | `SKILL.md` | — |
-| **D** | ⚠️ aplicado (piloto) · PO-7 ✅ · PO-8/9 MANUAL · **PO-10 transferida para E** | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
-| **E** | ✅ done — PO-10 fechada · PO-11..13 MANUAL | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate · **+ `uncertainty:` no C1.5 (dívida da PO-10)** | 1 | D | **PO-10**, PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
-| **F1** | ✅ done — PO-14, PO-15 fechadas | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | — |
-| **F2** | ⚠️ aplicado (piloto v2.8) · PO-16, PO-17 ✅ · PO-18/19 MANUAL | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
-| **G** | ✅ aplicado (piloto v2.9) · PO-20 ✅ · PO-21 `[!]` MANUAL | Handoff: estudo de formato → endurecimento do C5 | 1 | — | PO-20, PO-21 | `skills/devflow-code/` (C5) | — |
-| **H** | ✅ aplicado (v3.0.0 PILOTO) · PO-22 ✅ · PO-23 ✅ · T083 sem veredito (A-1) | Falsificação: medição de conformidade + caminho `external_corpus` no META | 1 | todos | PO-22, PO-23 | `DEVFLOW-META.md`, `scripts/` | — |
+| **A** | ✅ done | `mode-gate.sh` em 3 níveis de acoplamento | 1 | — | PO-1, PO-2 | `scripts/mode-gate.sh`, `tests/` | #1 |
+| **B** | ⚠️ aplicado (piloto) · POs MANUAL abertas | C-mode: M1 runner detection · F5 parada de busca (C1.5) · F6 trio de aborto (C3/C4) | 2 | — | PO-3, PO-4, PO-5 | `skills/devflow-code/SKILL.md` | #1 |
+| **C** | ⚠️ aplicado (piloto) · PO-6 MANUAL aberta | R-065: F7 terminação mecânica + proibição do Y/N auto-respondido | 1 | A | PO-6 | `SKILL.md` | #1 |
+| **D** | ⚠️ aplicado (piloto) · PO-7 ✅ · PO-8/9 MANUAL · **PO-10 transferida para E** | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | #1 |
+| **E** | ✅ done — PO-10 fechada · PO-11..13 MANUAL | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate · **+ `uncertainty:` no C1.5 (dívida da PO-10)** | 1 | D | **PO-10**, PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | #1 |
+| **F1** | ✅ done — PO-14, PO-15 fechadas | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | #1 |
+| **F2** | ⚠️ aplicado (piloto v2.8) · PO-16, PO-17 ✅ · PO-18/19 MANUAL | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | #1 |
+| **G** | ✅ aplicado (piloto v2.9) · PO-20 ✅ · PO-21 `[!]` MANUAL | Handoff: estudo de formato → endurecimento do C5 | 1 | — | PO-20, PO-21 | `skills/devflow-code/` (C5) | #1 |
+| **H** | ✅ aplicado (v3.0.0 PILOTO) · PO-22 ✅ · PO-23 ✅ · T083 sem veredito (A-1) | Falsificação: medição de conformidade + caminho `external_corpus` no META | 1 | todos | PO-22, PO-23 | `DEVFLOW-META.md`, `scripts/` | #1 |
 
 **Branch:** `spec/001-ecc-absorption` — **único para o épico inteiro** (decisão do operador, 2026-09-19;
 renomeado de `spec/001-ecc-absorption-slice-a`). Um commit semântico por slice; não se abre branch por slice.

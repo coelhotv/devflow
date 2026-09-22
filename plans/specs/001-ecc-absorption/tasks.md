@@ -4,7 +4,7 @@
 > **Feito:** slices **A–H — spec fechada**. POs fechadas: **11 de 23**; PO-21 `[!]`; as 11 restantes são
 > MANUAL (A-2). Propostas: MP-001..MP-007 — todas aprovadas e aplicadas. DEVFLOW em **v3.0.0 (PILOTO)**.
 > **Próximo:** fora deste repo — primeira sessão de C-mode num consumidor (dosiq). Aqui: PR do épico.
-> **Repo:** branch `spec/001-ecc-absorption`, 17 commits à frente de `main`, árvore limpa, sem PR.
+> **Repo:** branch `spec/001-ecc-absorption`, 17 commits à frente de `main`, árvore limpa, PR #1 (registro).
 > `.agent/` agora existe mas é **INIT PARCIAL** — leia `.agent/README.md`.
 > POs `[ ] open` que NÃO são pendência de trabalho: PO-3..PO-6, PO-8, PO-9, PO-11..PO-13 são
 > MANUAL e exigem projeto consumidor real (A-2); o instrumento está pronto e anotado em cada bloco.
