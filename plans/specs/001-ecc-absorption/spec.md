@@ -2,7 +2,7 @@
 
 **Feature Directory:** `plans/specs/001-ecc-absorption/`
 **Created:** 2026-09-19
-**Status:** in-progress — slices A, B, C, D, E, F1, F2, **G** entregues; H é o próximo e último
+**Status:** delivered (pilotos) — slices A–H entregues; 11 POs MANUAL aguardam projeto consumidor (A-2)
 **Tier:** 2
 **Input:** garimpo de `/Users/coelhotv/git/Everything-Claude-Code` em duas rodadas
 (`~/SKILLS/ecc-devflow-review-and-plan.md`, `~/SKILLS/ecc-devflow-mining-round2.md`)
@@ -130,18 +130,18 @@ para distinguir demonstrado de afirmado.
 
 ## Estado & próximo passo (leia primeiro numa sessão nova)
 
-**Última sessão:** 2026-09-22 · **Slices A–G entregues** · **POs fechadas: 9 de 23**
-(PO-1, PO-2, PO-7, PO-10, PO-14, PO-15, PO-16, PO-17, **PO-20**) · PO-21 `[!]` (MANUAL, A-2) · **Propostas pendentes: 0** (MP-006 aplicada 2026-09-22; INV-6: 2 vagas livres).
-**Versão do DEVFLOW:** v2.3 → **v2.9.0 (PILOTO)** ao longo destes slices.
+**Última sessão:** 2026-09-22 · **Slices A–H entregues — spec fechada** · **POs fechadas: 11 de 23**
+(PO-1, PO-2, PO-7, PO-10, PO-14, PO-15, PO-16, PO-17, PO-20, **PO-22, PO-23**) · PO-21 `[!]` · 11 MANUAL `[ ] open` (A-2) · **Propostas pendentes: 0** (MP-007 aplicada 2026-09-22).
+**Versão do DEVFLOW:** v2.3 → **v3.0.0 (PILOTO)** ao longo destes slices.
 
 **Estado do repositório** (conferido no disco, 2026-09-22):
 
 | | |
 |---|---|
-| Branch | `spec/001-ecc-absorption` — **16 commits à frente de `main`**, árvore limpa |
+| Branch | `spec/001-ecc-absorption` — **17 commits à frente de `main`**, árvore limpa |
 | PR | **nenhum aberto.** O épico inteiro vive no branch; a coluna PR da tabela de slices fica vazia até o épico virar PR (A-3) |
-| Último commit | slice G — handoff híbrido (MP-006, v2.9.0) |
-| Testes verdes | `mode-gate` 10/10 · `--degraded` 7/7 · `no-core-shadowing` 4/4 (2 consumidores) · `ai-review-no-agent` 3/3 · `second-opinion` 23/23 · baseline e `ai-review-paths` `Files are identical` |
+| Último commit | slice H — falsificação + porta proativa (MP-007, v3.0.0) |
+| Testes verdes | `mode-gate` 10/10 · `--degraded` 7/7 · `no-core-shadowing` 4/4 (2 consumidores) · `ai-review-no-agent` 3/3 · `second-opinion` 23/23 · `skill-comply` 10/10 · `no-core-shadowing` com 3 consumidores · baseline e `ai-review-paths` `Files are identical` |
 | `.agent/` | **EXISTE, mas é INIT PARCIAL** — leia `.agent/README.md` antes de concluir qualquer coisa a partir disso. A-1 e A-2 continuam de pé e nenhum relógio de sunset começou a correr |
 
 ### Como esta spec é executada (combinado com o operador — não redescubra)
@@ -178,19 +178,19 @@ para distinguir demonstrado de afirmado.
 
 ### Próximo passo exato
 
-> Escrito no formato do C5/`7b` (MP-006). Este repo não tem `state.json`, então esta seção é o
-> substituto previsto no próprio `7b`.
+> Formato do C5/`7b` (MP-006), no substituto previsto para repo sem `state.json`.
 
-- **next_step:** slice **H** (falsificação, Tier 1) — T080 monta a medição de conformidade em 3
-  níveis de rigor (supportive/neutral/competing). Depende de todos os slices, e todos estão entregues.
-- **worked** (evidência desta sessão, 2026-09-22): comparação 4×3 com `file:line` em cada célula
-  (`handoff-study-G.md`); MP-006 aplicada com a regressão verde — `mode-gate` 10/10 · `--degraded`
-  7/7 · `no-core-shadowing` 4/4 · `ai-review-no-agent` 3/3 · `second-opinion` 23/23 · marcadores
-  `devflow-code` 4/4.
-- **failed:** [] — nada falhou no slice G.
-- **not_tried:** exercício real do `7b` + leitor do C0 num projeto com `state.json` (é o proof da
-  PO-21, MANUAL — A-2); verificar se o harness preserva o `state.json` lido antes de um compact
-  (`uncertainty` do estudo).
+- **next_step:** a spec está fechada. O próximo trabalho é **fora deste repo**: a primeira sessão
+  de C-mode num projeto consumidor com ledger ativo (dosiq) inicia os relógios dos pilotos e é a
+  evidência das 11 POs MANUAL e da PO-21. Neste repo, a decisão pendente é abrir o PR do épico
+  (A-3: o épico inteiro vive no branch).
+- **worked** (evidência desta sessão, 2026-09-22): `skill-comply.sh` + `tests/skill-comply.test.sh`
+  10/10; medição real C5/`7b` em agy com 1,0/1,0/1,0; MP-007 aplicada com o diff do META só
+  adicionando linhas; regressão verde (ver tabela acima).
+- **failed:** [] — nada falhou no slice H.
+- **not_tried:** medir com a skill inteira no contexto (teto de saliência); `--runs 5` + claude
+  (variância); cenário para C5/5–8 (o motor marcou `[x]` em passos que não executou —
+  `falsification-H.md`, uncertainty 3).
 
 ### Decisão pendente do operador
 
@@ -268,7 +268,7 @@ para o H, não algo a afrouxar aqui.
 | **F1** | ✅ done — PO-14, PO-15 fechadas | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | — |
 | **F2** | ⚠️ aplicado (piloto v2.8) · PO-16, PO-17 ✅ · PO-18/19 MANUAL | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
 | **G** | ✅ aplicado (piloto v2.9) · PO-20 ✅ · PO-21 `[!]` MANUAL | Handoff: estudo de formato → endurecimento do C5 | 1 | — | PO-20, PO-21 | `skills/devflow-code/` (C5) | — |
-| **H** | ⏳ todo | Falsificação: medição de conformidade + caminho `external_corpus` no META | 1 | todos | PO-22, PO-23 | `DEVFLOW-META.md`, `scripts/` | — |
+| **H** | ✅ aplicado (v3.0.0 PILOTO) · PO-22 ✅ · PO-23 ✅ · T083 sem veredito (A-1) | Falsificação: medição de conformidade + caminho `external_corpus` no META | 1 | todos | PO-22, PO-23 | `DEVFLOW-META.md`, `scripts/` | — |
 
 **Branch:** `spec/001-ecc-absorption` — **único para o épico inteiro** (decisão do operador, 2026-09-19;
 renomeado de `spec/001-ecc-absorption-slice-a`). Um commit semântico por slice; não se abre branch por slice.
@@ -637,7 +637,14 @@ ac:     uma instrução nova é medida quanto a ser seguida sob prompt que não 
 proof:  MANUAL — rodar a medição nos três níveis de rigor e colar a taxa
 expect: taxa de conformidade reportada por nível, incluindo o nível competing
 guard:  a medição não altera nenhuma skill
-status: [ ] open
+status: [x] done
+evidence_class: execution
+uncertainty: teto de saliência (só a seção C5 no contexto, instrução "Siga-a"); n=1 por nível,
+  um motor só. Taxa real em sessão longa provavelmente menor — ver falsification-H.md.
+# FECHADA 2026-09-22: scripts/skill-comply.sh sobre C5/7b, agy, 1 rodada/nível:
+#   supportive 1.0 · neutral 1.0 · competing 1.0 (saída competing lida inteira: handoff real,
+#   reason literal "got '2026-08-31'", formatDose em not_tried). guard: tests/skill-comply.test.sh
+#   "guard PO-22: nenhuma skill alterada" ✓; git diff skills/ vazio.
 ```
 
 ```po PO-23
@@ -646,7 +653,11 @@ ac:     DEVFLOW-META.md passa a prever evidência de corpus externo com controle
 proof:  rtk grep -n 'proactive' DEVFLOW-META.md
 expect: origin, assinatura de atrito prevista e sunset descritos
 guard:  a barra reativa de 3+ observações / 2+ specs permanece intacta
-status: [ ] open
+status: [x] done
+evidence_class: execution
+# FECHADA 2026-09-22 (MP-007): rtk grep -n 'proactive' DEVFLOW-META.md -> :79 "1. `origin: proactive`
+#   na proposta E na linha do histórico" + subsecao com assinatura de atrito (2), falsificação/sunset
+#   (3). guard: item 1 dos Requisitos inalterado (git diff só adiciona a subseção).
 ```
 
 ---

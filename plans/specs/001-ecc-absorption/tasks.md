@@ -1,11 +1,10 @@
 # 001 — Tasks
 
 > **Retomada a frio:** leia a seção *Estado & próximo passo* do `spec.md` antes desta lista.
-> **Feito:** slices **A, B, C, D, E, F1, F2, G**. POs fechadas: **9 de 23** (PO-1, PO-2, PO-7,
-> PO-10, PO-14, PO-15, PO-16, PO-17, PO-20). Propostas: MP-001..MP-006 — todas aprovadas e aplicadas.
-> DEVFLOW em **v2.9.0 (PILOTO)**.
-> **Próximo:** slice **H** (T080 — medição de conformidade). G ✅ em 2026-09-22.
-> **Repo:** branch `spec/001-ecc-absorption`, 16 commits à frente de `main`, árvore limpa, sem PR.
+> **Feito:** slices **A–H — spec fechada**. POs fechadas: **11 de 23**; PO-21 `[!]`; as 11 restantes são
+> MANUAL (A-2). Propostas: MP-001..MP-007 — todas aprovadas e aplicadas. DEVFLOW em **v3.0.0 (PILOTO)**.
+> **Próximo:** fora deste repo — primeira sessão de C-mode num consumidor (dosiq). Aqui: PR do épico.
+> **Repo:** branch `spec/001-ecc-absorption`, 17 commits à frente de `main`, árvore limpa, sem PR.
 > `.agent/` agora existe mas é **INIT PARCIAL** — leia `.agent/README.md`.
 > POs `[ ] open` que NÃO são pendência de trabalho: PO-3..PO-6, PO-8, PO-9, PO-11..PO-13 são
 > MANUAL e exigem projeto consumidor real (A-2); o instrumento está pronto e anotado em cada bloco.
@@ -253,12 +252,14 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
 - [x] T073 [C4] Fechar PO-20, PO-21 · [C5] journal
   → PO-20 `[x]`; PO-21 `[!]` (MANUAL, A-2). MP-006 aplicada, v2.9.0. Journal N/A (A-1)
 
-## Slice H — falsificação · Tier 1 · ⏳ TODO · depende: todos · fecha PO-22, PO-23
+## Slice H — falsificação · Tier 1 · ✅ DONE 2026-09-22 · depende: todos · fecha PO-22, PO-23
 
-- [ ] T080 [PO-22] Montar a medição de conformidade em 3 níveis de rigor (supportive/neutral/competing)
+- [x] T080 [PO-22] Montar a medição de conformidade em 3 níveis de rigor (supportive/neutral/competing)
   * **Mirror**: `ECC skills/skill-comply/SKILL.md:12-17`
-- [ ] T081 [PO-22] Medir as mutações dos slices B–G e reportar taxa por nível
-- [ ] T082 [PO-23] Draft do caminho `external_corpus` no `DEVFLOW-META.md` (origin, assinatura de atrito, sunset)
+- [x] T081 [PO-22] Medir as mutações dos slices B–G e reportar taxa por nível
+- [x] T082 [PO-23] Draft do caminho `external_corpus` no `DEVFLOW-META.md` (origin, assinatura de atrito, sunset)
   — **sem afrouxar** a barra reativa de 3+ observações / ≥2 specs
-- [ ] T083 Aplicar o veredito de cada mutação: promover (observação real apareceu) ou REMOVER (não apareceu)
-- [ ] T084 [C4] Fechar PO-22, PO-23 · [C5] journal + fechamento da spec no índice
+- [~] T083 Aplicar o veredito de cada mutação: promover (observação real apareceu) ou REMOVER (não apareceu)
+  → 2026-09-22, decisão do operador: **sem veredito** — relógios não iniciados (A-1). Tabela em `falsification-H.md`
+- [x] T084 [C4] Fechar PO-22, PO-23 · [C5] journal + fechamento da spec no índice
+  → PO-22/23 `[x]`; MP-007 aplicada, **v3.0.0 (PILOTO)**; índice atualizado. Journal N/A (A-1)
