@@ -2,9 +2,9 @@
 
 > **Retomada a frio:** leia a seção *Estado & próximo passo* do `spec.md` antes desta lista.
 > **Feito:** slices **A, B, C, D, E, F1** + F2 (T060/T061). POs fechadas: **8 de 23** (PO-1, PO-2, PO-7,
-> PO-10, PO-14, PO-15, PO-16, PO-17). Propostas: MP-001..MP-004 — todas aprovadas e aplicadas.
-> DEVFLOW em **v2.7.0 (PILOTO)**.
-> **Próximo:** **F2 T062/T063** — prosa de skill, exige MP-005 (T060/T061 ✅ em 2026-09-22). Livre em paralelo: **G**.
+> PO-10, PO-14, PO-15, PO-16, PO-17). Propostas: MP-001..MP-005 — todas aprovadas e aplicadas.
+> DEVFLOW em **v2.8.0 (PILOTO)**.
+> **Próximo:** slice **G** (T070 — estudo de formatos de handoff). F2 ✅ em 2026-09-22.
 > **Repo:** branch `spec/001-ecc-absorption`, 11 commits à frente de `main`, árvore limpa, sem PR.
 > `.agent/` agora existe mas é **INIT PARCIAL** — leia `.agent/README.md`.
 > POs `[ ] open` que NÃO são pendência de trabalho: PO-3..PO-6, PO-8, PO-9, PO-11..PO-13 são
@@ -208,7 +208,7 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
   **vocabulário fechado** do C5/1c. Achado da migração: `stale` tem 3 ocorrências mas **todas da
   spec 001** — bate a barra do META em número, não em dispersão. Pergunta registrada para o **H**
 
-## Slice F2 — `second-opinion.sh` · Tier 2 · ▶ PRÓXIMO · depende: C, D, F1 (**todos entregues**) · fecha PO-16..PO-19
+## Slice F2 — `second-opinion.sh` · Tier 2 · ✅ APLICADO (piloto v2.8) · PO-16/17 ✅ · PO-18/19 MANUAL
 
 - [x] T060 [PO-16] Escrever `scripts/second-opinion.sh` sobre o core, com adaptadores `plan|analysis|spec`
   * **Mirror**: `scripts/ai-review.sh` (montagem de contexto e schema JSON estrito)
@@ -224,10 +224,20 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
     que a baseline NÃO exercita (analysis-F2.md §2). Gravado com o core antigo (via `git stash`),
     comparado depois: `Files are identical` (96 linhas, argv do agy incluso)
   * **Validate**: baseline + `ai-review-paths.sh` idênticos · `second-opinion.test.sh --egress --failopen` 10/10
-- [ ] T062 [PO-18] Draft de F8 (posição-antes-da-leitura) em `skills/devflow-ceremony/`
+- [x] T062 [PO-18] Draft de F8 (posição-antes-da-leitura) em `skills/devflow-ceremony/`
   * **Mirror**: `ECC skills/council/SKILL.md:76-83`
-- [ ] T063 [PO-19] Ligar C1.5 Tier 2 como cliente do script
-- [ ] T064 [C4] Fechar PO-16..PO-19 · [C5] journal: N/A (`.agent/` parcial, sem journal — A-1);
+  * Draft → `mutations/F2-F8-position-first.md`. Limite honesto no próprio draft: em sessão única
+    isto é rastro de ancoragem, não independência — a voz independente é o passo 0b (script)
+- [x] T063 [PO-19] Ligar C1.5 Tier 2 como cliente do script
+  * Draft → `mutations/F2-C15-second-opinion.md` (item `1e`; Tier 0/1: não chame)
+- [x] T063b **MP-005** emitida e **APROVADA pelo operador em 2026-09-22** ("novos modos lidos e
+  aprovados"); aplicada em `devflow-ceremony` (passos 0/0b + RC-AUTO + QR) e `devflow-code`
+  (C1.5 `1e` + QR). Bump **v2.7.0 → v2.8.0 (PILOTO)**; linha no META; `MP-005-applied` no log.
+  * **Validate**: marcadores 8/4/4/4/2 · mode-gate 10/10 + 7/7 · no-core-shadowing 4/4 ·
+    ai-review-no-agent 3/3 · second-opinion 23/23
+- [~] T064 [C4] **PO-16 e PO-17 fechadas** (evidência colada). **PO-18 e PO-19 seguem `[ ] open`**:
+  MANUAL, exigem projeto consumidor (A-2); guard de ambas satisfeito e anotado no bloco.
+  [C5] journal: N/A (`.agent/` parcial, sem journal — A-1);
   atrito vai para `.agent/memory/process-friction.jsonl`
   * **Validate** (não-regressão): `tests/ai-review-baseline.sh` · `tests/ai-review-no-agent.test.sh`
     · `tests/no-core-shadowing.test.sh` (agora com 2 consumidores). **Não** `--dry-run`, **não** `verify-split.sh`

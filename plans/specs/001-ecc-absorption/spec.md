@@ -2,7 +2,7 @@
 
 **Feature Directory:** `plans/specs/001-ecc-absorption/`
 **Created:** 2026-09-19
-**Status:** in-progress — slices A, B, C, D, E, F1 entregues; **F2 em curso** (parte shell entregue, T062/T063 aguardam MP-005); G livre em paralelo
+**Status:** in-progress — slices A, B, C, D, E, F1, **F2** entregues; G é o próximo (H depende de todos)
 **Tier:** 2
 **Input:** garimpo de `/Users/coelhotv/git/Everything-Claude-Code` em duas rodadas
 (`~/SKILLS/ecc-devflow-review-and-plan.md`, `~/SKILLS/ecc-devflow-mining-round2.md`)
@@ -131,8 +131,8 @@ para distinguir demonstrado de afirmado.
 ## Estado & próximo passo (leia primeiro numa sessão nova)
 
 **Última sessão:** 2026-09-22 · **Slices A–F1 entregues, F2 parcial** · **POs fechadas: 8 de 23**
-(PO-1, PO-2, PO-7, PO-10, PO-14, PO-15, **PO-16, PO-17**) · **Propostas pendentes: 0** (INV-6: 2 vagas livres).
-**Versão do DEVFLOW:** v2.3 → **v2.7.0 (PILOTO)** ao longo destes slices.
+(PO-1, PO-2, PO-7, PO-10, PO-14, PO-15, **PO-16, PO-17**) · **Propostas pendentes: 0** (MP-005 aplicada 2026-09-22; INV-6: 2 vagas livres).
+**Versão do DEVFLOW:** v2.3 → **v2.8.0 (PILOTO)** ao longo destes slices.
 
 **Estado do repositório** (conferido no disco, 2026-09-21):
 
@@ -178,10 +178,9 @@ para distinguir demonstrado de afirmado.
 
 ### Próximo passo exato
 
-**Slice F2, metade de prosa** — T060/T061 entregues em 2026-09-22 (`second-opinion.sh`, core
-1.1.0, PO-16/17 ✅; decisões D-1..D-3 em `analysis-F2.md`). Falta **T062** (F8, posição-antes-da-
-leitura nas cerimônias) e **T063** (C1.5 T2 como cliente) — ambos prosa de skill ⇒ draft em
-`mutations/` → **MP-005** `pending` → STOP no gate do operador (INV-4). Depois, T064 (PO-18/19).
+**Slice G** — estudo de formatos de handoff (Tier 1): T070 compara 4 formatos pelos 3 critérios,
+T071 apresenta ao operador. **Nenhuma edição no C5 antes da escolha.** F2 fechou em 2026-09-22
+(`94fc7d0` shell + MP-005 prosa, v2.8.0 PILOTO); PO-18/19 ficam MANUAL (A-2).
 
 **Livre, sem dependência:** slice **G** (estudo de formatos de handoff — Tier 1, só comparação e
 decisão do operador; nenhuma edição no C5 antes da escolha).
@@ -264,7 +263,7 @@ para o H, não algo a afrouxar aqui.
 | **D** | ⚠️ aplicado (piloto) · PO-7 ✅ · PO-8/9 MANUAL · **PO-10 transferida para E** | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
 | **E** | ✅ done — PO-10 fechada · PO-11..13 MANUAL | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate · **+ `uncertainty:` no C1.5 (dívida da PO-10)** | 1 | D | **PO-10**, PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
 | **F1** | ✅ done — PO-14, PO-15 fechadas | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | — |
-| **F2** | ▶ em curso — PO-16, PO-17 ✅ · T062/T063 aguardam MP-005 | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
+| **F2** | ⚠️ aplicado (piloto v2.8) · PO-16, PO-17 ✅ · PO-18/19 MANUAL | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
 | **G** | ⏳ todo (estudo pode começar já) | Handoff: estudo de formato → endurecimento do C5 | 1 | — | PO-20, PO-21 | `skills/devflow-code/` (C5) | — |
 | **H** | ⏳ todo | Falsificação: medição de conformidade + caminho `external_corpus` no META | 1 | todos | PO-22, PO-23 | `DEVFLOW-META.md`, `scripts/` | — |
 
@@ -577,6 +576,12 @@ proof:  MANUAL — rodar RC1→RC3 e colar as três posições iniciais
 expect: as posições estão datadas antes da síntese e divergem entre si quando cabe
 guard:  a cerimônia continua parando no fim de cada RC (R-065)
 status: [ ] open
+# INSTRUMENTO PRONTO 2026-09-22 (MP-005, v2.8.0 PILOTO): passo 0 do *Ceremony Output Persistence*
+#   (posicao · 3 razoes · maior risco, com timestamp, ANTES de reler achados anteriores) + frase no
+#   RC-AUTO + passo 0b (voz externa via second-opinion.sh). guard SATISFEITO: nenhum STOP removido.
+#   LIMITE DECLARADO no proprio texto aplicado: em sessao unica e rastro de ancoragem, nao
+#   independencia. proof MANUAL: exige RC1->RC3 real num projeto consumidor (A-2).
+#   INSTRUMENTO PRONTO != AC DEMONSTRADA.
 ```
 
 ```po PO-19
@@ -591,6 +596,9 @@ status: [ ] open
 #   afirma a independencia. Bloco PO-19 do teste: 4/4.
 #   FALTA a metade que a AC nomeia: "o C1.5 PODE PEDIR" e prosa do devflow-code (T063) e
 #   o guard (T0/T1 nao chamam) so e verificavel depois dela — exige proposta (INV-4).
+# MP-005 APLICADA 2026-09-22 (v2.8.0 PILOTO): item `1e` do C1.5. guard SATISFEITO por grep —
+#   a unica mencao ao script no devflow-code e o `1e` (:233, "Tier 0/1: NAO chame") e a linha da
+#   Quick Reference (:1036). Resta SO a parte MANUAL do proof (C1.5 T2 real — A-2).
 #   Depois do T063 o proof ainda tem parte MANUAL: um C1.5 T2 real chamando o script (A-2).
 # proof REESCRITO 2026-09-22 (D-1): mesmo motivo da PO-16 — nao existe --dry-run.
 ```

@@ -230,6 +230,21 @@ Write output to plans/specs/NNN-feature-name/analysis.md — or, when the epic i
    pergunta — se o item PRECISA de decisão do operador, ele é um marcador do S4, não uma linha aqui.
    [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-004]
 
+1e. SEGUNDA OPINIÃO INDEPENDENTE (Tier 2, opcional; Tier 0/1: NÃO chame). Com o analysis.md
+   escrito e ANTES de declarar PASS, você pode pedir um leitor que não é você:
+     ~/SKILLS/devflow/scripts/second-opinion.sh --artifact analysis \
+       --spec-dir plans/specs/NNN-feature --file plans/specs/NNN-feature/analysis[-<slice>].md
+   Processo frio: o motor vê o analysis, a spec e o plano — nada desta sessão. Recomendado quando a
+   análise achou ZERO gaps num Tier 2 (a regra de honestidade abaixo já chama isso de suspeito).
+   Cada finding devolvido vira UMA linha no analysis.md, e só uma de duas:
+     acolhido — com a evidência (file:line) que você foi buscar por causa dele; ou
+     recusado — com o motivo, citando o trecho que o contradiz.
+   A opinião é INSUMO, não veredito: não altera sozinha a severidade nem o gate. Um HIGH acolhido
+   bloqueia porque VOCÊ o acolheu com evidência, não porque o script o emitiu.
+   Saída "unavailable" (nenhum motor) é fail-open: anote no analysis.md e siga — a ausência da
+   segunda opinião nunca bloqueia o C1.5.
+   [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-005]
+
 2. CROSS-FILE CONSISTENCY — spec.md ↔ plan.md ↔ tasks.md ↔ analysis.md must AGREE.
    Flag any contradiction (e.g. plan says "insert direct" while analysis says "via RPC").
    Contradiction between artifacts = HIGH at minimum.
@@ -1018,6 +1033,7 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 
 | DO | DO NOT |
 |----|--------|
+| C1.5 T2 com zero gaps: pedir `second-opinion.sh --artifact analysis` e responder cada finding | Tratar a segunda opinião como veredito, ou chamá-la em Tier 0/1 |
 | Draft ADR before breaking any contract | Break a contract without ADR |
 | `git fetch origin` + sync local before creating new branch OR spawning sub-agent on shared files | Spawn from outdated branch — sub-agent will duplicate files |
 | Verify canonical path with find/grep before editing | Assume file location from its name or the spec |
