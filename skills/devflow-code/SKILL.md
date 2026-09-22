@@ -36,6 +36,12 @@ Upon entering Coding mode, **IMMEDIATELY** update state.json BEFORE proceeding t
 
 Checklist: Read current state.json → update mode/status/goal/goal_type → write to disk → verify write (check mtime changed) → proceed to C1.
 
+Existe `session.handoff` no state.json que você acabou de ler? MOSTRE-O antes do C1: next_step,
+cada `failed` com seu `reason`, e `not_tried`. Um item de `failed` que o plano desta sessão repete
+EXIGE nova evidência de que a causa mudou; sem ela, não repita. Um item de `not_tried` nunca é
+tratado como feito. Handoff de outra spec (campo `spec` diferente do goal): mostre e ignore.
+[PILOTO 2026-09 · origin: proactive · MP-006]
+
 ### C1 — Pre-Code Checklist
 ```
 Verify before writing any code (do not skip):
@@ -616,6 +622,30 @@ Execute this checklist IN ORDER:
         - CHANGELOG.md entry summary
         - store-note relevance for mobile changes
 
+  [ ] 7b. HANDOFF — o que a PRÓXIMA sessão precisa saber, onde ela lê sem o operador pedir.
+      O journal (7) é lido só pelo distill e o attempts.jsonl (1b) só pela busca do C5: nenhum dos
+      dois chega à sessão seguinte. O state.json chega (Bootstrap, passo 1). Grave nele, no mesmo
+      write do item 8, o bloco `session.handoff` — SOBRESCREVE o da sessão anterior:
+        {"written_at":"<ISO>","spec":"<NNN ou null>",
+         "next_step":"<a próxima ação concreta, uma linha>",
+         "failed":[{"what":"<abordagem>","reason":"<motivo EXATO: mensagem, saída, file:line>",
+                    "attempt":"<id/terms no attempts.jsonl, ou null>"}],
+         "worked":[{"what":"...","evidence":"<comando+saída ou file:line DESTA sessão>"}],
+         "not_tried":["<ideia ou item sem evidência>"]}
+      REGRAS DURAS:
+        - `reason` é o erro ou a saída literal. "não funcionou", "deu problema", "falhou" sem o
+          porquê é PROIBIDO: sem o motivo exato a próxima sessão tenta de novo.
+        - DEMOÇÃO: um item vai em `worked` só com evidência colada NESTA sessão. Sem evidência, ele
+          vai para `not_tried`, mesmo que você "tenha certeza". Isto vale para o que foi herdado
+          do handoff anterior: evidência de outra sessão não conta como evidência desta.
+        - Falha que foi uma intervenção REVERTIDA: primeiro registre no attempts.jsonl (1b) e
+          aponte para ela em `attempt`. O histórico durável fica no ledger; o handoff pode ser
+          sobrescrito sem perder nada. Journal e attempts.jsonl continuam APPEND-ONLY.
+        - Nada falhou? `failed: []`. Lista vazia é um resultado válido. Não invente falha.
+      SEM state.json (repo com .agent/ parcial, como o próprio devflow): escreva o mesmo conteúdo
+      na seção "Próximo passo exato" da spec. Sem spec, escreva no fim da resposta final.
+      [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-006]
+
   [ ] 8. UPDATE state.json (FINAL STEP — DO NOT SKIP):
       ✅ Set session.status = "completed"
       ✅ Increment memory.journal_entries_since_distillation
@@ -1049,6 +1079,7 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 | Ask whether the promised output is obtainable at the promised granularity | Verify every symbol exists and call the deliverable implementable |
 | Audit the POs this slice OWNS in RC5 Pass 0 | Demand every PO of a sliced epic close before any slice may land |
 | Log DEVFLOW friction as one line at C5/1c, with the workaround | Invent a convention the skill lacks and leave it inside your spec dir |
+| Gravar `session.handoff` no C5/7b com o motivo exato de cada falha e o não-evidenciado em `not_tried` | Escrever "não funcionou" sem o porquê, ou pôr em `worked` o que não tem evidência desta sessão |
 | Fill a Behavioral Failure-Modes table (NULL/0/boundary/missing-join) for every new function + a negative-path test each | Verify only that a symbol exists/matches the repo and call it robust |
 | Resolver test/lint/typecheck/build no C1 e citar a fonte de cada um | Escrever `proof:` com comando chutado (`npm test` em projeto Bun/Cargo) |
 | Nomear o critério de parada do C1.5 e marcar `deferred:` o que ficou por ler | Parar de ler sem dizer por quê, ou espiralar até o contexto estourar |

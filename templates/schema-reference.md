@@ -57,6 +57,16 @@ Optional v1.8 session fields for spec-first workflows:
 }
 ```
 
+Optional v2.9 field — written by C5/7b, read by C0 (PILOT, MP-006):
+
+```json
+{"session": {"handoff": {"written_at": "...", "spec": "NNN", "next_step": "...",
+  "failed": [{"what": "...", "reason": "...", "attempt": null}],
+  "worked": [{"what": "...", "evidence": "..."}], "not_tried": ["..."]}}}
+```
+
+Overwritten every session by design. Durable failure history lives in memory/attempts.jsonl.
+
 Compatibility rule:
 
 - If `session.spec_dir` exists, use the v1.8 spec directory.

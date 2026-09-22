@@ -2,7 +2,7 @@
 
 **Feature Directory:** `plans/specs/001-ecc-absorption/`
 **Created:** 2026-09-19
-**Status:** in-progress — slices A, B, C, D, E, F1, **F2** entregues; G é o próximo (H depende de todos)
+**Status:** in-progress — slices A, B, C, D, E, F1, F2, **G** entregues; H é o próximo e último
 **Tier:** 2
 **Input:** garimpo de `/Users/coelhotv/git/Everything-Claude-Code` em duas rodadas
 (`~/SKILLS/ecc-devflow-review-and-plan.md`, `~/SKILLS/ecc-devflow-mining-round2.md`)
@@ -130,17 +130,17 @@ para distinguir demonstrado de afirmado.
 
 ## Estado & próximo passo (leia primeiro numa sessão nova)
 
-**Última sessão:** 2026-09-22 · **Slices A–F1 entregues, F2 parcial** · **POs fechadas: 8 de 23**
-(PO-1, PO-2, PO-7, PO-10, PO-14, PO-15, **PO-16, PO-17**) · **Propostas pendentes: 0** (MP-005 aplicada 2026-09-22; INV-6: 2 vagas livres).
-**Versão do DEVFLOW:** v2.3 → **v2.8.0 (PILOTO)** ao longo destes slices.
+**Última sessão:** 2026-09-22 · **Slices A–G entregues** · **POs fechadas: 9 de 23**
+(PO-1, PO-2, PO-7, PO-10, PO-14, PO-15, PO-16, PO-17, **PO-20**) · PO-21 `[!]` (MANUAL, A-2) · **Propostas pendentes: 0** (MP-006 aplicada 2026-09-22; INV-6: 2 vagas livres).
+**Versão do DEVFLOW:** v2.3 → **v2.9.0 (PILOTO)** ao longo destes slices.
 
-**Estado do repositório** (conferido no disco, 2026-09-21):
+**Estado do repositório** (conferido no disco, 2026-09-22):
 
 | | |
 |---|---|
-| Branch | `spec/001-ecc-absorption` — **11 commits à frente de `main`**, árvore limpa |
+| Branch | `spec/001-ecc-absorption` — **16 commits à frente de `main`**, árvore limpa |
 | PR | **nenhum aberto.** O épico inteiro vive no branch; a coluna PR da tabela de slices fica vazia até o épico virar PR (A-3) |
-| Último commit | `bf1c893` — init parcial do `.agent/` + migração do ledger |
+| Último commit | slice G — handoff híbrido (MP-006, v2.9.0) |
 | Testes verdes | `mode-gate` 10/10 · `--degraded` 7/7 · `no-core-shadowing` 4/4 (2 consumidores) · `ai-review-no-agent` 3/3 · `second-opinion` 23/23 · baseline e `ai-review-paths` `Files are identical` |
 | `.agent/` | **EXISTE, mas é INIT PARCIAL** — leia `.agent/README.md` antes de concluir qualquer coisa a partir disso. A-1 e A-2 continuam de pé e nenhum relógio de sunset começou a correr |
 
@@ -178,16 +178,19 @@ para distinguir demonstrado de afirmado.
 
 ### Próximo passo exato
 
-**Slice G** — estudo de formatos de handoff (Tier 1): T070 compara 4 formatos pelos 3 critérios,
-T071 apresenta ao operador. **Nenhuma edição no C5 antes da escolha.** F2 fechou em 2026-09-22
-(`94fc7d0` shell + MP-005 prosa, v2.8.0 PILOTO); PO-18/19 ficam MANUAL (A-2).
+> Escrito no formato do C5/`7b` (MP-006). Este repo não tem `state.json`, então esta seção é o
+> substituto previsto no próprio `7b`.
 
-**Livre, sem dependência:** slice **G** (estudo de formatos de handoff — Tier 1, só comparação e
-decisão do operador; nenhuma edição no C5 antes da escolha).
-
-ℹ️ O AC-1 (`ai-review.sh` morria em repo sem `ANTI_PATTERNS_INDEX.md`) foi **consertado em
-2026-09-21**, antes do F2, e está coberto por `tests/ai-review-no-agent.test.sh`. Como o F2 mexe no
-fail-open, essa suíte entra no conjunto de não-regressão do slice.
+- **next_step:** slice **H** (falsificação, Tier 1) — T080 monta a medição de conformidade em 3
+  níveis de rigor (supportive/neutral/competing). Depende de todos os slices, e todos estão entregues.
+- **worked** (evidência desta sessão, 2026-09-22): comparação 4×3 com `file:line` em cada célula
+  (`handoff-study-G.md`); MP-006 aplicada com a regressão verde — `mode-gate` 10/10 · `--degraded`
+  7/7 · `no-core-shadowing` 4/4 · `ai-review-no-agent` 3/3 · `second-opinion` 23/23 · marcadores
+  `devflow-code` 4/4.
+- **failed:** [] — nada falhou no slice G.
+- **not_tried:** exercício real do `7b` + leitor do C0 num projeto com `state.json` (é o proof da
+  PO-21, MANUAL — A-2); verificar se o harness preserva o `state.json` lido antes de um compact
+  (`uncertainty` do estudo).
 
 ### Decisão pendente do operador
 
@@ -264,7 +267,7 @@ para o H, não algo a afrouxar aqui.
 | **E** | ✅ done — PO-10 fechada · PO-11..13 MANUAL | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate · **+ `uncertainty:` no C1.5 (dívida da PO-10)** | 1 | D | **PO-10**, PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
 | **F1** | ✅ done — PO-14, PO-15 fechadas | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | — |
 | **F2** | ⚠️ aplicado (piloto v2.8) · PO-16, PO-17 ✅ · PO-18/19 MANUAL | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
-| **G** | ⏳ todo (estudo pode começar já) | Handoff: estudo de formato → endurecimento do C5 | 1 | — | PO-20, PO-21 | `skills/devflow-code/` (C5) | — |
+| **G** | ✅ aplicado (piloto v2.9) · PO-20 ✅ · PO-21 `[!]` MANUAL | Handoff: estudo de formato → endurecimento do C5 | 1 | — | PO-20, PO-21 | `skills/devflow-code/` (C5) | — |
 | **H** | ⏳ todo | Falsificação: medição de conformidade + caminho `external_corpus` no META | 1 | todos | PO-22, PO-23 | `DEVFLOW-META.md`, `scripts/` | — |
 
 **Branch:** `spec/001-ecc-absorption` — **único para o épico inteiro** (decisão do operador, 2026-09-19;
@@ -609,7 +612,11 @@ ac:     existe uma comparação de formatos de handoff decidida pelo operador
 proof:  MANUAL — apresentar a comparação e registrar a escolha
 expect: os quatro formatos avaliados pelos três critérios; uma escolha registrada
 guard:  nenhuma edição no C5 antes da escolha
-status: [ ] open
+status: [x] done
+evidence_class: execution
+# FECHADA 2026-09-22: comparacao 4x3 em handoff-study-G.md (cada celula com file:line);
+#   operador escolheu "Hibrido state.json + attempts.jsonl". guard: git diff de
+#   skills/devflow-code/SKILL.md vazio no momento da escolha.
 ```
 
 ```po PO-21
@@ -618,7 +625,10 @@ ac:     o C5 passa a exigir motivo exato da falha e demove o não-evidenciado
 proof:  MANUAL — encerrar uma sessão com uma tentativa falha e colar o registro
 expect: motivo exato presente; item sem evidência aparece como não-tentado
 guard:  o journal e attempts.jsonl continuam append-only
-status: [ ] open
+status: [!] unavailable — proof MANUAL exige encerrar sessão real com tentativa falha (A-2)
+# MP-006 APLICADA 2026-09-22 (v2.9.0 PILOTO): C5/7b + leitor no C0. guard SATISFEITO por
+#   grep: devflow-code:643 'Journal e attempts.jsonl continuam APPEND-ONLY'; o 7b so sobrescreve
+#   state.json. Resta so a parte MANUAL (A-2).
 ```
 
 ```po PO-22

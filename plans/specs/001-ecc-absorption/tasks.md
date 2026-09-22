@@ -1,11 +1,11 @@
 # 001 — Tasks
 
 > **Retomada a frio:** leia a seção *Estado & próximo passo* do `spec.md` antes desta lista.
-> **Feito:** slices **A, B, C, D, E, F1** + F2 (T060/T061). POs fechadas: **8 de 23** (PO-1, PO-2, PO-7,
-> PO-10, PO-14, PO-15, PO-16, PO-17). Propostas: MP-001..MP-005 — todas aprovadas e aplicadas.
-> DEVFLOW em **v2.8.0 (PILOTO)**.
-> **Próximo:** slice **G** (T070 — estudo de formatos de handoff). F2 ✅ em 2026-09-22.
-> **Repo:** branch `spec/001-ecc-absorption`, 11 commits à frente de `main`, árvore limpa, sem PR.
+> **Feito:** slices **A, B, C, D, E, F1, F2, G**. POs fechadas: **9 de 23** (PO-1, PO-2, PO-7,
+> PO-10, PO-14, PO-15, PO-16, PO-17, PO-20). Propostas: MP-001..MP-006 — todas aprovadas e aplicadas.
+> DEVFLOW em **v2.9.0 (PILOTO)**.
+> **Próximo:** slice **H** (T080 — medição de conformidade). G ✅ em 2026-09-22.
+> **Repo:** branch `spec/001-ecc-absorption`, 16 commits à frente de `main`, árvore limpa, sem PR.
 > `.agent/` agora existe mas é **INIT PARCIAL** — leia `.agent/README.md`.
 > POs `[ ] open` que NÃO são pendência de trabalho: PO-3..PO-6, PO-8, PO-9, PO-11..PO-13 são
 > MANUAL e exigem projeto consumidor real (A-2); o instrumento está pronto e anotado em cada bloco.
@@ -242,14 +242,16 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
   * **Validate** (não-regressão): `tests/ai-review-baseline.sh` · `tests/ai-review-no-agent.test.sh`
     · `tests/no-core-shadowing.test.sh` (agora com 2 consumidores). **Não** `--dry-run`, **não** `verify-split.sh`
 
-## Slice G — handoff · Tier 1 · ⏳ TODO (livre, estudo pode começar já) · fecha PO-20, PO-21
+## Slice G — handoff · Tier 1 · ✅ DONE 2026-09-22 · fecha PO-20, PO-21
 
-- [ ] T070 [PO-20] Comparar 4 formatos (journal · arquivo por sessão · `state.json` · `attempts.jsonl` estendido)
+- [x] T070 [PO-20] Comparar 4 formatos (journal · arquivo por sessão · `state.json` · `attempts.jsonl` estendido)
   pelos 3 critérios: é lido na sessão seguinte sem o operador pedir? sobrevive a compact? quem mantém?
-- [ ] T071 [PO-20] Apresentar ao operador e registrar a escolha — **nenhuma edição no C5 antes disso**
-- [ ] T072 [PO-21] Draft do endurecimento do C5 no formato escolhido (motivo exato + demoção do não-evidenciado)
+- [x] T071 [PO-20] Apresentar ao operador e registrar a escolha — **nenhuma edição no C5 antes disso**
+  → 2026-09-22: **híbrido `state.json` + `attempts.jsonl`** (`handoff-study-G.md`)
+- [x] T072 [PO-21] Draft do endurecimento do C5 no formato escolhido (motivo exato + demoção do não-evidenciado)
   * **Mirror**: `ECC commands/save-session.md:101-110`
-- [ ] T073 [C4] Fechar PO-20, PO-21 · [C5] journal
+- [x] T073 [C4] Fechar PO-20, PO-21 · [C5] journal
+  → PO-20 `[x]`; PO-21 `[!]` (MANUAL, A-2). MP-006 aplicada, v2.9.0. Journal N/A (A-1)
 
 ## Slice H — falsificação · Tier 1 · ⏳ TODO · depende: todos · fecha PO-22, PO-23
 
