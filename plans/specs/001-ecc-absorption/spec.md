@@ -185,13 +185,13 @@ Ordem da tasks.md: T060 → T061 → T062 → T063 → T064.
 **Livre, sem dependência:** slice **G** (estudo de formatos de handoff — Tier 1, só comparação e
 decisão do operador; nenhuma edição no C5 antes da escolha).
 
-⚠️ **Antes do F2, leia o AC-1 abaixo**: o `ai-review.sh` morre em repo sem
-`ANTI_PATTERNS_INDEX.md`, e o F2 mexe justamente no fail-open. A decisão do operador segue pendente.
+ℹ️ O AC-1 (`ai-review.sh` morria em repo sem `ANTI_PATTERNS_INDEX.md`) foi **consertado em
+2026-09-21**, antes do F2, e está coberto por `tests/ai-review-no-agent.test.sh`. Como o F2 mexe no
+fail-open, essa suíte entra no conjunto de não-regressão do slice.
 
 ### Decisão pendente do operador
 
-**AC-1** — `ai-review.sh` morre (exit 1 silencioso) em repo sem `.agent/memory/ANTI_PATTERNS_INDEX.md`.
-Ver *Achados colaterais*. Recomendação: spec própria Tier 0/1, não empurrar para o F2.
+Nenhuma. (A última, o AC-1, foi decidida e resolvida em 2026-09-21 — ver *Achados colaterais*.)
 
 ### Onde está cada coisa
 
@@ -527,8 +527,11 @@ slice:  F2
 ac:     second-opinion.sh avalia um plan.md em processo frio e devolve JSON no schema
 proof:  ./scripts/second-opinion.sh --artifact plan --dry-run
 expect: JSON válido contra o schema, sem nenhum caminho de PR exercitado
-guard:  ./scripts/ai-review.sh --dry-run continua idêntico ao PO-14
+guard:  bash tests/ai-review-baseline.sh segue `Files are identical` e bash tests/ai-review-no-agent.test.sh segue 3/3
 status: [ ] open
+# guard CORRIGIDO 2026-09-22 (antes do F2 começar): citava `./scripts/ai-review.sh --dry-run`
+#   idêntico ao PO-14 — o método que a nota da PO-14 já desqualificou (--dry-run chama o engine,
+#   saída não-reproduzível). Trocado pelas duas suítes que de fato medem não-regressão.
 ```
 
 ```po PO-17
@@ -634,7 +637,10 @@ dia houver catálogo aqui, o candidato é: *"guarda `[ -f ]` como último comand
 
 ## Assumptions & Open Questions
 
-- **A-1** O repo `devflow` seguirá sem `.agent/` por enquanto; esta spec vive em `plans/specs/`.
+- **A-1** O repo `devflow` tem `.agent/` **parcial** desde 2026-09-21 (só `process-friction.jsonl`
+  e `attempts.jsonl`; sem `state.json`, sem `*_INDEX.md` — ver `.agent/README.md`); esta spec vive
+  em `plans/specs/`. Consequência que continua valendo: journal e catálogo de AP seguem N/A aqui, e
+  nenhum relógio de sunset começou a correr. (Redação original, até 2026-09-21: "seguirá sem `.agent/`".)
 - **A-2** Os slices B–H exigem projeto consumidor real (dosiq) para POs MANUAL.
 - **A-3** `1 slice = 1 PR` é regra que o DEVFLOW **impõe aos seus clientes**, não que ele obedeça a
   si mesmo (decisão do operador, 2026-09-19). Aqui o artefato é texto de skill e shell — não há

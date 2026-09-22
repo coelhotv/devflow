@@ -169,7 +169,8 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
 - [x] T052 `ai-review.sh` dá source no core e valida `ENGINE_CORE_EXPECTED` (1754 → 1583 linhas);
   versão divergente falha ALTO com exit 2, não em silêncio
   * **Target**: `scripts/ai-review.sh` (`[MODIFY]`)
-  * **Validate**: `diff /tmp/before.txt <(./scripts/ai-review.sh --dry-run)`
+  * **Validate**: `bash tests/ai-review-baseline.sh` antes/depois → `Files are identical`
+    (redação original citava `--dry-run`, desqualificado na nota de método da PO-14; corrigido 2026-09-22)
 - [x] T053 [PO-15] `tests/no-core-shadowing.test.sh` — 3/3. Descobre consumidores por grep (sem
   lista fixa), então o `second-opinion.sh` do F2 entra sob a mesma regra ao nascer
 - [x] T054 [C4] **PO-14 e PO-15 fechadas com evidência colada.** [C5] journal: N/A (sem `.agent/` — A-1).
@@ -215,7 +216,10 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
 - [ ] T062 [PO-18] Draft de F8 (posição-antes-da-leitura) em `skills/devflow-ceremony/`
   * **Mirror**: `ECC skills/council/SKILL.md:76-83`
 - [ ] T063 [PO-19] Ligar C1.5 Tier 2 como cliente do script
-- [ ] T064 [C4] Fechar PO-16..PO-19 · [C5] journal
+- [ ] T064 [C4] Fechar PO-16..PO-19 · [C5] journal: N/A (`.agent/` parcial, sem journal — A-1);
+  atrito vai para `.agent/memory/process-friction.jsonl`
+  * **Validate** (não-regressão): `tests/ai-review-baseline.sh` · `tests/ai-review-no-agent.test.sh`
+    · `tests/no-core-shadowing.test.sh` (agora com 2 consumidores). **Não** `--dry-run`, **não** `verify-split.sh`
 
 ## Slice G — handoff · Tier 1 · ⏳ TODO (livre, estudo pode começar já) · fecha PO-20, PO-21
 

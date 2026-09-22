@@ -12,7 +12,7 @@ Nenhuma prosa de skill é editada fora do fluxo `devflow_mutation_proposal` + ap
 | Fato | Onde | Consequência |
 |---|---|---|
 | `ai-review.sh` tem 1754 linhas, com chunking, ranking de risco, egress guard, captura A/B, ancoragem de snippet | `scripts/ai-review.sh` | Generalizá-lo por dentro degrada especialização de 3 specs → extrair `@core` |
-| `--dry-run` (:1530) e MEASURE mode (:1111) já existem | `scripts/ai-review.sh` | Dá prova de equivalência *reconciliation-grade* para F1 |
+| MEASURE mode (`RC6_MEASURE=1`) já existe e para ANTES do engine | `scripts/ai-review.sh` | Dá prova de equivalência *reconciliation-grade* para F1 (`tests/ai-review-baseline.sh`). ⚠️ `--dry-run` **não** serve: ainda chama o engine — ver nota de método da PO-14 |
 | `reflect-gate.sh` é bash, zero LLM, com invariante assimétrico no cabeçalho (:12-17) | `scripts/reflect-gate.sh` | É o molde do `mode-gate.sh` e a prova de que o substrato certo é script, não hook |
 | RC6 já é multi-agente, contexto frio, flag-only, fail-open | `skills/devflow-code/SKILL.md:738-850` | A mecânica a generalizar já existe; F2 é cliente novo, não reinvenção |
 | Máx. 2 propostas pendentes; C1/C4/Bootstrap exigem incidente real | `DEVFLOW-META.md:101-102` | Emissão serializada; slices B e D entram rebaixados a piloto quando faltar incidente |
@@ -60,7 +60,7 @@ do core for redefinida localmente (PO-15).
 | Risco | Mitigação |
 |---|---|
 | Inflar a gramática do `po` (4 campos novos) | Uma edição única no slice D, junto com o M6; blocos legados válidos sem backfill em massa |
-| Extração do `@core` quebrar o revisor de PR | PO-14: `--dry-run` byte-idêntico + MEASURE mode igual |
+| Extração do `@core` quebrar o revisor de PR | PO-14: baseline determinística via MEASURE mode (`tests/ai-review-baseline.sh`) byte-idêntica — **não** `--dry-run` |
 | Mutação proativa virar passo morto (AP-325) | DT-2: assinatura de atrito prevista + sunset + remoção declarada |
 | Estourar o limite de propostas pendentes | Emissão serializada; F1 não emite proposta |
 
