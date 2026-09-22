@@ -15,21 +15,39 @@
 #   engine_err_hint   — 1a linha util do stderr do motor, para o log dizer POR QUE caiu
 #   ab_counts         — conta severidades c/h/m/l de N arquivos de findings
 #   ab_total          — soma "c/h/m/l"
+#   probe_engines     — (1.1.0) detecta agy/claude e as flags que cada binario aceita
+#   build_engine_args — (1.1.0) monta AGY_ARGS[]/CLAUDE_ARGS[] sem tools, sem slash, com schema
+#   egress_scan       — (1.1.0) conta linhas com formato de PII real num arquivo
+#   egress_guard      — (1.1.0) bloqueia (return 3) o envio a LLM externo se houver PII
+#   fail_open         — (1.1.0) imprime o JSON de "revisao indisponivel" e sai 0
 #
 # O QUE NAO MORA AQUI: montagem de preambulo, selecao de arquivos, gate de reflexao,
 # publicacao no PR, schema de review. Isso e dominio, nao motor.
+# POR QUE probe/args/egress/fail-open SUBIRAM na 1.1.0 (001/F2): com dois consumidores, cada
+# um com a sua copia, a primeira correcao de uma flag de SEGURANCA (--tools "",
+# --disable-slash-commands) entraria num e nao no outro — e o no-core-shadowing nao pega
+# bloco inline, so funcao. Controle de seguranca duplicado e controle que diverge.
 #
 # CONTRATO COM O CONSUMIDOR (o core LE estas variaveis, nunca as define):
 #   WORKDIR        — dir temporario, ja criado         (run_engine, engine_err_hint)
 #   IDX_LINE_MAX   — inteiro                           (clamp_lines)
 #   AGY_SCHEMA / CLAUDE_SCHEMA / AGY_ARGS[] /
 #   CLAUDE_ARGS[] / PASSB_TIMEOUT                      (run_engine)
+#   AGY_TIMEOUT / RC6_AGY_MODEL                        (build_engine_args)
+#   RC6_ENGINE_CLAUDE / RC6_ALLOW_SENSITIVE            (probe_engines / egress_guard; opcionais)
+# ...e ESCREVE estas, que passam a ser globais do consumidor apos a chamada:
+#   HAVE_AGY HAVE_CLAUDE AGY_SCHEMA AGY_NOSLASH CLAUDE_SCHEMA CLAUDE_NOSLASH CLAUDE_NOPERSIST
+#                                                      (probe_engines)
+#   AGY_ARGS[] CLAUDE_ARGS[]                           (build_engine_args)
 # O core tambem NAO faz `set -euo pipefail`: quem define o modo de erro e o script principal.
+# ⚠️ Por isso toda funcao que termina num teste (`[ X ] && ...`) fecha com `return 0`: sob o
+# `set -e` do consumidor, um teste falso como ULTIMO comando vira o exit status da funcao e
+# mata o script em silencio. E a classe do AC-1 da spec 001.
 #
 # Uso:  source "$(dirname "${BASH_SOURCE[0]}")/lib/engine-core.sh"
 
 # shellcheck disable=SC2034  # lido pelo consumidor apos o source — este e o contrato
-ENGINE_CORE_VERSION="1.0.0"
+ENGINE_CORE_VERSION="1.1.0"
 
 
 log() { printf '\033[2m[rc6]\033[0m %s\n' "$*" >&2; }
@@ -223,3 +241,102 @@ PY
 
 ab_total() { printf '%s' "$1" | tr '/' '+' | bc; }
 
+
+# ---- (1.1.0) engine capability probe (no API call, no quota) ----------------
+# Structured output (--output-format json + --json-schema) landed in agy 1.1.8
+# and is present in claude 2.x. Feature-detect instead of assuming: an older
+# binary would reject the flag and fail EVERY chunk, turning an enhancement into
+# a total blackout. When absent we fall back to the legacy text invocation, which
+# still works — just without the schema guarantees.
+# Quota guard: claude is BOTH the pass-B domain engine AND the coder-agent engine,
+# and it has a tighter 5h/weekly quota than agy's Gemini pool. Set RC6_ENGINE_CLAUDE=0
+# when the claude quota is low to keep RC6 off it entirely — pass B then falls back to
+# agy chunked (existing path), so tier2 keeps full coverage on the roomier engine.
+# A ORDEM dos `log` abaixo e a mesma de antes da extracao: a baseline do ai-review.sh
+# captura stderr e acusaria uma troca.
+probe_engines() {
+  HAVE_AGY=0;    command -v agy    >/dev/null && HAVE_AGY=1
+  HAVE_CLAUDE=0; command -v claude >/dev/null && HAVE_CLAUDE=1
+  [ "${RC6_ENGINE_CLAUDE:-1}" = 0 ] && { HAVE_CLAUDE=0; log "RC6_ENGINE_CLAUDE=0 — claude disabled; pass B will use agy"; }
+  AGY_SCHEMA=0; AGY_NOSLASH=0; CLAUDE_SCHEMA=0; CLAUDE_NOSLASH=0; CLAUDE_NOPERSIST=0
+  local help
+  if [ "$HAVE_AGY" = 1 ]; then
+    help="$(agy --help 2>&1 || true)"
+    case "$help" in *--json-schema*)            AGY_SCHEMA=1 ;; esac
+    case "$help" in *--disable-slash-commands*) AGY_NOSLASH=1 ;; esac
+    [ "$AGY_SCHEMA" = 0 ] && log "agy sem --json-schema (pre-1.1.8) — usando invocação legada em texto"
+  fi
+  if [ "$HAVE_CLAUDE" = 1 ]; then
+    help="$(claude --help 2>&1 || true)"
+    case "$help" in *--json-schema*)            CLAUDE_SCHEMA=1 ;; esac
+    case "$help" in *--disable-slash-commands*) CLAUDE_NOSLASH=1 ;; esac
+    case "$help" in *--no-session-persistence*) CLAUDE_NOPERSIST=1 ;; esac
+    [ "$CLAUDE_SCHEMA" = 0 ] && log "claude sem --json-schema — usando invocação legada em texto"
+  fi
+  return 0
+}
+
+# ---- (1.1.0) engine argv: $1=schema-file ------------------------------------
+# --disable-slash-commands: agy 1.1.9 made print mode EXPAND slash commands and
+# skills, and the payload is UNTRUSTED text — the same reason SC-SEC1 already
+# forbids tools. Note --json-schema makes claude expose a `StructuredOutput` tool
+# despite --tools "": that is the delivery mechanism for the structured answer (no
+# shell/file/MCP reach), so the SC-SEC1 property holds, but the `init` event will
+# list one tool. Do not read that as a broken guard.
+# --setting-sources "": do NOT load user/project settings (CLAUDE.md, skills,
+# plugins). The engine's context is 100% the explicit prompt — cheaper per run
+# (no duplicate project payload) AND stronger independence (SC-007).
+build_engine_args() {
+  local schema="$1"
+  AGY_ARGS=(--sandbox --print-timeout "$AGY_TIMEOUT" --model "$RC6_AGY_MODEL")
+  [ "$AGY_NOSLASH" = 1 ] && AGY_ARGS+=(--disable-slash-commands)
+  [ "$AGY_SCHEMA"  = 1 ] && AGY_ARGS+=(--output-format json --json-schema "$schema")
+  CLAUDE_ARGS=(--model sonnet --tools "" --strict-mcp-config --setting-sources "")
+  [ "$CLAUDE_NOSLASH" = 1 ]   && CLAUDE_ARGS+=(--disable-slash-commands)
+  [ "$CLAUDE_NOPERSIST" = 1 ] && CLAUDE_ARGS+=(--no-session-persistence)
+  [ "$CLAUDE_SCHEMA" = 1 ]    && CLAUDE_ARGS+=(--output-format json --json-schema "$(cat "$schema")")
+  return 0
+}
+
+# ---- (1.1.0) egress guard (SC-SEC5/T039) ------------------------------------
+# O texto sai da maquina para um LLM externo. Num app de saude so fixtures SINTETICAS podem
+# sair: procura formatos de PII real (e-mail, CPF, celular BR) e para, salvo override.
+# Heuristica, nao prova: o override do operador e a responsabilizacao documentada.
+#   $2=added  so linhas `+` (diff: o que ja estava na base nao e novidade do autor)
+#   $2=all    arquivo inteiro (artefato do second-opinion: nao ha "adicionado")
+egress_scan() { # $1=file $2=added|all -> contagem em stdout
+  { if [ "$2" = added ]; then grep -E '^\+' "$1"; else cat "$1"; fi; } \
+    | grep -EIv 'example\.(com|org)|@(test|dummy|fixture)\.|lorem' \
+    | grep -oEc '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|[0-9]{3}\.[0-9]{3}\.[0-9]{3}-[0-9]{2}|\(?[0-9]{2}\)?[[:space:]-]?9[0-9]{4}-[0-9]{4}' \
+    || true
+}
+
+# $1=file $2=added|all $3=comando que o operador roda para inspecionar (vai na mensagem)
+# return 3 = bloqueado. O CHAMADOR decide sair (`|| exit $?`): o core nao encerra processo alheio.
+egress_guard() {
+  local hits
+  hits="$(egress_scan "$1" "$2")"
+  if [ "${hits:-0}" -gt 0 ] && [ "${RC6_ALLOW_SENSITIVE:-0}" != 1 ]; then
+    if [ "$2" = added ]; then   # texto do RC6 byte a byte — a baseline e o teste de egress o comparam
+      echo "⛔ egress guard: $hits linha(s) adicionada(s) com formato de e-mail/CPF/telefone no diff." >&2
+      echo "   Diffs vão a LLM externo (SC-SEC5) — só fixtures SINTÉTICAS podem sair." >&2
+    else
+      echo "⛔ egress guard: $hits linha(s) com formato de e-mail/CPF/telefone no artefato." >&2
+      echo "   O artefato vai a LLM externo (SC-SEC5) — só dados SINTÉTICOS podem sair." >&2
+    fi
+    echo "   Inspecione: $3 | grep -nE '@|[0-9]{3}\\.[0-9]{3}'" >&2
+    echo "   Se for sintético, re-rode com RC6_ALLOW_SENSITIVE=1." >&2
+    return 3
+  fi
+  return 0
+}
+
+# ---- (1.1.0) fail-open ------------------------------------------------------
+# Nenhum motor respondeu: a revisao NAO bloqueia, mas diz em voz alta que nao aconteceu.
+# Esta e a unica funcao do core que encerra o processo — de proposito: o contrato de
+# fail-open e "JSON valido no stdout + exit 0", e deixar o exit com o chamador e convidar
+# a variante que imprime o aviso e segue adiante como se tivesse revisado.
+fail_open() { # $1=summary
+  python3 -c 'import json,sys; print(json.dumps({"summary":sys.argv[1],"findings":[]},ensure_ascii=False,separators=(",",":")))' "$1"
+  exit 0
+}

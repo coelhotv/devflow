@@ -2,7 +2,7 @@
 
 **Feature Directory:** `plans/specs/001-ecc-absorption/`
 **Created:** 2026-09-19
-**Status:** in-progress — slices A, B, C, D, E, F1 entregues; F2 é o próximo (G livre em paralelo)
+**Status:** in-progress — slices A, B, C, D, E, F1 entregues; **F2 em curso** (parte shell entregue, T062/T063 aguardam MP-005); G livre em paralelo
 **Tier:** 2
 **Input:** garimpo de `/Users/coelhotv/git/Everything-Claude-Code` em duas rodadas
 (`~/SKILLS/ecc-devflow-review-and-plan.md`, `~/SKILLS/ecc-devflow-mining-round2.md`)
@@ -130,8 +130,8 @@ para distinguir demonstrado de afirmado.
 
 ## Estado & próximo passo (leia primeiro numa sessão nova)
 
-**Última sessão:** 2026-09-21 · **Slices A, B, C, D, E, F1 entregues** · **POs fechadas: 6 de 23**
-(PO-1, PO-2, PO-7, **PO-10**, PO-14, PO-15) · **Propostas pendentes: 0** (INV-6: 2 vagas livres).
+**Última sessão:** 2026-09-22 · **Slices A–F1 entregues, F2 parcial** · **POs fechadas: 8 de 23**
+(PO-1, PO-2, PO-7, PO-10, PO-14, PO-15, **PO-16, PO-17**) · **Propostas pendentes: 0** (INV-6: 2 vagas livres).
 **Versão do DEVFLOW:** v2.3 → **v2.7.0 (PILOTO)** ao longo destes slices.
 
 **Estado do repositório** (conferido no disco, 2026-09-21):
@@ -141,7 +141,7 @@ para distinguir demonstrado de afirmado.
 | Branch | `spec/001-ecc-absorption` — **11 commits à frente de `main`**, árvore limpa |
 | PR | **nenhum aberto.** O épico inteiro vive no branch; a coluna PR da tabela de slices fica vazia até o épico virar PR (A-3) |
 | Último commit | `bf1c893` — init parcial do `.agent/` + migração do ledger |
-| Testes verdes | `mode-gate` 10/10 · `--degraded` 7/7 · `no-core-shadowing` 3/3 · `ai-review-no-agent` 3/3 · baseline `Files are identical` |
+| Testes verdes | `mode-gate` 10/10 · `--degraded` 7/7 · `no-core-shadowing` 4/4 (2 consumidores) · `ai-review-no-agent` 3/3 · `second-opinion` 23/23 · baseline e `ai-review-paths` `Files are identical` |
 | `.agent/` | **EXISTE, mas é INIT PARCIAL** — leia `.agent/README.md` antes de concluir qualquer coisa a partir disso. A-1 e A-2 continuam de pé e nenhum relógio de sunset começou a correr |
 
 ### Como esta spec é executada (combinado com o operador — não redescubra)
@@ -178,9 +178,10 @@ para distinguir demonstrado de afirmado.
 
 ### Próximo passo exato
 
-**Slice F2** — `scripts/second-opinion.sh` sobre o `@core` do F1, + os clientes (RC1–RC4 com F8,
-C1.5 Tier 2). Tier 2, depende de C, D e F1 — **todos entregues**, logo está desbloqueado.
-Ordem da tasks.md: T060 → T061 → T062 → T063 → T064.
+**Slice F2, metade de prosa** — T060/T061 entregues em 2026-09-22 (`second-opinion.sh`, core
+1.1.0, PO-16/17 ✅; decisões D-1..D-3 em `analysis-F2.md`). Falta **T062** (F8, posição-antes-da-
+leitura nas cerimônias) e **T063** (C1.5 T2 como cliente) — ambos prosa de skill ⇒ draft em
+`mutations/` → **MP-005** `pending` → STOP no gate do operador (INV-4). Depois, T064 (PO-18/19).
 
 **Livre, sem dependência:** slice **G** (estudo de formatos de handoff — Tier 1, só comparação e
 decisão do operador; nenhuma edição no C5 antes da escolha).
@@ -263,7 +264,7 @@ para o H, não algo a afrouxar aqui.
 | **D** | ⚠️ aplicado (piloto) · PO-7 ✅ · PO-8/9 MANUAL · **PO-10 transferida para E** | Gramática do `po`: F1 `boundary:` · F2 `evidence:` · F3 `status [!]` · F4 `uncertainty:` · M6 RED | 2 | B | PO-7..PO-10 | `SKILL.md`, `skills/devflow-code/`, `skills/devflow-spec/` | — |
 | **E** | ✅ done — PO-10 fechada · PO-11..13 MANUAL | Spec & Plan: M3 Non-Goals · M4 Pattern Grounding · M5 task grammar · M2 pre-report gate · **+ `uncertainty:` no C1.5 (dívida da PO-10)** | 1 | D | **PO-10**, PO-11..PO-13 | `skills/devflow-spec/`, `skills/devflow-plan/`, `skills/devflow-code/` | — |
 | **F1** | ✅ done — PO-14, PO-15 fechadas | Extração do `@core` — zero mudança de comportamento | 2 | — | PO-14, PO-15 | `scripts/lib/engine-core.sh`, `scripts/ai-review.sh` | — |
-| **F2** | ▶ next | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
+| **F2** | ▶ em curso — PO-16, PO-17 ✅ · T062/T063 aguardam MP-005 | `second-opinion.sh` + clientes (RC1–RC4 com F8, C1.5 Tier 2) | 2 | C, D, F1 | PO-16..PO-19 | `scripts/second-opinion.sh`, `skills/devflow-code/`, `skills/devflow-ceremony/` | — |
 | **G** | ⏳ todo (estudo pode começar já) | Handoff: estudo de formato → endurecimento do C5 | 1 | — | PO-20, PO-21 | `skills/devflow-code/` (C5) | — |
 | **H** | ⏳ todo | Falsificação: medição de conformidade + caminho `external_corpus` no META | 1 | todos | PO-22, PO-23 | `DEVFLOW-META.md`, `scripts/` | — |
 
@@ -525,10 +526,25 @@ status: [x] done
 ```po PO-16
 slice:  F2
 ac:     second-opinion.sh avalia um plan.md em processo frio e devolve JSON no schema
-proof:  ./scripts/second-opinion.sh --artifact plan --dry-run
-expect: JSON válido contra o schema, sem nenhum caminho de PR exercitado
+boundary: não vale provar isto chamando o LLM real e colando uma resposta bonita — saída de
+          modelo não é reproduzível, e a PO-14 já desqualificou esse método
+proof:  bash tests/second-opinion.test.sh   (bloco "PO-16"; agy FALSO no PATH, gh falso que registra chamada)
+expect: exit 0 · artifact=plan · findings no schema atravessam · gh nunca chamado · plan.md é o alvo e spec.md só referência
 guard:  bash tests/ai-review-baseline.sh segue `Files are identical` e bash tests/ai-review-no-agent.test.sh segue 3/3
-status: [ ] open
+evidence_class: execution
+status: [x] done
+# evidencia 2026-09-22: "23 passaram, 0 falharam" (exit 0). Bloco PO-16: 6/6.
+#   guard: baseline `Files are identical` (14 linhas) + no-agent 3/3 + NOVO tests/ai-review-paths.sh
+#   `Files are identical` (96 linhas: egress/failopen/legacy/schema, incluindo o argv do agy).
+#   O TESTE PODE FALHAR — provado por mutacao: sem egress 3 falhas · fail-open local 5 ·
+#   sem validacao de schema 1 · spec vira alvo no plan 1 · context=warm no cabecalho 1.
+#   ESCOPO HONESTO: prova o ENCANAMENTO (montagem, argv endurecido, unwrap, schema, cabecalho)
+#   contra um motor enlatado. Que um motor REAL devolve opiniao util sobre um plan.md nao e
+#   afirmado aqui — isso so aparece usando (A-2).
+# proof REESCRITO 2026-09-22 (decisao D-1 do operador, analysis-F2.md): era
+#   `./scripts/second-opinion.sh --artifact plan --dry-run`. O script nao tem efeito colateral,
+#   logo nao tem --dry-run; e reusar o nome do ai-review.sh (onde --dry-run CHAMA o motor) com
+#   sentido oposto era a armadilha. --measure para antes do motor; o teste usa agy falso.
 # guard CORRIGIDO 2026-09-22 (antes do F2 começar): citava `./scripts/ai-review.sh --dry-run`
 #   idêntico ao PO-14 — o método que a nota da PO-14 já desqualificou (--dry-run chama o engine,
 #   saída não-reproduzível). Trocado pelas duas suítes que de fato medem não-regressão.
@@ -540,7 +556,18 @@ ac:     o egress guard e o fail-open valem para o second-opinion sem duplicaçã
 proof:  bash tests/second-opinion.test.sh --egress --failopen
 expect: ambos os controles disparam a partir do @core
 guard:  nenhuma cópia local de egress/fail-open no script novo
-status: [ ] open
+boundary: não vale satisfazer "sem duplicação" com um grep que só procura o nome da função —
+          a cópia perigosa é o REGEX e o JSON literal, não o identificador
+evidence_class: execution
+status: [x] done
+# evidencia 2026-09-22: "10 passaram, 0 falharam" (exit 0). Egress: PII no artefato -> exit 3,
+#   mensagem do modo `all`, motor NUNCA chamado, override RC6_ALLOW_SENSITIVE=1 igual ao RC6.
+#   Fail-open: sem motor -> exit 0 + JSON valido; motor falhando -> fail-open com o motivo no log.
+#   guard: o teste procura o REGEX de PII e o JSON literal `echo '{"summary"` no script novo —
+#   zero. Mutacao que reintroduz a copia local do fail-open: 5 falhas.
+# PRE-REQUISITO QUE A AC ESCONDIA: em 2026-09-22 o core NAO tinha egress nem fail-open
+#   (moravam inline no ai-review.sh). Foram extraidos no core 1.1.0 junto com o probe de
+#   engine e o argv (decisao D-2), com paridade provada por baseline + ai-review-paths.sh.
 ```
 
 ```po PO-18
@@ -555,10 +582,17 @@ status: [ ] open
 ```po PO-19
 slice:  F2
 ac:     C1.5 Tier 2 pode pedir segunda opinião independente sobre a análise
-proof:  ./scripts/second-opinion.sh --artifact analysis --dry-run
+proof:  bash tests/second-opinion.test.sh   (bloco "PO-19")  +  MANUAL — um C1.5 Tier 2 real que chame o script
 expect: JSON com findings sobre a análise, contexto frio confirmado no cabeçalho
 guard:  Tier 0 e Tier 1 não chamam o script
 status: [ ] open
+# INSTRUMENTO PRONTO 2026-09-22: adaptador `analysis` exige --file (sem ele: exit 2, nao
+#   fail-open), julga o analysis-*.md contra spec+plan, cabecalho `"context": "cold"`, prompt
+#   afirma a independencia. Bloco PO-19 do teste: 4/4.
+#   FALTA a metade que a AC nomeia: "o C1.5 PODE PEDIR" e prosa do devflow-code (T063) e
+#   o guard (T0/T1 nao chamam) so e verificavel depois dela — exige proposta (INV-4).
+#   Depois do T063 o proof ainda tem parte MANUAL: um C1.5 T2 real chamando o script (A-2).
+# proof REESCRITO 2026-09-22 (D-1): mesmo motivo da PO-16 — nao existe --dry-run.
 ```
 
 ```po PO-20

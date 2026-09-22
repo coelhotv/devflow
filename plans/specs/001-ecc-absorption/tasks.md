@@ -1,10 +1,10 @@
 # 001 — Tasks
 
 > **Retomada a frio:** leia a seção *Estado & próximo passo* do `spec.md` antes desta lista.
-> **Feito:** slices **A, B, C, D, E, F1**. POs fechadas: **6 de 23** (PO-1, PO-2, PO-7, PO-10,
-> PO-14, PO-15). Propostas: MP-001..MP-004 — todas aprovadas e aplicadas.
+> **Feito:** slices **A, B, C, D, E, F1** + F2 (T060/T061). POs fechadas: **8 de 23** (PO-1, PO-2, PO-7,
+> PO-10, PO-14, PO-15, PO-16, PO-17). Propostas: MP-001..MP-004 — todas aprovadas e aplicadas.
 > DEVFLOW em **v2.7.0 (PILOTO)**.
-> **Próximo:** slice **F2** (T060), desbloqueado — C, D e F1 entregues. Livre em paralelo: **G**.
+> **Próximo:** **F2 T062/T063** — prosa de skill, exige MP-005 (T060/T061 ✅ em 2026-09-22). Livre em paralelo: **G**.
 > **Repo:** branch `spec/001-ecc-absorption`, 11 commits à frente de `main`, árvore limpa, sem PR.
 > `.agent/` agora existe mas é **INIT PARCIAL** — leia `.agent/README.md`.
 > POs `[ ] open` que NÃO são pendência de trabalho: PO-3..PO-6, PO-8, PO-9, PO-11..PO-13 são
@@ -210,9 +210,20 @@ Uma task pertence a exatamente um slice. Ordem dos grupos = ordem da tabela de s
 
 ## Slice F2 — `second-opinion.sh` · Tier 2 · ▶ PRÓXIMO · depende: C, D, F1 (**todos entregues**) · fecha PO-16..PO-19
 
-- [ ] T060 [PO-16] Escrever `scripts/second-opinion.sh` sobre o core, com adaptadores `plan|analysis|spec`
+- [x] T060 [PO-16] Escrever `scripts/second-opinion.sh` sobre o core, com adaptadores `plan|analysis|spec`
   * **Mirror**: `scripts/ai-review.sh` (montagem de contexto e schema JSON estrito)
-- [ ] T061 [PO-17] Provar egress guard e fail-open vindos do core, sem cópia local
+  * Sem `--dry-run` (sem efeito colateral a desligar); `--measure` para antes do motor (D-1).
+    Schema próprio (`section/quote/severity/kind/issue/suggestion`), validado LOCALMENTE —
+    motor fora do schema cai para o próximo / fail-open, nunca vira opinião capenga.
+  * **Validate**: `bash tests/second-opinion.test.sh` → 23/23, com 5 mutações detectadas
+- [x] T061 [PO-17] Provar egress guard e fail-open vindos do core, sem cópia local
+  * Pré-requisito descoberto no C1.5: o core **não tinha** nenhum dos dois. Core **1.0.0 → 1.1.0**
+    (+5 funções: `probe_engines`, `build_engine_args`, `egress_scan`, `egress_guard`, `fail_open`);
+    probe e argv subiram junto (D-2: flag de segurança duplicada é a cópia que diverge).
+  * `tests/ai-review-paths.sh` (`[NEW]`): caracteriza egress/failopen/legacy/schema — os 3 blocos
+    que a baseline NÃO exercita (analysis-F2.md §2). Gravado com o core antigo (via `git stash`),
+    comparado depois: `Files are identical` (96 linhas, argv do agy incluso)
+  * **Validate**: baseline + `ai-review-paths.sh` idênticos · `second-opinion.test.sh --egress --failopen` 10/10
 - [ ] T062 [PO-18] Draft de F8 (posição-antes-da-leitura) em `skills/devflow-ceremony/`
   * **Mirror**: `ECC skills/council/SKILL.md:76-83`
 - [ ] T063 [PO-19] Ligar C1.5 Tier 2 como cliente do script

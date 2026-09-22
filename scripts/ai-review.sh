@@ -42,7 +42,7 @@ set -euo pipefail
 # ---- @core: funcoes agnosticas de motor (001/F1) ----------------------------
 # Extraidas para scripts/lib/engine-core.sh sem alteracao de comportamento. A versao
 # esperada e citada aqui: core novo sob consumidor velho falha ALTO, nao em silencio.
-ENGINE_CORE_EXPECTED="1.0.0"
+ENGINE_CORE_EXPECTED="1.1.0"
 # shellcheck source=lib/engine-core.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/engine-core.sh"
 if [ "${ENGINE_CORE_VERSION:-}" != "$ENGINE_CORE_EXPECTED" ]; then
@@ -87,35 +87,9 @@ done
 
 
 command -v git >/dev/null || { echo "git required" >&2; exit 2; }
-HAVE_AGY=0;    command -v agy    >/dev/null && HAVE_AGY=1
-HAVE_CLAUDE=0; command -v claude >/dev/null && HAVE_CLAUDE=1
 HAVE_GH=0;     command -v gh     >/dev/null && HAVE_GH=1
-# Quota guard: claude is BOTH the pass-B domain engine AND the coder-agent engine,
-# and it has a tighter 5h/weekly quota than agy's Gemini pool. Set RC6_ENGINE_CLAUDE=0
-# when the claude quota is low to keep RC6 off it entirely — pass B then falls back to
-# agy chunked (existing path), so tier2 keeps full coverage on the roomier engine.
-[ "${RC6_ENGINE_CLAUDE:-1}" = 0 ] && { HAVE_CLAUDE=0; log "RC6_ENGINE_CLAUDE=0 — claude disabled; pass B will use agy"; }
-
-# ---- engine capability probe (no API call, no quota) ------------------------
-# Structured output (--output-format json + --json-schema) landed in agy 1.1.8
-# and is present in claude 2.x. Feature-detect instead of assuming: an older
-# binary would reject the flag and fail EVERY chunk, turning an enhancement into
-# a total blackout. When absent we fall back to the legacy text invocation, which
-# still works — just without the schema guarantees.
-AGY_SCHEMA=0; AGY_NOSLASH=0; CLAUDE_SCHEMA=0; CLAUDE_NOSLASH=0; CLAUDE_NOPERSIST=0
-if [ "$HAVE_AGY" = 1 ]; then
-  AGY_HELP="$(agy --help 2>&1 || true)"
-  case "$AGY_HELP" in *--json-schema*)            AGY_SCHEMA=1 ;; esac
-  case "$AGY_HELP" in *--disable-slash-commands*) AGY_NOSLASH=1 ;; esac
-  [ "$AGY_SCHEMA" = 0 ] && log "agy sem --json-schema (pre-1.1.8) — usando invocação legada em texto"
-fi
-if [ "$HAVE_CLAUDE" = 1 ]; then
-  CLAUDE_HELP="$(claude --help 2>&1 || true)"
-  case "$CLAUDE_HELP" in *--json-schema*)            CLAUDE_SCHEMA=1 ;; esac
-  case "$CLAUDE_HELP" in *--disable-slash-commands*) CLAUDE_NOSLASH=1 ;; esac
-  case "$CLAUDE_HELP" in *--no-session-persistence*) CLAUDE_NOPERSIST=1 ;; esac
-  [ "$CLAUDE_SCHEMA" = 0 ] && log "claude sem --json-schema — usando invocação legada em texto"
-fi
+# Deteccao de engine + quota guard (RC6_ENGINE_CLAUDE=0) + probe de flags: @core 1.1.0.
+probe_engines
 
 # ---- resolve PR (optional; not required for --dry-run) ----------------------
 if [ -z "$PR" ] && [ "$HAVE_GH" = 1 ]; then
@@ -159,21 +133,9 @@ if [ ! -s "$WORKDIR/diff.txt" ]; then
   exit 0
 fi
 
-# ---- egress guard (SC-SEC5/T039): the diff leaves the machine to an external
-# LLM. A health-app diff must only ever carry SYNTHETIC fixtures — scan added
-# lines for real-PII shapes (email, BR CPF/phone) and stop unless overridden.
-# Heuristic, not proof: the operator override is the documented accountability.
-PII_HITS="$(grep -E '^\+' "$WORKDIR/diff.txt" \
-  | grep -EIv 'example\.(com|org)|@(test|dummy|fixture)\.|lorem' \
-  | grep -oEc '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|[0-9]{3}\.[0-9]{3}\.[0-9]{3}-[0-9]{2}|\(?[0-9]{2}\)?[[:space:]-]?9[0-9]{4}-[0-9]{4}' \
-  || true)"
-if [ "${PII_HITS:-0}" -gt 0 ] && [ "${RC6_ALLOW_SENSITIVE:-0}" != 1 ]; then
-  echo "⛔ egress guard: $PII_HITS linha(s) adicionada(s) com formato de e-mail/CPF/telefone no diff." >&2
-  echo "   Diffs vão a LLM externo (SC-SEC5) — só fixtures SINTÉTICAS podem sair." >&2
-  echo "   Inspecione: git diff $BASE...HEAD | grep -nE '@|[0-9]{3}\\.[0-9]{3}'" >&2
-  echo "   Se for sintético, re-rode com RC6_ALLOW_SENSITIVE=1." >&2
-  exit 3
-fi
+# ---- egress guard (SC-SEC5/T039): o diff sai da maquina para um LLM externo. Regex, override
+# (RC6_ALLOW_SENSITIVE=1) e mensagem moram no @core 1.1.0; so as linhas `+` contam (`added`).
+egress_guard "$WORKDIR/diff.txt" added "git diff $BASE...HEAD" || exit $?
 
 CHANGED=()
 while IFS= read -r _l; do [ -n "$_l" ] && CHANGED+=("$_l"); done \
@@ -935,23 +897,9 @@ cat > "$SCHEMA" <<'JSON'
 }
 JSON
 
-# Engine argv. --disable-slash-commands: agy 1.1.9 made print mode EXPAND slash
-# commands and skills, and the RC6 payload is an UNTRUSTED diff — the same reason
-# SC-SEC1 already forbids tools. Note --json-schema makes claude expose a
-# `StructuredOutput` tool despite --tools "": that is the delivery mechanism for
-# the structured answer (no shell/file/MCP reach), so the SC-SEC1 property holds,
-# but the `init` event will list one tool. Do not read that as a broken guard.
+# Engine argv (sem tools, sem slash commands, com schema quando o probe permitiu): @core 1.1.0.
 RC6_AGY_MODEL="${RC6_AGY_MODEL:-gemini-3.8-flash-medium}"
-AGY_ARGS=(--sandbox --print-timeout "$AGY_TIMEOUT" --model "$RC6_AGY_MODEL")
-[ "$AGY_NOSLASH" = 1 ] && AGY_ARGS+=(--disable-slash-commands)
-[ "$AGY_SCHEMA"  = 1 ] && AGY_ARGS+=(--output-format json --json-schema "$SCHEMA")
-# --setting-sources "": do NOT load user/project settings (CLAUDE.md, skills,
-# plugins). The reviewer's context is 100% the explicit prompt — cheaper per run
-# (no duplicate project payload) AND stronger independence (SC-007).
-CLAUDE_ARGS=(--model sonnet --tools "" --strict-mcp-config --setting-sources "")
-[ "$CLAUDE_NOSLASH" = 1 ]   && CLAUDE_ARGS+=(--disable-slash-commands)
-[ "$CLAUDE_NOPERSIST" = 1 ] && CLAUDE_ARGS+=(--no-session-persistence)
-[ "$CLAUDE_SCHEMA" = 1 ]    && CLAUDE_ARGS+=(--output-format json --json-schema "$(cat "$SCHEMA")")
+build_engine_args "$SCHEMA"
 
 
 
@@ -1233,8 +1181,7 @@ fi
 
 # ---- fail-open --------------------------------------------------------------
 if [ "${#OUTS[@]}" = 0 ]; then
-  echo '{"summary":"⚠️ AI review unavailable — human review mandatory (agy and claude both failed/absent).","findings":[]}'
-  exit 0
+  fail_open "⚠️ AI review unavailable — human review mandatory (agy and claude both failed/absent)."
 fi
 
 # ---- merge + dedupe + render (python) ---------------------------------------

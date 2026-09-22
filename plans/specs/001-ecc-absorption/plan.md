@@ -72,14 +72,16 @@ do core for redefinida localmente (PO-15).
   ⚠️ **Exceto PO MANUAL**: exigem projeto consumidor (A-2) e ficam `[ ] open` com o instrumento
   anotado. Ler como "pendência de trabalho" é o erro — é pendência de ACESSO.
 
-### Suítes vivas (estado em 2026-09-21)
+### Suítes vivas (estado em 2026-09-22)
 
 | Suíte | Cobre | Verde |
 |---|---|---|
 | `tests/mode-gate.test.sh` (+ `--degraded`) | transição de modo e fail-open assimétrico | 10/10 · 7/7 |
-| `tests/no-core-shadowing.test.sh` | nenhum consumidor redefine função do `@core` | 3/3 |
+| `tests/no-core-shadowing.test.sh` | nenhum consumidor redefine função do `@core` | 4/4 (2 consumidores) |
 | `tests/ai-review-baseline.sh` | equivalência byte-a-byte do `ai-review.sh` (fixture **com** `.agent/`) | `Files are identical` |
 | `tests/ai-review-no-agent.test.sh` | sobrevivência em repo **sem** `.agent/` (AC-1) | 3/3 |
+| `tests/ai-review-paths.sh` | egress que BLOQUEIA · fail-open · probe legado · argv do motor (o que a baseline não vê) | `Files are identical` |
+| `tests/second-opinion.test.sh` (+ `--egress --failopen`) | PO-16/17/19 com `agy`/`gh` falsos, sem LLM | 23/23 · 10/10 |
 
 `scripts/verify-split.sh` **não é gate** (aposentado). Marcadores `devflow-split` no disco:
 núcleo 8 · `devflow-code` 4 · `devflow-spec` 4 · `devflow-plan` **2** (não tem bloco `qr`).
