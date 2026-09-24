@@ -2,7 +2,7 @@
 
 **Feature Directory:** `plans/specs/003-rc6-engine-resilience/`
 **Created:** 2026-09-24
-**Status:** delivered (código) — PO-1..3 fechadas com evidência de execução; aguarda PR
+**Status:** in review — PO-1..3 fechadas com evidência de execução; PR #3
 **Tier:** 1
 **Input:** relato do agente coder do `dosiq` no PR #835 (2026-09-24). No RC6, o pass A (agy/Gemini)
 perdeu 3 dos 4 chunks com `503 UNAVAILABLE — no capacity`, mas o JSON final saiu com
