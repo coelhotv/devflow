@@ -2,7 +2,9 @@
 
 > **The filesystem is the orchestrator.**
 >
-> **Status: v2.3 — Self-improvement loop (process friction ledger → skill mutation proposals), sliced delivery + artifact truth maintenance, Goal-shaped delivery (Proof Obligations), spec-first workflow, Markdown memory, constitution-aware bootstrap, index-first loading.**
+> **Status: v3.0.0 (PILOT) — Two doors for skill evolution (reactive friction ledger + proactive external-corpus pilots, each with a falsification clause), cold second opinion and resilient independent review (RC6), session handoff, sliced delivery + artifact truth maintenance, Goal-shaped delivery (Proof Obligations), spec-first workflow, Markdown memory, index-first loading.**
+>
+> The v2.4–v3.0 mutations are **pilots**: their falsification clocks only start in a consumer project whose ledger is committed (see `DEVFLOW-META.md`). No pilot has a verdict yet.
 
 DEVFLOW is a skill for autonomous AI agents working on long-term software projects. It provides persistent memory, goal alignment, numbered feature specs, durable task plans, contract-aware coding, and continuous learning without requiring a central orchestrator.
 
@@ -33,10 +35,15 @@ Each session reads project state from files, acts, and records outcomes back to 
 ### New project
 
 ```bash
-bash /path/to/devflow/scripts/setup.sh ./my-project "my-project" "react,typescript,supabase"
+bash /path/to/devflow/scripts/setup.sh ./my-project "my-project" "react,typescript,supabase" [--with-git-hook]
 ```
 
-This creates a `.agent/` structure with Markdown memory indexes, detail folders, state, genes, and sessions.
+This creates a `.agent/` structure with Markdown memory indexes, detail folders, state, genes, and sessions. Since v3.0 (spec 002) the setup:
+
+- is **idempotent**: re-running it on an existing `.agent/` never overwrites a file, it only creates what is missing and says what it skipped;
+- creates both ledgers empty (`.agent/memory/process-friction.jsonl`, `.agent/memory/attempts.jsonl`). A ledger is **active from the commit that added it** (derived from `git log`), so commit `.agent/` right after setup, or no pilot clock starts;
+- creates or completes `.gitignore` with the DEVFLOW entries (see *Versioned* below), line by line, without duplicating;
+- `--with-git-hook` installs `mode-gate.sh` as a local git hook (optional).
 
 ### Existing project
 
@@ -117,13 +124,24 @@ devflow/
       CONTRACT_TEMPLATE.md
       KNOWLEDGE_TEMPLATE.md
 
+  skills/                          ← the skill split into 7 operator-invoked modes
+    devflow-spec/ devflow-plan/ devflow-code/ devflow-ceremony/
+    devflow-distill/ devflow-ideation/ ...  (install: scripts/install-skills.sh)
+
   scripts/
-    setup.sh
+    setup.sh                       ← consumer-project installer (idempotent, v3.0)
+    ai-review.sh                   ← RC6 independent review (agy/claude, chunked)
+    second-opinion.sh              ← cold second opinion on spec/plan/analysis
+    skill-comply.sh                ← measures whether a skill step is followed
+    mode-gate.sh / reflect-gate.sh ← mechanical gates (no LLM)
+    lib/engine-core.sh             ← shared engine layer (@core, versioned contract)
+
+  tests/                           ← offline suites (fake agy/claude, no LLM calls)
 ```
 
 ---
 
-## Project Structure (v1.8)
+## Project Structure (v3.0)
 
 Each project using DEVFLOW gets a `.agent/` folder:
 
@@ -146,6 +164,8 @@ Each project using DEVFLOW gets a `.agent/` folder:
     knowledge/<category>/K-NNN.md
     journal/YYYY-WWW.jsonl
     journal/archive/
+    process-friction.jsonl         ← C5/1c: where the process got in the way (drives skill mutations)
+    attempts.jsonl                 ← C5/1b: interventions tried, measured and reverted
 
   evolution/
     genes.json
@@ -172,9 +192,31 @@ plans/
         *.md                       ← feature-local contracts, if needed
 ```
 
-**Versioned:** `.agent/memory/`, `.agent/evolution/`, `.agent/constitution.md`, `.agent/state.json`, `plans/specs/`.
+**Versioned:** `.agent/memory/` (indexes, detail files, journal and both ledgers), `.agent/constitution.md`, `plans/specs/`.
 
-**Not versioned:** `.agent/sessions/.lock`, `.agent/sessions/events.jsonl`.
+**Not versioned** (the setup's `.gitignore`): `.agent/state.json` (local session state, including `session.handoff`), `.agent/sessions/`, `.agent/evolution/`.
+
+---
+
+## Independent Review Scripts (RC6 / second opinion)
+
+`scripts/ai-review.sh` (RC6) and `scripts/second-opinion.sh` send the diff or artifact to an external engine in a **fresh process** (`agy -p` primary, `claude -p` fallback), with no tools and an egress guard for PII-shaped lines. Both share `scripts/lib/engine-core.sh`, whose version is a contract (`ENGINE_CORE_EXPECTED`); a mismatched core fails loudly.
+
+Since `@core` 1.2.0 (spec 003, after dosiq#835 reported full coverage while 3 of 4 chunks had died on a 503):
+
+- **Coverage is what was reviewed, not what was planned.** `coverage.chunks_reviewed` counts chunks reviewed by every active pass; `per_pass.{A,B}` and `independent_reviewers.{min,max}` say how many reviewers each chunk actually had.
+- **Transient engine errors are retried, others are not.** Errors are classified `transient | timeout | quota | fatal` from each attempt's error text (including a failure envelope returned with exit 0). Only `transient` is retried (backoff, then a fallback model, then one re-queue at the end), all under one time budget per run.
+- **The last stderr line is the verdict:** `[rc6] VERDICT coverage=partial A=1/4 B=4/4 reviewers_min=1 …`, matching the JSON. `partial` is recorded in the PR, not a reason to run RC6 again. A JSONL status feed (`[rc6] status: <path>`) lets a background caller follow progress.
+
+| Env var | Default | Effect |
+|---|---|---|
+| `RC6_RETRIES` | `2` | Extra attempts per call. `0` also disables the second round (pre-003 behavior). |
+| `RC6_BACKOFF` | `30 90` | Seconds before extra attempt N (last value repeats); `RC6_JITTER=1` adds up to +⅓. |
+| `RC6_RETRY_BUDGET` | `300` | Extra seconds allowed per run (waits + extra attempts + second round). |
+| `RC6_BREAKER` | `3` | Consecutive transient failures that stop immediate retries. |
+| `RC6_AGY_MODEL_FALLBACK` | `gemini-3.7-flash-medium` | Fallback model for agy; empty disables. Never used by the A/B measurement. |
+| `RC6_STATUS_FILE` | `$TMPDIR/rc6-status-<pid>.jsonl` | Where status events go. |
+| `RC6_ENGINE_CLAUDE` | `1` | `0` keeps RC6 off claude (quota guard). |
 
 ---
 
