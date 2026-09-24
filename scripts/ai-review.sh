@@ -984,7 +984,7 @@ cov_mark() { # $1=pass $2=chunk-id $3=desfecho $4=classe
 # tempo gasto nos outros chunks ja fez o papel de backoff. Os textos de log "ok" sao os de
 # antes da 003, byte a byte: tests/ai-review-paths.sh compara stderr.
 #   $1=pass $2=chunk-id $3=prompt $4=out $5=rotulo do log $6=rodada(1|2)
-PASS_DEFER=()
+PASS_DEFER=(); PASS_DEFER_CLS=()
 review_chunk() {
   local p="$1" i="$2" lbl="$5" cls via=""
   RC6_STATUS_PASS="$p"; RC6_STATUS_CHUNK="$((i+1))/$NPLANNED"
@@ -997,7 +997,7 @@ review_chunk() {
   fi
   cls="$ENGINE_LAST_CLASS"
   if [ "$6" = 1 ] && rc6_second_round_ok "$cls" agy; then
-    PASS_DEFER+=("$i"); cov_mark "$p" "$i" deferred "$cls"
+    PASS_DEFER+=("$i"); PASS_DEFER_CLS+=("$cls"); cov_mark "$p" "$i" deferred "$cls"
     rc6_status deferred "\"class\":\"$cls\""
     log "pass $p chunk $((i+1))/$NPLANNED ($lbl) FAILED [$cls] — adiado p/ a segunda rodada — $(engine_err_hint agy)"
   else
@@ -1011,12 +1011,25 @@ review_chunk() {
 # shellcheck disable=SC2034  # BREAKER_* e lida pelo @core (run_engine_resilient)
 second_round() {
   [ "${#PASS_DEFER[@]}" -gt 0 ] || return 0
-  local ids=("${PASS_DEFER[@]}") i
-  PASS_DEFER=(); BREAKER_OPEN=0; BREAKER_STREAK=0
+  local ids=("${PASS_DEFER[@]}") clss=("${PASS_DEFER_CLS[@]}") i k=0
+  PASS_DEFER=(); PASS_DEFER_CLS=(); BREAKER_OPEN=0; BREAKER_STREAK=0
   log "segunda rodada, pass $1: chunk(s) [$(for i in "${ids[@]}"; do printf ' %s' $((i+1)); done) ] · orçamento $(rc6_budget_left)s"
+  # O orcamento e re-checado ANTES de cada chunk, e toda chamada daqui conta como tempo extra
+  # (RC6_IN_ROUND2). Checar so no adiamento deixava N timeouts adiados rodarem todos (RC5).
+  RC6_IN_ROUND2=1
   for i in "${ids[@]}"; do
-    review_chunk "$1" "$i" "$2_$i.txt" "$3_$i.json" "$4, 2ª rodada" 2 || true
+    if rc6_second_round_ok "${clss[$k]}" agy; then
+      review_chunk "$1" "$i" "$2_$i.txt" "$3_$i.json" "$4, 2ª rodada" 2 || true
+    else
+      RC6_STATUS_PASS="$1"; RC6_STATUS_CHUNK="$((i+1))/$NPLANNED"
+      ENGINE_LAST_ATTEMPTS=0; ENGINE_LAST_RETRIED=0; ENGINE_LAST_FALLBACK=0
+      cov_mark "$1" "$i" failed "${clss[$k]}"
+      rc6_status failed "\"class\":\"${clss[$k]}\",\"reason\":\"budget\""
+      log "pass $1 chunk $((i+1))/$NPLANNED: segunda rodada pulada — orçamento restante $(rc6_budget_left)s não cobre um ${clss[$k]}"
+    fi
+    k=$((k+1))
   done
+  RC6_IN_ROUND2=0
   return 0
 }
 
@@ -1247,7 +1260,8 @@ rc6_verdict() { # $1=merged.json (vazio = revisao nao aconteceu)
   if [ -z "${1:-}" ]; then
     v="VERDICT coverage=none reviewers_min=0 — revisão NÃO aconteceu; revisão humana obrigatória"
   else
-    v="$(python3 - "$1" <<'PYV' 2>/dev/null || echo "VERDICT coverage=unknown — merged.json ilegível"
+    # Heredoc FORA de $( ): no bash 3.2 ele vaza o corpo para o shell (ver :685).
+    python3 - "$1" > "$WORKDIR/verdict.txt" 2>/dev/null <<'PYV' || echo "VERDICT coverage=unknown — merged.json ilegível" > "$WORKDIR/verdict.txt"
 import json, sys
 c = json.load(open(sys.argv[1])).get("coverage") or {}
 pp = c.get("per_pass") or {}
@@ -1260,7 +1274,7 @@ if c.get("partial"): tail = " — cobertura PARCIAL: registre no PR; não é mot
 elif r is not None and r < len(pp): tail = " — algum chunk teve 1 revisor só"
 print("VERDICT " + " ".join(parts) + tail)
 PYV
-)"
+    v="$(cat "$WORKDIR/verdict.txt")"
   fi
   RC6_STATUS_PASS=-; RC6_STATUS_CHUNK=-
   rc6_status "done" "\"verdict\":\"${v#VERDICT }\""

@@ -364,12 +364,19 @@ egress_guard() {
 # O camada de retry do agy e INTERNA tambem ("API error (attempt 2)" no texto real): por isso o
 # backoff daqui e mais espacado que o dele — duas camadas curtas amplificam a carga no pool.
 
-dur_secs() { # "8m" | "480s" | "480" -> segundos
-  case "$1" in
-    *m) echo $(( ${1%m} * 60 )) ;;
-    *s) echo "${1%s}" ;;
-    *)  echo "${1:-0}" ;;
-  esac
+# Formato de duracao do agy (Go): "8m", "480s", "1h30m", ou so digitos. Valor ilegivel NAO pode
+# chegar cru a um $(( )): sob o `set -e` do consumidor, erro aritmetico mata o script sem mensagem
+# (RC5 2026-09-24, com RC6_AGY_TIMEOUT=1h). Ilegivel -> 480 (o default do agy), com aviso.
+dur_secs() {
+  local d="${1:-}" t=0 n
+  while [[ "$d" =~ ^([0-9]+)([hms]?)(.*)$ ]]; do
+    n=$((10#${BASH_REMATCH[1]}))
+    case "${BASH_REMATCH[2]}" in h) t=$((t + n*3600)) ;; m) t=$((t + n*60)) ;; *) t=$((t + n)) ;; esac
+    d="${BASH_REMATCH[3]}"
+  done
+  if [ -z "$d" ] && [ "$t" -gt 0 ]; then echo "$t"; return 0; fi
+  log "duração ilegível '${1:-}' — usando 480s"
+  echo 480
 }
 
 # $1=engine -> transient|timeout|quota|fatal em stdout. Le o erro DA TENTATIVA ($WORKDIR/$1.err,
@@ -431,6 +438,10 @@ rc6_second_round_ok() {
   esac
 }
 
+# A tentativa $1 e tempo EXTRA? Toda tentativa alem da 1a, e TODA tentativa da segunda rodada
+# (RC6_IN_ROUND2=1, ligado pelo consumidor): sem isso o orcamento nao via a segunda rodada.
+_rc6_extra() { [ "$1" -gt 1 ] || [ "${RC6_IN_ROUND2:-0}" = 1 ]; }
+
 _rc6_backoff() { # $1=numero da tentativa extra (1..) -> segundos
   local list="${RC6_BACKOFF:-30 90}" w="" x n=0
   for x in $list; do n=$((n+1)); w="$x"; [ "$n" -ge "$1" ] && break; done
@@ -459,12 +470,12 @@ run_engine_resilient() {
     n=$((n+1)); ENGINE_LAST_ATTEMPTS=$n; ENGINE_KILLED=0
     t0="$(date +%s)"
     if run_engine "$engine" "$pf" "$out"; then
-      [ "$n" -gt 1 ] && RC6_SPENT=$(( RC6_SPENT + $(date +%s) - t0 ))
+      _rc6_extra "$n" && RC6_SPENT=$(( RC6_SPENT + $(date +%s) - t0 ))
       BREAKER_STREAK=0; ENGINE_LAST_CLASS=ok
       rc6_status ok "\"attempt\":$n"
       return 0
     fi
-    [ "$n" -gt 1 ] && RC6_SPENT=$(( RC6_SPENT + $(date +%s) - t0 ))
+    _rc6_extra "$n" && RC6_SPENT=$(( RC6_SPENT + $(date +%s) - t0 ))
     cls="$(classify_engine_err "$engine")"; ENGINE_LAST_CLASS="$cls"
     cp "$WORKDIR/$engine.err" "$WORKDIR/$engine.$tag.$n.err" 2>/dev/null || true
     [ "$cls" = transient ] || break

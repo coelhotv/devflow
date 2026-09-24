@@ -165,6 +165,18 @@ FAKE_AGY_SCRIPT="hang" RC6_RETRIES=2 RC6_AGY_TIMEOUT=1s RC6_HANG_GRACE=0 RC6_RET
 [ "$(j '[f["class"] for f in d["coverage"]["per_pass"]["A"]["failed"]]')" = "['timeout']" ] \
   && ok "timeout sem orcamento: nao repete, classe timeout" || bad "timeout/budget: $(j 'd["coverage"]["per_pass"]["A"].get("failed")')"
 
+# 2 timeouts adiados, orcamento p/ UMA re-execucao: a 2a rodada tem de parar no 1o (RC5 2026-09-24:
+# o orcamento era checado so no adiamento, e a 2a rodada rodava todos os adiados sem descontar).
+FAKE_AGY_SCRIPT="hang,hang,ok,ok,hang,ok" RC6_RETRIES=2 RC6_AGY_TIMEOUT=1s RC6_HANG_GRACE=0 RC6_RETRY_BUDGET=1 \
+  run timeout-budget2
+[ "$(calls)" = 5 ] && ok "2a rodada respeita o orcamento: 5 chamadas, nao 6" || bad "chamadas=$(calls) (esperado 5)"
+[ "$(j '[f["chunk"] for f in d["coverage"]["per_pass"]["A"]["failed"]]')" = "[1, 2]" ] \
+  && ok "chunks 1 e 2 ficam como falha" || bad "timeout-budget2: $(j 'd["coverage"]["per_pass"]["A"].get("failed")')"
+
+RC6_AGY_TIMEOUT=1h run durh
+grep -q 'VERDICT coverage=full' "$D/err.txt" && ok "RC6_AGY_TIMEOUT=1h nao derruba o script" \
+  || bad "1h: $(tail -2 "$D/err.txt" | tr '\n' ' ')"
+
 echo "== PO-2 guard — RC6_RETRIES=0 e sem fallback = comportamento de hoje"
 FAKE_AGY_SCRIPT="503" RC6_RETRIES=0 RC6_AGY_MODEL_FALLBACK="" run legacy
 [ "$(calls)" = 4 ] && ok "1 chamada por chunk (4)" || bad "chamadas=$(calls) (esperado 4)"

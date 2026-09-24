@@ -98,6 +98,9 @@ note:   31/31 (2026-09-24): 503→503→ok (retried=1); 503 com exit 1 também r
         a segunda rodada recupera; hang com RC6_RETRY_BUDGET=0: não repete, classe timeout. Guard
         RC6_RETRIES=0 sem fallback: 4 chamadas para 4 chunks. A/B: saída marcada `.modelfb` fica fora
         do baseline (ai-review.sh:1134) e o par chama com fallback desligado (:1153).
+        RC5 (2026-09-24) reabriu e reforçou: casos "2a rodada respeita o orçamento" e
+        "RC6_AGY_TIMEOUT=1h" (vermelhos antes da correção: 6 chamadas em vez de 5; "1h: value too
+        great for base") → suíte 34/34, regressão de novo verde.
 uncertainty: o isolamento do A/B (FR-014) está verificado por leitura de código, não por teste: armar o
         A/B exige PR + log de medição, fora do fixture. A 1ª hipótese de texto de erro vem do log real
         (503); textos de 429/timeout do agy real nunca foram observados — padrões por palavra-chave, e
@@ -262,20 +265,23 @@ orçamento no primeiro timeout (E2). Os dois são pré-condição do PO-2.
 | FR-010: "primeira linha do stderr" | O diff do `ai-review-paths.sh` mostraria a linha nova em egress/fail-open | FR-010: "antes da primeira chamada de motor" |
 | O RC3 mapeou 2 consumidores do `@core`; são 3 | `grep ENGINE_CORE_EXPECTED scripts/` | A-3 |
 | O E1 do RC3 cobria só o envelope com exit 0 | Caso `503x` do teste: exit 1 com envelope → o texto sumia | FR-016 + `engine-core.sh:201` |
+| RC5: o orçamento só era checado no adiamento; a 2ª rodada rodava todos os adiados sem descontar tempo | Caso `timeout-budget2` vermelho (6 chamadas, esperado 5) | `second_round` re-checa antes de cada chunk; `_rc6_extra` conta toda chamada da 2ª rodada |
+| RC5: `dur_secs` passava valor cru ao `$(( ))` — `RC6_AGY_TIMEOUT=1h` matava o script sob `set -e` | Caso `durh` vermelho ("1h: value too great for base") | `dur_secs` aceita h/m/s compostos; ilegível → 480 com aviso |
+| RC5: o heredoc do `rc6_verdict` ficava dentro de `$( )`, padrão que o próprio `ai-review.sh:685` proíbe (bash 3.2) | Leitura do diff | Saída vai para `$WORKDIR/verdict.txt` |
 | O guard da PO-1 prometia "sem diff" no `ai-review-paths.sh`, o que é impossível sob contrato aditivo | Diff real: só `status:`, `VERDICT` e chaves novas | Guard da PO-1 reescrito (diff sem as 3 adições = vazio) |
 
 ## Próximo passo exato (handoff — sem state.json neste repo)
 
 **Escrito em:** 2026-09-24.
 
-**Next step:** push da branch `spec/003-rc6-engine-resilience` e PR (decisão do operador, R-065).
+**Next step:** revisão e merge do PR (RC5 feito; push e PR autorizados pelo operador).
 Depois do merge, o primeiro RC6 real no dosiq com 503 fecha o SC-003 (verificação de campo).
 
 **Failed:** `failed: []`. Nenhuma intervenção revertida. O primeiro vermelho rodou contaminado (o core
 foi editado durante a execução) e foi refeito num worktree limpo do HEAD. O segundo vermelho rodou
 com um bug do próprio fake (`cut -f2` sem `-s` repetia roteiros de um token) e também foi refeito.
 
-**Worked (evidência DESTA sessão):** `bash tests/rc6-resilience.test.sh` → 31/31; as 6 suítes da
+**Worked (evidência DESTA sessão):** `bash tests/rc6-resilience.test.sh` → 34/34 (31 + 3 do RC5); as 6 suítes da
 regressão verdes; `ai-review-baseline` sem diff; `ai-review-paths` com diff só aditivo; `shellcheck`
 com os mesmos avisos do HEAD (SC1091/SC2012/SC2016/8×SC2034/7×SC2086, todos pré-existentes).
 
