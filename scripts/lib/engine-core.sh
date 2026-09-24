@@ -20,6 +20,8 @@
 #   egress_scan       — (1.1.0) conta linhas com formato de PII real num arquivo
 #   egress_guard      — (1.1.0) bloqueia (return 3) o envio a LLM externo se houver PII
 #   fail_open         — (1.1.0) imprime o JSON de "revisao indisponivel" e sai 0
+#   dur_secs / classify_engine_err / rc6_status_init / rc6_status / rc6_budget_left /
+#   rc6_second_round_ok / run_engine_resilient — (1.2.0) resiliencia do motor (spec 003)
 #
 # O QUE NAO MORA AQUI: montagem de preambulo, selecao de arquivos, gate de reflexao,
 # publicacao no PR, schema de review. Isso e dominio, nao motor.
@@ -39,6 +41,7 @@
 #   HAVE_AGY HAVE_CLAUDE AGY_SCHEMA AGY_NOSLASH CLAUDE_SCHEMA CLAUDE_NOSLASH CLAUDE_NOPERSIST
 #                                                      (probe_engines)
 #   AGY_ARGS[] CLAUDE_ARGS[]                           (build_engine_args)
+#   ENGINE_LAST_* RC6_SPENT BREAKER_OPEN BREAKER_STREAK ENGINE_KILLED (run_engine_resilient)
 # O core tambem NAO faz `set -euo pipefail`: quem define o modo de erro e o script principal.
 # ⚠️ Por isso toda funcao que termina num teste (`[ X ] && ...`) fecha com `return 0`: sob o
 # `set -e` do consumidor, um teste falso como ULTIMO comando vira o exit status da funcao e
@@ -47,7 +50,7 @@
 # Uso:  source "$(dirname "${BASH_SOURCE[0]}")/lib/engine-core.sh"
 
 # shellcheck disable=SC2034  # lido pelo consumidor apos o source — este e o contrato
-ENGINE_CORE_VERSION="1.1.0"
+ENGINE_CORE_VERSION="1.2.0"
 
 
 log() { printf '\033[2m[rc6]\033[0m %s\n' "$*" >&2; }
@@ -102,7 +105,9 @@ run_bounded() {
   ( sleep "$secs"; kill -TERM "$cmd_pid" 2>/dev/null ) & local wd_pid=$!
   wait "$cmd_pid" 2>/dev/null; local rc=$?
   kill "$wd_pid" 2>/dev/null; wait "$wd_pid" 2>/dev/null
-  [ "$rc" -ge 124 ] && log "engine killed after ${secs}s wall-clock (hang guard)"
+  # (1.2.0) ENGINE_KILLED: o classificador precisa saber que foi o guard, nao o motor, que
+  # encerrou — o stderr de um processo morto por TERM nao diz nada.
+  [ "$rc" -ge 124 ] && { ENGINE_KILLED=1; log "engine killed after ${secs}s wall-clock (hang guard)"; }
   return "$rc"
 }
 
@@ -182,16 +187,23 @@ PY
 run_engine() {
   local engine="$1" pf="$2" out="$3" raw="$3.raw"
   case "$engine" in
-    # stdin closed (</dev/null): headless agy must never block waiting for input
+    # stdin closed (</dev/null): headless agy must never block waiting for input.
+    # (1.2.0) run_bounded tambem no agy: o --print-timeout dele e do proprio CLI, e um CLI
+    # travado (MCP pendurado, 2026-08-02) nao o honra. Guard = timeout do agy + folga.
     agy)
+      local agy_cap=$(( $(dur_secs "$AGY_TIMEOUT") + ${RC6_HANG_GRACE:-30} ))
       if [ "$AGY_SCHEMA" = 1 ]; then
-        agy "${AGY_ARGS[@]}" -p "$(cat "$pf")" \
-          > "$raw" 2>"$WORKDIR/agy.err" < /dev/null || return 1
+        # (1.2.0) exit != 0 NAO dispensa o envelope: o agy pode sair com erro E com o motivo
+        # dentro dele ({"status":"ERROR","error":"...503..."}). Sem desembrulhar aqui, o texto
+        # some e o classificador ve `fatal` onde havia `transient` (E1, segundo caminho).
+        run_bounded "$agy_cap" agy "${AGY_ARGS[@]}" -p "$(cat "$pf")" \
+          > "$raw" 2>"$WORKDIR/agy.err" < /dev/null \
+          || { unwrap_structured agy "$raw" /dev/null >/dev/null 2>>"$WORKDIR/agy.err" || true; return 1; }
         local usage_agy
         usage_agy="$(unwrap_structured agy "$raw" "$out" 2>>"$WORKDIR/agy.err")" || return 1
         [ -n "$usage_agy" ] && log "  agy usage: $usage_agy"
       else
-        agy "${AGY_ARGS[@]}" -p "$(cat "$pf")" \
+        run_bounded "$agy_cap" agy "${AGY_ARGS[@]}" -p "$(cat "$pf")" \
           > "$out" 2>"$WORKDIR/agy.err" < /dev/null || return 1
       fi ;;
     # Wrapped in run_bounded: a rate-limited claude that hangs is killed after
@@ -329,6 +341,175 @@ egress_guard() {
     return 3
   fi
   return 0
+}
+
+# ---- (1.2.0) resiliencia do motor (spec 003) ---------------------------------
+# POR QUE: um 503 "no capacity" do pool do MODELO (dosiq#835) passa em minutos, mas o RC6
+# rodava cada chunk uma vez so — 3 de 4 chunks perdidos por um pico. E o 503 chega DENTRO do
+# envelope (status != SUCCESS, texto no campo `error`), nao no stderr do CLI: o classificador
+# le o arquivo de erro da tentativa, onde o unwrap_structured tambem escreve (achado E1).
+#
+# Camadas, da mais barata a mais cara: classificar -> repetir so `transient`, com backoff ->
+# modelo alternativo (outro pool de capacidade) -> segunda rodada no fim da fila (quem decide e
+# o consumidor, com rc6_second_round_ok). Tudo sob UM orcamento de tempo extra por run.
+#
+# Env (todas opcionais):
+#   RC6_RETRIES=2            tentativas extras por chamada; 0 desliga retry E segunda rodada
+#   RC6_BACKOFF="30 90"      espera antes da tentativa extra N (a ultima se repete)
+#   RC6_JITTER=1             soma ate +1/3 aleatorio a cada espera
+#   RC6_RETRY_BUDGET=300     segundos extras no run inteiro (esperas + tentativas extras)
+#   RC6_BREAKER=3            falhas `transient` seguidas que abrem o breaker
+#   RC6_AGY_MODEL_FALLBACK   modelo alternativo do agy (vazio desliga)
+#   RC6_STATUS_FILE          destino dos eventos JSONL (so com rc6_status_init)
+# O camada de retry do agy e INTERNA tambem ("API error (attempt 2)" no texto real): por isso o
+# backoff daqui e mais espacado que o dele — duas camadas curtas amplificam a carga no pool.
+
+dur_secs() { # "8m" | "480s" | "480" -> segundos
+  case "$1" in
+    *m) echo $(( ${1%m} * 60 )) ;;
+    *s) echo "${1%s}" ;;
+    *)  echo "${1:-0}" ;;
+  esac
+}
+
+# $1=engine -> transient|timeout|quota|fatal em stdout. Le o erro DA TENTATIVA ($WORKDIR/$1.err,
+# que recebe stderr do CLI + mensagem do unwrap) e ENGINE_KILLED (hang guard).
+# quota vem antes de transient: repetir quota so gasta mais quota. Texto desconhecido = fatal
+# (lado seguro: nao repete o que nao se entende).
+classify_engine_err() {
+  if [ "${ENGINE_KILLED:-0}" = 1 ]; then echo timeout; return 0; fi
+  local e; e="$(cat "$WORKDIR/$1.err" 2>/dev/null || true)"
+  case "$(printf '%s' "$e" | tr '[:upper:]' '[:lower:]')" in
+    *resource_exhausted*|*"code 429"*|*quota*|*"rate limit"*|*ratelimit*) echo quota ;;
+    *unavailable*|*"code 503"*|*"code 502"*|*"code 504"*|*"no capacity"*|*overloaded*|\
+    *econnreset*|*econnrefused*|*etimedout*|*"socket hang up"*|*"network error"*|*temporarily*) echo transient ;;
+    *"timed out"*|*timeout*|*deadline*) echo timeout ;;
+    *) echo fatal ;;
+  esac
+  return 0
+}
+
+RC6_STATUS_PATH=""
+# Abre o status file e ANUNCIA o caminho no stderr: quem nao definiu RC6_STATUS_FILE precisa
+# saber onde acompanhar. Default FORA do $WORKDIR, que o trap apaga no fim.
+rc6_status_init() {
+  RC6_STATUS_PATH="${RC6_STATUS_FILE:-${TMPDIR:-/tmp}/rc6-status-$$.jsonl}"
+  RC6_STATUS_PATH="${RC6_STATUS_PATH%/}"
+  : > "$RC6_STATUS_PATH" 2>/dev/null || { log "status: indisponivel ($RC6_STATUS_PATH)"; RC6_STATUS_PATH=""; return 0; }
+  log "status: $RC6_STATUS_PATH"
+  return 0
+}
+
+# $1=state [$2=json extra, sem chaves externas: '"attempt":2,"class":"transient"']
+# pass/chunk vem de RC6_STATUS_PASS / RC6_STATUS_CHUNK, que o consumidor define antes da chamada.
+# Canal LATERAL: nunca stdout (o stdout do consumidor e o contrato JSON).
+rc6_status() {
+  [ -n "$RC6_STATUS_PATH" ] || return 0
+  local extra="${2:-}"; [ -n "$extra" ] && extra=",$extra"
+  printf '{"t":"%s","pass":"%s","chunk":"%s","state":"%s"%s}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${RC6_STATUS_PASS:--}" "${RC6_STATUS_CHUNK:--}" "$1" "$extra" \
+    >> "$RC6_STATUS_PATH" 2>/dev/null || true
+  return 0
+}
+
+RC6_SPENT=0; BREAKER_STREAK=0; BREAKER_OPEN=0
+rc6_budget_left() { echo $(( ${RC6_RETRY_BUDGET:-300} - RC6_SPENT )); }
+
+# Cabe mais uma chamada numa SEGUNDA rodada? $1=classe da falha, $2=engine.
+# transient: sobrou orcamento. timeout: sobra um timeout INTEIRO (senao estoura o teto — E2).
+# quota/fatal: nunca. RC6_RETRIES=0 desliga (kill switch = comportamento anterior a 003).
+rc6_second_round_ok() {
+  [ "${RC6_RETRIES:-2}" -gt 0 ] || return 1
+  local left; left="$(rc6_budget_left)"
+  case "$1" in
+    transient) [ "$left" -gt 0 ] ;;
+    timeout)
+      local cap
+      if [ "$2" = agy ]; then cap="$(dur_secs "$AGY_TIMEOUT")"; else cap="${PASSB_TIMEOUT:-480}"; fi
+      [ "$left" -ge "$cap" ] ;;
+    *) return 1 ;;
+  esac
+}
+
+_rc6_backoff() { # $1=numero da tentativa extra (1..) -> segundos
+  local list="${RC6_BACKOFF:-30 90}" w="" x n=0
+  for x in $list; do n=$((n+1)); w="$x"; [ "$n" -ge "$1" ] && break; done
+  w="${w:-0}"
+  if [ "${RC6_JITTER:-1}" = 1 ] && [ "$w" -gt 0 ]; then w=$(( w + RANDOM % (w / 3 + 1) )); fi
+  echo "$w"
+}
+
+# $1=engine $2=prompt $3=out [$4=1 permite modelo alternativo] [$5=rotulo p/ arquivos de erro]
+# Mesmo contrato de retorno do run_engine (0 = saida valida). Escreve, para o consumidor:
+#   ENGINE_LAST_CLASS    ok|transient|timeout|quota|fatal
+#   ENGINE_LAST_ATTEMPTS chamadas feitas (modelo alternativo incluso)
+#   ENGINE_LAST_RETRIED  1 se houve tentativa extra no mesmo modelo
+#   ENGINE_LAST_FALLBACK 1 se a saida valida veio do modelo alternativo
+# Cada tentativa que falha deixa o proprio erro em $WORKDIR/<engine>.<rotulo>.<n>.err (FR-009):
+# o $engine.err e reescrito a cada chamada, e a primeira falha e muitas vezes a que explica.
+# O A/B do 056/PO-5 chama com $4=0: modelo alternativo no baseline mediria o modelo, nao o
+# filtro (E3). O run_engine BRUTO continua exportado — esta funcao so o envolve.
+run_engine_resilient() {
+  local engine="$1" pf="$2" out="$3" allow_fb="${4:-0}" tag="${5:-call}"
+  local max="${RC6_RETRIES:-2}" n=0 cls w t0
+  ENGINE_LAST_CLASS=""; ENGINE_LAST_ATTEMPTS=0; ENGINE_LAST_RETRIED=0; ENGINE_LAST_FALLBACK=0
+  [ "$BREAKER_OPEN" = 1 ] && max=0   # breaker aberto: uma tentativa, falhou -> segunda rodada
+  rc6_status started "\"engine\":\"$engine\""
+  while :; do
+    n=$((n+1)); ENGINE_LAST_ATTEMPTS=$n; ENGINE_KILLED=0
+    t0="$(date +%s)"
+    if run_engine "$engine" "$pf" "$out"; then
+      [ "$n" -gt 1 ] && RC6_SPENT=$(( RC6_SPENT + $(date +%s) - t0 ))
+      BREAKER_STREAK=0; ENGINE_LAST_CLASS=ok
+      rc6_status ok "\"attempt\":$n"
+      return 0
+    fi
+    [ "$n" -gt 1 ] && RC6_SPENT=$(( RC6_SPENT + $(date +%s) - t0 ))
+    cls="$(classify_engine_err "$engine")"; ENGINE_LAST_CLASS="$cls"
+    cp "$WORKDIR/$engine.err" "$WORKDIR/$engine.$tag.$n.err" 2>/dev/null || true
+    [ "$cls" = transient ] || break
+    BREAKER_STREAK=$((BREAKER_STREAK+1))
+    if [ "$BREAKER_STREAK" -ge "${RC6_BREAKER:-3}" ] && [ "$BREAKER_OPEN" = 0 ]; then
+      BREAKER_OPEN=1
+      log "⚡ breaker aberto: $BREAKER_STREAK falhas transient seguidas — sem retry imediato; pendentes vão para a segunda rodada"
+      rc6_status breaker_open "\"streak\":$BREAKER_STREAK"
+      return 1
+    fi
+    [ "$n" -gt "$max" ] && break
+    w="$(_rc6_backoff "$n")"
+    if [ $(( w + 1 )) -gt "$(rc6_budget_left)" ]; then
+      log "orçamento de retry esgotado ($(rc6_budget_left)s restantes) — sem nova tentativa"
+      break
+    fi
+    log "aguardando ${w}s (retry $n/$max, ${RC6_STATUS_PASS:-?} ${RC6_STATUS_CHUNK:-?}, orçamento $(rc6_budget_left)s) — $(engine_err_hint "$engine")"
+    rc6_status retrying "\"attempt\":$((n+1)),\"class\":\"$cls\",\"wait_s\":$w,\"budget_left_s\":$(rc6_budget_left)"
+    ENGINE_LAST_RETRIED=1
+    sleep "$w"; RC6_SPENT=$(( RC6_SPENT + w ))
+  done
+  # Modelo alternativo: so para `transient` (capacidade do pool DAQUELE modelo) e so no agy.
+  local fb="${RC6_AGY_MODEL_FALLBACK-gemini-3.7-flash-medium}"
+  if [ "$cls" = transient ] && [ "$allow_fb" = 1 ] && [ "$engine" = agy ] && [ "$BREAKER_OPEN" = 0 ] \
+     && [ -n "$fb" ] && [ "$fb" != "${RC6_AGY_MODEL:-}" ] && [ "$(rc6_budget_left)" -gt 0 ]; then
+    rc6_status model_fallback "\"model\":\"$fb\""
+    log "tentando modelo alternativo $fb (${RC6_STATUS_PASS:-?} ${RC6_STATUS_CHUNK:-?})"
+    local saved=("${AGY_ARGS[@]}") k
+    for k in "${!AGY_ARGS[@]}"; do
+      [ "${AGY_ARGS[$k]}" = --model ] && AGY_ARGS[k+1]="$fb"
+    done
+    n=$((n+1)); ENGINE_LAST_ATTEMPTS=$n; ENGINE_KILLED=0; t0="$(date +%s)"
+    if run_engine agy "$pf" "$out"; then
+      AGY_ARGS=("${saved[@]}")
+      RC6_SPENT=$(( RC6_SPENT + $(date +%s) - t0 ))
+      BREAKER_STREAK=0; ENGINE_LAST_CLASS=ok; ENGINE_LAST_FALLBACK=1
+      rc6_status ok "\"attempt\":$n,\"model\":\"$fb\""
+      return 0
+    fi
+    AGY_ARGS=("${saved[@]}")
+    RC6_SPENT=$(( RC6_SPENT + $(date +%s) - t0 ))
+    cls="$(classify_engine_err agy)"; ENGINE_LAST_CLASS="$cls"
+    cp "$WORKDIR/agy.err" "$WORKDIR/agy.$tag.$n.err" 2>/dev/null || true
+  fi
+  return 1
 }
 
 # ---- (1.1.0) fail-open ------------------------------------------------------

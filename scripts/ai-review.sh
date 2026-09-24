@@ -42,7 +42,7 @@ set -euo pipefail
 # ---- @core: funcoes agnosticas de motor (001/F1) ----------------------------
 # Extraidas para scripts/lib/engine-core.sh sem alteracao de comportamento. A versao
 # esperada e citada aqui: core novo sob consumidor velho falha ALTO, nao em silencio.
-ENGINE_CORE_EXPECTED="1.1.0"
+ENGINE_CORE_EXPECTED="1.2.0"
 # shellcheck source=lib/engine-core.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/engine-core.sh"
 if [ "${ENGINE_CORE_VERSION:-}" != "$ENGINE_CORE_EXPECTED" ]; then
@@ -964,6 +964,62 @@ fi
 
 OUTS=(); ENGINES=()
 
+# ---- cobertura por passe + resiliencia (spec 003) ----------------------------
+# Antes, `chunks_reviewed` era o numero de chunks SELECIONADOS e nao o de REVISADOS: com 3 de
+# 4 chunks do pass A mortos por 503, o JSON saiu `partial:false` (dosiq#835, AP-325 dentro da
+# ferramenta de review). Agora cada chunk de cada passe deixa UMA linha no coverage.tsv com o
+# desfecho, e o merge deriva a cobertura dali — nunca do que foi planejado.
+#   colunas: pass  chunk-id  ok|deferred|failed  classe  tentativas  retried  fallback
+COV_TSV="$WORKDIR/coverage.tsv"; : > "$COV_TSV"
+# shellcheck disable=SC2034  # lidas pelo @core (rc6_status / log do run_engine_resilient)
+RC6_STATUS_PASS=-; RC6_STATUS_CHUNK=-
+rc6_status_init
+cov_mark() { # $1=pass $2=chunk-id $3=desfecho $4=classe
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" \
+    "${ENGINE_LAST_ATTEMPTS:-0}" "${ENGINE_LAST_RETRIED:-0}" "${ENGINE_LAST_FALLBACK:-0}" >> "$COV_TSV"
+}
+
+# Um chunk no agy, com retry/fallback do @core. Falha recuperavel (transient, ou timeout que
+# ainda cabe no orcamento) vai para PASS_DEFER — a segunda rodada, no fim da fila, depois que o
+# tempo gasto nos outros chunks ja fez o papel de backoff. Os textos de log "ok" sao os de
+# antes da 003, byte a byte: tests/ai-review-paths.sh compara stderr.
+#   $1=pass $2=chunk-id $3=prompt $4=out $5=rotulo do log $6=rodada(1|2)
+PASS_DEFER=()
+review_chunk() {
+  local p="$1" i="$2" lbl="$5" cls via=""
+  RC6_STATUS_PASS="$p"; RC6_STATUS_CHUNK="$((i+1))/$NPLANNED"
+  if run_engine_resilient agy "$3" "$4" 1 "$p$i.r$6"; then
+    OUTS+=("$4"); ENGINES+=("agy"); cov_mark "$p" "$i" ok ok
+    # Marca a saida do modelo alternativo: o A/B do 056/PO-5 nao pode usa-la (E3).
+    if [ "$ENGINE_LAST_FALLBACK" = 1 ]; then via=", modelo alternativo"; : > "$4.modelfb"; fi
+    log "pass $p chunk $((i+1))/$NPLANNED ($lbl$via) ok"
+    return 0
+  fi
+  cls="$ENGINE_LAST_CLASS"
+  if [ "$6" = 1 ] && rc6_second_round_ok "$cls" agy; then
+    PASS_DEFER+=("$i"); cov_mark "$p" "$i" deferred "$cls"
+    rc6_status deferred "\"class\":\"$cls\""
+    log "pass $p chunk $((i+1))/$NPLANNED ($lbl) FAILED [$cls] — adiado p/ a segunda rodada — $(engine_err_hint agy)"
+  else
+    cov_mark "$p" "$i" failed "$cls"
+    rc6_status failed "\"class\":\"$cls\",\"attempts\":${ENGINE_LAST_ATTEMPTS:-0}"
+    log "pass $p chunk $((i+1))/$NPLANNED ($lbl) FAILED [$cls] — $(engine_err_hint agy)"
+  fi
+  return 1
+}
+# $1=pass $2=prefixo do prompt $3=prefixo da saida $4=rotulo. Uma rodada so, breaker zerado.
+# shellcheck disable=SC2034  # BREAKER_* e lida pelo @core (run_engine_resilient)
+second_round() {
+  [ "${#PASS_DEFER[@]}" -gt 0 ] || return 0
+  local ids=("${PASS_DEFER[@]}") i
+  PASS_DEFER=(); BREAKER_OPEN=0; BREAKER_STREAK=0
+  log "segunda rodada, pass $1: chunk(s) [$(for i in "${ids[@]}"; do printf ' %s' $((i+1)); done) ] · orçamento $(rc6_budget_left)s"
+  for i in "${ids[@]}"; do
+    review_chunk "$1" "$i" "$2_$i.txt" "$3_$i.json" "$4, 2ª rodada" 2 || true
+  done
+  return 0
+}
+
 # ---- A/B capture for spec 056 PO-5 (T014) -----------------------------------
 # WHY THIS LIVES IN THE SCRIPT AND NOT IN A DOC: the 034-D protocol already told
 # the agent to append a measurement line at C5. It failed 5 PRs in a row
@@ -1058,15 +1114,13 @@ for i in "${CHUNK_IDS[@]}"; do
   if [ "$PAYLOAD_BYTES" -gt "$CTX_TOTAL_MAX" ]; then
     log "⚠️ chunk $((i+1))/$NPLANNED payload ${PAYLOAD_BYTES}B > ${CTX_TOTAL_MAX}B — result is ADVISORY (oversized single file)"
   fi
-  if [ "$HAVE_AGY" = 1 ] && run_engine agy "$WORKDIR/promptA_$i.txt" "$WORKDIR/outA_$i.json"; then
-    OUTS+=("$WORKDIR/outA_$i.json"); ENGINES+=("agy")
-    log "pass A chunk $((i+1))/$NPLANNED (agy, ${PAYLOAD_BYTES}B) ok"
-  elif [ "$HAVE_AGY" = 0 ]; then
-    log "pass A chunk $((i+1))/$NPLANNED skipped — agy indisponível (ausente do PATH ou reprovado no probe)"
+  if [ "$HAVE_AGY" = 1 ]; then
+    review_chunk A "$i" "$WORKDIR/promptA_$i.txt" "$WORKDIR/outA_$i.json" "agy, ${PAYLOAD_BYTES}B" 1 || true
   else
-    log "pass A chunk $((i+1))/$NPLANNED (agy) FAILED — $(engine_err_hint agy)"
+    log "pass A chunk $((i+1))/$NPLANNED skipped — agy indisponível (ausente do PATH ou reprovado no probe)"
   fi
 done
+second_round A "$WORKDIR/promptA" "$WORKDIR/outA" agy
 
 # ---- A/B: the paired filtered run (only when the baseline found something) --
 # Ordered on purpose: the decision to spend the second run is made AFTER the
@@ -1076,7 +1130,9 @@ done
 if [ "$AB_ARMED" = 1 ]; then
   AB_OFF_OUTS=()
   for i in "${CHUNK_IDS[@]}"; do
-    [ -f "$WORKDIR/outA_$i.json" ] && AB_OFF_OUTS+=("$WORKDIR/outA_$i.json")
+    # Saida do modelo alternativo nao entra no baseline: mediria o modelo, nao o filtro (E3).
+    [ -f "$WORKDIR/outA_$i.json" ] && [ ! -f "$WORKDIR/outA_$i.json.modelfb" ] \
+      && AB_OFF_OUTS+=("$WORKDIR/outA_$i.json")
   done
   AB_OFF="$(ab_counts "${AB_OFF_OUTS[@]:-/dev/null}")"
   if [ "${#AB_OFF_OUTS[@]}" -lt "$NCHUNKS" ]; then
@@ -1092,7 +1148,9 @@ if [ "$AB_ARMED" = 1 ]; then
       EXTRA=""
       [ "$NPLANNED" -gt 1 ] && EXTRA=$'\n'"NOTE: this payload carries part $((i+1))/$NPLANNED of the PR's diff (split by file to fit the engine context budget). Audit ONLY the files present here; other parts are reviewed separately."
       build_prompt "$EXTRA" "$WORKDIR/ctxAB_$i.txt" "$WORKDIR/promptAB_$i.txt"
-      if run_engine agy "$WORKDIR/promptAB_$i.txt" "$WORKDIR/outAB_$i.json"; then
+      # Retry no MESMO modelo sim (dos dois lados); modelo alternativo nunca ($4=0, E3).
+      RC6_STATUS_PASS=AB; RC6_STATUS_CHUNK="$((i+1))/$NPLANNED"
+      if run_engine_resilient agy "$WORKDIR/promptAB_$i.txt" "$WORKDIR/outAB_$i.json" 0 "AB$i"; then
         AB_ON_OUTS+=("$WORKDIR/outAB_$i.json")
         log "A/B chunk $((i+1))/$NPLANNED (filtrado, $(wc -c < "$WORKDIR/promptAB_$i.txt")B) ok"
       else
@@ -1155,8 +1213,11 @@ if [ "$TIER" = 2 ]; then
     echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="; cat "$WORKDIR/diff.txt"
   } > "$CTXB"
   build_prompt "$PASSB_FOCUS" "$CTXB" "$WORKDIR/promptB.txt"
-  if [ "$HAVE_CLAUDE" = 1 ] && run_engine claude "$WORKDIR/promptB.txt" "$WORKDIR/outB.json"; then
+  RC6_STATUS_PASS=B; RC6_STATUS_CHUNK=full
+  if [ "$HAVE_CLAUDE" = 1 ] && run_engine_resilient claude "$WORKDIR/promptB.txt" "$WORKDIR/outB.json" 0 B; then
     OUTS+=("$WORKDIR/outB.json"); ENGINES+=("claude")
+    # Uma chamada full-context cobre TODOS os chunks selecionados.
+    for i in "${CHUNK_IDS[@]}"; do cov_mark B "$i" ok ok; done
     log "pass B (claude, full-context $(wc -c < "$WORKDIR/promptB.txt")B) ok"
   elif [ "$HAVE_AGY" = 1 ]; then
     # Chegar aqui com claude no PATH significa que ele FALHOU — dizer isso alto, senão
@@ -1165,22 +1226,50 @@ if [ "$TIER" = 2 ]; then
     { [ "$HAVE_CLAUDE" = 1 ] && log "pass B (claude) FAILED — $(engine_err_hint claude); caindo p/ agy chunked"; } || true
     for i in "${CHUNK_IDS[@]}"; do
       build_prompt "$PASSB_FOCUS" "$WORKDIR/ctxA_$i.txt" "$WORKDIR/promptB_$i.txt"
-      if run_engine agy "$WORKDIR/promptB_$i.txt" "$WORKDIR/outB_$i.json"; then
-        OUTS+=("$WORKDIR/outB_$i.json"); ENGINES+=("agy")
-        log "pass B chunk $((i+1))/$NPLANNED (agy fallback) ok"
-      else
-        log "pass B chunk $((i+1))/$NPLANNED (agy fallback) FAILED — $(engine_err_hint agy)"
-      fi
+      review_chunk B "$i" "$WORKDIR/promptB_$i.txt" "$WORKDIR/outB_$i.json" "agy fallback" 1 || true
     done
+    second_round B "$WORKDIR/promptB" "$WORKDIR/outB" "agy fallback"
   elif [ "$HAVE_CLAUDE" = 1 ]; then
+    for i in "${CHUNK_IDS[@]}"; do cov_mark B "$i" failed "${ENGINE_LAST_CLASS:-fatal}"; done
     log "pass B (claude) FAILED — $(engine_err_hint claude); sem agy p/ fallback"
   else
     log "pass B unavailable — nenhum engine no PATH; tier2 ran with pass A only"
   fi
 fi
 
+# ---- VERDICT (spec 003/PO-3) --------------------------------------------------
+# UMA linha, a ultima do stderr, que diz o mesmo que o `coverage` do JSON. Existe porque o
+# agente do dosiq#835 teve de arbitrar entre um stderr que dizia "3 chunks FAILED" e um JSON
+# que dizia `partial:false`, e so acertou por ler os dois. Quem le esta linha nao precisa.
+# shellcheck disable=SC2034  # RC6_STATUS_* e lida pelo rc6_status do @core
+rc6_verdict() { # $1=merged.json (vazio = revisao nao aconteceu)
+  local v
+  if [ -z "${1:-}" ]; then
+    v="VERDICT coverage=none reviewers_min=0 — revisão NÃO aconteceu; revisão humana obrigatória"
+  else
+    v="$(python3 - "$1" <<'PYV' 2>/dev/null || echo "VERDICT coverage=unknown — merged.json ilegível"
+import json, sys
+c = json.load(open(sys.argv[1])).get("coverage") or {}
+pp = c.get("per_pass") or {}
+parts = ["coverage=%s" % ("partial" if c.get("partial") else "full")]
+parts += ["%s=%d/%d" % (p, pp[p]["ok"], pp[p]["planned"]) for p in sorted(pp)]
+r = (c.get("independent_reviewers") or {}).get("min")
+if r is not None: parts.append("reviewers_min=%d" % r)
+tail = ""
+if c.get("partial"): tail = " — cobertura PARCIAL: registre no PR; não é motivo p/ rodar de novo"
+elif r is not None and r < len(pp): tail = " — algum chunk teve 1 revisor só"
+print("VERDICT " + " ".join(parts) + tail)
+PYV
+)"
+  fi
+  RC6_STATUS_PASS=-; RC6_STATUS_CHUNK=-
+  rc6_status "done" "\"verdict\":\"${v#VERDICT }\""
+  log "$v"
+}
+
 # ---- fail-open --------------------------------------------------------------
 if [ "${#OUTS[@]}" = 0 ]; then
+  rc6_verdict ""
   fail_open "⚠️ AI review unavailable — human review mandatory (agy and claude both failed/absent)."
 fi
 
@@ -1188,6 +1277,7 @@ fi
 ENGINE_LABEL="$(printf '%s\n' "${ENGINES[@]}" | sort -u | paste -sd+ -)"
 [ "$NCHUNKS" -gt 1 ] && ENGINE_LABEL="${ENGINE_LABEL} (${NCHUNKS} chunks)"
 MERGED="$WORKDIR/merged.json"
+RC6_COV_TSV="$COV_TSV" RC6_CHUNK_IDS="${CHUNK_IDS[*]}" RC6_WORKDIR="$WORKDIR" \
 python3 - "$MERGED" "$ENGINE_LABEL" "$NCHUNKS" "$NPLANNED" "$DROPPED_FILES" "${OUTS[@]}" <<'PY'
 import sys, json, re
 out_path, engine_label = sys.argv[1], sys.argv[2]
@@ -1240,11 +1330,61 @@ def cnt(sev, introduced=None):
     return sum(1 for f in findings
                if f.get("severity")==sev and (introduced is None or bool(f.get("introduced",True))==introduced))
 
+# ---- cobertura REAL (spec 003) --------------------------------------------------
+# Contrato ADITIVO: chunks_reviewed/chunks_planned/partial/not_reviewed continuam, com a
+# semantica corrigida — `chunks_reviewed` conta chunks revisados por TODOS os passes ativos,
+# entao `partial` volta a ser exatamente `reviewed < planned`, agora cobrindo falha de motor
+# alem do corte por cap. per_pass e independent_reviewers dizem o resto.
+import os as _os2
+cov_rows = {}
+_tsv = _os2.environ.get("RC6_COV_TSV", "")
+if _tsv and _os2.path.exists(_tsv):
+    for ln in open(_tsv):
+        p_, c_, res, cls, att, rt, fb = (ln.rstrip("\n").split("\t") + [""] * 7)[:7]
+        if not p_: continue
+        prev = cov_rows.get((p_, c_), {"attempts": 0, "retried": 0})
+        cov_rows[(p_, c_)] = {"res": res, "cls": cls,
+                              "attempts": prev["attempts"] + int(att or 0),
+                              "retried": max(prev["retried"], int(rt or 0)), "fb": int(fb or 0)}
+chunk_ids = [c for c in _os2.environ.get("RC6_CHUNK_IDS", "").split() if c]
+not_reviewed_detail = [{"file": f, "reason": "cap"} for f in dropped_files]
+if cov_rows and chunk_ids:
+    passes = sorted(set(p_ for p_, _ in cov_rows))
+    per_pass = {}
+    for p_ in passes:
+        rows = {c: cov_rows[(p_, c)] for c in chunk_ids if (p_, c) in cov_rows}
+        per_pass[p_] = {
+            "planned": len(chunk_ids),
+            "ok": sum(1 for r in rows.values() if r["res"] == "ok"),
+            "retried": sum(1 for r in rows.values() if r["retried"]),
+            "model_fallback": sum(1 for r in rows.values() if r["res"] == "ok" and r["fb"]),
+            "failed": [{"chunk": int(c) + 1, "class": r["cls"], "attempts": r["attempts"]}
+                       for c, r in sorted(rows.items(), key=lambda kv: int(kv[0])) if r["res"] != "ok"],
+        }
+    per_chunk = {c: sum(1 for p_ in passes if cov_rows.get((p_, c), {}).get("res") == "ok")
+                 for c in chunk_ids}
+    n_reviewed = sum(1 for c in chunk_ids if per_chunk[c] == len(passes))
+    reviewers = {"min": min(per_chunk.values()), "max": max(per_chunk.values())}
+    wd = _os2.environ.get("RC6_WORKDIR", "")
+    for c in chunk_ids:
+        if per_chunk[c] == 0:
+            try:
+                for f in open(_os2.path.join(wd, "chunk_%s.files" % c)).read().split():
+                    dropped_files.append(f)
+                    not_reviewed_detail.append({"file": f, "reason": "engine_failed"})
+            except OSError:
+                pass
+else:
+    per_pass, reviewers = {}, None
 coverage = {"chunks_reviewed": n_reviewed, "chunks_planned": n_planned,
             "partial": n_reviewed < n_planned,
             # Naming what was NOT looked at is the point: an unnamed gap reads as
             # "reviewed" to everyone downstream.
-            "not_reviewed": dropped_files}
+            "not_reviewed": dropped_files,
+            "not_reviewed_detail": not_reviewed_detail}
+if per_pass:
+    coverage["per_pass"] = per_pass
+    coverage["independent_reviewers"] = reviewers
 result = {
     "engine": engine_label,
     "coverage": coverage,
@@ -1314,6 +1454,7 @@ cat "$MERGED"
 # ---- dry-run stops here (no PR / state mutation) ----------------------------
 if [ "$POST" = 0 ]; then
   log "dry-run: no PR comments, no state/journal writes"
+  rc6_verdict "$MERGED"
   exit 0
 fi
 
@@ -1395,7 +1536,18 @@ cov = merged.get("coverage") or {}
 cov_line = ""
 if cov:
     cov_line = "**Coverage:** %d/%d chunks reviewed" % (cov.get("chunks_reviewed",0), cov.get("chunks_planned",0))
-    if cov.get("partial"):
+    pp = cov.get("per_pass") or {}
+    if pp:
+        cov_line += " · " + " · ".join("pass %s %d/%d" % (p, pp[p]["ok"], pp[p]["planned"]) for p in sorted(pp))
+        ir = cov.get("independent_reviewers") or {}
+        if ir: cov_line += " · reviewers min %d" % ir.get("min", 0)
+    failed = [f for p in pp.values() for f in p.get("failed", [])]
+    if cov.get("partial") and failed:
+        # Falha de MOTOR nao se conserta dividindo o PR: dizer "split" aqui mandaria o autor
+        # refazer o PR por causa de um 503 do provedor.
+        cov_line += " — ⚠️ **PARTIAL: engine failure** (%s). Human review must cover the gap; re-running RC6 is NOT the rule." % \
+            ", ".join(sorted(set(f["class"] for f in failed)))
+    elif cov.get("partial"):
         cov_line += " — ⚠️ **PARTIAL: split this PR.** Chunks kept are the highest-risk ones (dropped args > logic/date > hot paths; `_dev`/tests deprioritized), NOT the first N."
         nr = cov.get("not_reviewed") or []
         if nr:
@@ -1536,3 +1688,4 @@ except Exception as e:
 PY
 
 log "RC6 --post complete"
+rc6_verdict "$MERGED"

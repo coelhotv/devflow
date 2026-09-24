@@ -2,7 +2,7 @@
 
 **Feature Directory:** `plans/specs/003-rc6-engine-resilience/`
 **Created:** 2026-09-24
-**Status:** specified
+**Status:** delivered (código) — PO-1..3 fechadas com evidência de execução; aguarda PR
 **Tier:** 1
 **Input:** relato do agente coder do `dosiq` no PR #835 (2026-09-24). No RC6, o pass A (agy/Gemini)
 perdeu 3 dos 4 chunks com `503 UNAVAILABLE — no capacity`, mas o JSON final saiu com
@@ -51,8 +51,22 @@ expect: partial=true; chunks_reviewed < chunks_planned; per_pass.A.ok=1, per_pas
         per_pass.A.failed lista 3 chunks com class=transient; independent_reviewers.min=1
 guard:  caso "tudo ok" segue com partial=false e reviewers.min=2; os campos chunks_reviewed,
         chunks_planned, partial e not_reviewed continuam presentes (contrato aditivo); as 6 suítes
-        de tests/ verdes e `tests/ai-review-paths.sh` sem diff nos 4 cenários antigos (RC3: guard ↑)
-status: [ ] pending
+        de tests/ verdes e `tests/ai-review-paths.sh` sem diff nos 4 cenários antigos, **exceto as
+        adições do contrato aditivo** (linha `status:`, linha `VERDICT`, chaves novas de `coverage`),
+        provado removendo-as do "depois" e comparando de novo (RC3: guard ↑)
+status: [x] done
+evidence_class: execution
+red:    contra o HEAD adbc351 (worktree limpo): "rc6-resilience: 6 passaram, 25 falharam". O primeiro
+        FALHA reproduz o dosiq#835 literalmente: "partial=False (esperado True)", "chunks_reviewed=4".
+note:   `bash tests/rc6-resilience.test.sh` → "31 passaram, 0 falharam" (2026-09-24): partial=true,
+        chunks_reviewed<planned, per_pass.A=1/4, failed 3×transient, reviewers min=1 max=2. Guard: as 6
+        suítes (ai-review-no-agent 3/3, mode-gate 10/10, no-core-shadowing 5/5, second-opinion 23/23,
+        setup 19/19, skill-comply 10/10) + test-rank-chunks ok; ai-review-baseline sem diff; o diff do
+        ai-review-paths depois de remover as 3 adições esperadas saiu VAZIO (argv do motor, egress,
+        fail-open e ordem de logs byte a byte iguais).
+uncertainty: o caminho `--post` (comentário no PR) não é exercitado por teste (exige gh + PR). O trecho
+        de cobertura dele foi compilado e executado isolado sobre um merged sintético; o POST real fica
+        para o primeiro RC6 de campo (SC-003).
 ```
 
 ### US2 — Falha passageira do motor não custa um chunk (P1)
@@ -74,7 +88,20 @@ expect: chunk ok nos casos recuperáveis, com per_pass.A.retried e .model_fallba
         encurtado por env no teste)
 guard:  com RC6_RETRIES=0 e sem modelo de fallback, o comportamento é o de hoje (1 chamada por chunk);
         o A/B do 056/PO-5 não recebe saída de modelo alternativo; as 6 suítes verdes (RC3: guard ↑)
-status: [ ] pending
+status: [x] done
+evidence_class: execution
+red:    mesmo run do PO-1 contra o HEAD: "503→503→ok: None", "fallback: None", "modelo alternativo
+        nao foi chamado", "breaker: {...'partial': False...}", "timeout: None".
+note:   31/31 (2026-09-24): 503→503→ok (retried=1); 503 com exit 1 também repete; fallback chamou
+        gemini-3.7-flash-medium (model_fallback=1); 429 e fatal: 1 chamada só; 3×503 abre o breaker, a
+        4ª chamada é o chunk 2 e a segunda rodada recupera o chunk 1; hang: a 2ª chamada é o chunk 2 e
+        a segunda rodada recupera; hang com RC6_RETRY_BUDGET=0: não repete, classe timeout. Guard
+        RC6_RETRIES=0 sem fallback: 4 chamadas para 4 chunks. A/B: saída marcada `.modelfb` fica fora
+        do baseline (ai-review.sh:1134) e o par chama com fallback desligado (:1153).
+uncertainty: o isolamento do A/B (FR-014) está verificado por leitura de código, não por teste: armar o
+        A/B exige PR + log de medição, fora do fixture. A 1ª hipótese de texto de erro vem do log real
+        (503); textos de 429/timeout do agy real nunca foram observados — padrões por palavra-chave, e
+        o desconhecido cai em `fatal` (lado seguro, A-2).
 ```
 
 ### US3 — Quem pediu a revisão acompanha o estado (P2)
@@ -93,16 +120,27 @@ expect: o arquivo tem a sequência started→retrying→ok (ou →deferred→fai
         válido com pass/chunk/state; ele sobrevive ao fim do run; a linha VERDICT diz
         coverage=partial|full e A=<ok>/<planned> iguais ao JSON
 guard:  o stdout segue sendo só o JSON final (nenhum evento de status vaza para ele)
-status: [ ] pending
+status: [x] done
+evidence_class: execution
+red:    contra o HEAD: status file inexistente, sem VERDICT (asserções de status/VERDICT FALHA).
+note:   31/31 (2026-09-24): toda linha do status file é JSON com pass/chunk/state; contém started,
+        retrying, breaker_open, deferred, ok, done; stderr anuncia "status: <caminho>"; heartbeat
+        "aguardando 1s"; última linha do stderr = "VERDICT coverage=partial A=1/4 B=4/4
+        reviewers_min=1 …", igual ao JSON; stdout segue JSON puro.
+uncertainty: nenhuma.
 ```
 
 ## Functional Requirements
 
-- **FR-001** `coverage.chunks_reviewed` conta os chunks que algum motor revisou com sucesso.
-  `partial` fica `true` quando qualquer passe ativo tem `ok < planned`. **Contrato aditivo:** os
+- **FR-001** `coverage.chunks_reviewed` conta os chunks revisados com sucesso por **todos** os passes
+  ativos, e `partial` é `chunks_reviewed < chunks_planned`. Na prática, `partial` fica `true` quando
+  qualquer passe ativo tem `ok < planned` *(corrigido na implementação em 2026-09-24; ver Registro
+  de correções)*. **Contrato aditivo:** os
   campos atuais continuam, e entram `per_pass` (`planned`, `ok`, `retried`, `model_fallback`,
   `failed[{chunk, class, attempts}]`) e `independent_reviewers {min, max}`.
-- **FR-002** Arquivos de chunks que falharam entram em `not_reviewed`, com motivo `engine_failed`.
+- **FR-002** Arquivos de chunks que **nenhum** passe revisou entram em `not_reviewed`. O motivo vai no
+  campo novo `not_reviewed_detail[{file, reason: cap|engine_failed}]`, porque `not_reviewed` segue
+  sendo lista de strings (contrato aditivo).
 - **FR-003** O erro do motor é classificado em `transient`, `timeout`, `quota` ou `fatal`, a partir do
   texto de erro **da tentativa** (stderr do CLI e mensagem de envelope FAILED, inclusive com exit 0).
   Só `transient` ganha nova tentativa imediata. `timeout` vai direto para a segunda rodada, e só se
@@ -120,8 +158,9 @@ status: [ ] pending
 - **FR-009** Cada tentativa guarda o próprio stderr. O hint de erro usado no log é o da tentativa
   que falhou.
 - **FR-010** Eventos de estado em JSONL no caminho de `RC6_STATUS_FILE` (padrão fora do diretório
-  de trabalho que é apagado no fim). A primeira linha do stderr informa o caminho, para quem não o
-  definiu conseguir acompanhar. Estados: `started`, `ok`, `retrying`, `model_fallback`,
+  de trabalho que é apagado no fim). O stderr informa o caminho logo antes da primeira chamada de
+  motor, para quem não o definiu conseguir acompanhar *(era "primeira linha do stderr"; corrigido em
+  2026-09-24: anunciar antes do egress/measure mudaria a saída de caminhos que não chamam motor)*. Estados: `started`, `ok`, `retrying`, `model_fallback`,
   `deferred`, `failed`, `breaker_open`, `done`.
 - **FR-011** Durante o backoff, o stderr anuncia a espera (tentativa, chunk, orçamento restante). A
   última linha do stderr é `[rc6] VERDICT coverage=… A=ok/planned B=ok/planned reviewers_min=…`.
@@ -130,6 +169,8 @@ status: [ ] pending
 - **FR-014** O A/B do 056/PO-5 não aceita saída de modelo alternativo, nem no baseline nem no par:
   comparar modelos diferentes mediria o modelo, não o filtro. Nova tentativa no mesmo modelo é
   permitida dos dois lados.
+- **FR-016** Com exit ≠ 0, o envelope do agy também é desembrulhado para o arquivo de erro, antes de
+  classificar *(achado na implementação: sem isso, o 503 com exit 1 virava `fatal`)*.
 - **FR-015** O orçamento de tempo extra é um só por run, somado entre os passes A, B (fallback
   em chunks) e A/B.
 - **FR-013** A seção RC6 do `devflow-code` ensina a ler o VERDICT e o `coverage`: `partial` é
@@ -168,6 +209,9 @@ status: [ ] pending
 
 - **A-1** O `gemini-3.7-flash-medium` tem pool de capacidade separado do `3.8` (é a premissa do
   FR-005; decidida pelo operador).
+- **A-3** O `skill-comply.sh` (001/H) é um terceiro consumidor do `@core`, que o RC3 não mapeou. Ele
+  continua no `run_engine` bruto (é instrumento de medição, e retry mudaria o que ele mede). Só a
+  versão esperada subiu, e ele herda o hang guard do agy.
 - **A-2** A classificação usa as mensagens de erro dos CLIs (`agy`, `claude`) observadas até hoje. Um
   texto de erro desconhecido cai em `fatal`, sem nova tentativa, que é o lado seguro.
 - **Q1 (não bloqueia)** Oferecer `RC6_CROSS_FALLBACK=1` numa spec futura, com `engine_substituted`
@@ -210,8 +254,30 @@ Nenhuma divergência da posição inicial. O risco do A/B se confirmou (E3). A l
 E1 e E2, que eu não tinha previsto: sem eles, o retry não dispararia no 503 real (E1) ou estouraria o
 orçamento no primeiro timeout (E2). Os dois são pré-condição do PO-2.
 
+## Registro de correções (HISTÓRICO — a fonte de verdade é o corpo acima)
+
+| O que estava errado | Como foi verificado | Onde a correção mora |
+|---|---|---|
+| FR-001 dizia "revisado por **algum** motor", mas a PO-1 esperava `chunks_reviewed < planned` num cenário em que o claude cobre tudo. As duas coisas não podiam ser verdade juntas. | Ao escrever a asserção da PO-1 | FR-001: "por **todos** os passes ativos". Mantém `partial ⇔ reviewed < planned`, a semântica anterior. |
+| FR-010: "primeira linha do stderr" | O diff do `ai-review-paths.sh` mostraria a linha nova em egress/fail-open | FR-010: "antes da primeira chamada de motor" |
+| O RC3 mapeou 2 consumidores do `@core`; são 3 | `grep ENGINE_CORE_EXPECTED scripts/` | A-3 |
+| O E1 do RC3 cobria só o envelope com exit 0 | Caso `503x` do teste: exit 1 com envelope → o texto sumia | FR-016 + `engine-core.sh:201` |
+| O guard da PO-1 prometia "sem diff" no `ai-review-paths.sh`, o que é impossível sob contrato aditivo | Diff real: só `status:`, `VERDICT` e chaves novas | Guard da PO-1 reescrito (diff sem as 3 adições = vazio) |
+
 ## Próximo passo exato (handoff — sem state.json neste repo)
 
-**Escrito em:** 2026-09-24. **Next step:** `/devflow-plan` (ou código direto sob C1–C5, por ser
-Tier 1) a partir de `tasks.md`, começando pelo T001 (teste vermelho). Branch sugerida:
-`spec/003-rc6-engine-resilience`.
+**Escrito em:** 2026-09-24.
+
+**Next step:** push da branch `spec/003-rc6-engine-resilience` e PR (decisão do operador, R-065).
+Depois do merge, o primeiro RC6 real no dosiq com 503 fecha o SC-003 (verificação de campo).
+
+**Failed:** `failed: []`. Nenhuma intervenção revertida. O primeiro vermelho rodou contaminado (o core
+foi editado durante a execução) e foi refeito num worktree limpo do HEAD. O segundo vermelho rodou
+com um bug do próprio fake (`cut -f2` sem `-s` repetia roteiros de um token) e também foi refeito.
+
+**Worked (evidência DESTA sessão):** `bash tests/rc6-resilience.test.sh` → 31/31; as 6 suítes da
+regressão verdes; `ai-review-baseline` sem diff; `ai-review-paths` com diff só aditivo; `shellcheck`
+com os mesmos avisos do HEAD (SC1091/SC2012/SC2016/8×SC2034/7×SC2086, todos pré-existentes).
+
+**Not tried:** `--post` contra um PR real; A/B armado (PR + log de medição); agy real com 503 (é o
+SC-003).

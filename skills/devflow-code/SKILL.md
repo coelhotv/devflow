@@ -991,6 +991,26 @@ Cost is $0 (OAuth), so extra passes are cheap — scale by risk:
 
 **Fail-open:** if `agy -p` and `claude -p` are both unavailable or quota is exhausted, emit `⚠️ AI review unavailable — human review mandatory` and exit non-blocking. Never trap the push/merge permanently.
 
+**Engine failure is retried, then REPORTED — never re-run by you (spec 003).** A transient
+engine error (503 "no capacity", network) is retried by the script itself with backoff, then
+tried on `RC6_AGY_MODEL_FALLBACK`, then re-queued once at the end; quota (429) and fatal errors
+are not retried. You do not add a layer on top of that.
+READ THE LAST STDERR LINE, then the JSON — they must say the same thing:
+```
+[rc6] VERDICT coverage=partial A=1/4 B=4/4 reviewers_min=1 — cobertura PARCIAL: registre no PR; …
+```
+- `coverage=partial` → record it in the PR (which pass, how many chunks, which class) and treat the
+  uncovered part as **not independently reviewed**. It is NOT a reason to run RC6 again: RC6 runs
+  once per PR, and a second run on the same commit burns quota for noise (dosiq#757).
+- `reviewers_min=1` on a tier-2 run → at least one chunk had ONE independent reviewer, not two.
+  Report it as such; never summarize that run as a "clean double pass" (dosiq#835).
+- The JSON carries the detail: `coverage.per_pass.<A|B>.{planned, ok, retried, model_fallback,
+  failed[{chunk, class, attempts}]}` and `coverage.independent_reviewers.{min, max}`.
+- Running RC6 in the background? The stderr line `[rc6] status: <path>` (printed right before the
+  first engine call; set `RC6_STATUS_FILE` to choose the path up front) points to a JSONL
+  feed (`started`/`retrying`/`model_fallback`/`deferred`/`failed`/`breaker_open`/`ok`/`done`) you can
+  tail instead of waiting blind. It is progress, not the verdict — the verdict is the last line.
+
 **State & events:**
 - Update `state.json`: `"ai_review": {"engine": "agy|claude|agy+claude", "status": "clean|issues_found", "critical": N, "high": N, "introduced_critical": N, "introduced_high": N, "pr": <num>}`
 - Append to `events.jsonl`: `{"event": "ai_review_complete", "engine": "...", "critical": N, "high": N, "introduced": N, "pr": <num>}`
