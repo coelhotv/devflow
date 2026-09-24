@@ -2,7 +2,7 @@
 
 **Feature Directory:** `plans/specs/003-rc6-engine-resilience/`
 **Created:** 2026-09-24
-**Status:** in review — PO-1..3 fechadas com evidência de execução; PR #3
+**Status:** delivered — PO-1..3 fechadas com evidência de execução; PR #3
 **Tier:** 1
 **Input:** relato do agente coder do `dosiq` no PR #835 (2026-09-24). No RC6, o pass A (agy/Gemini)
 perdeu 3 dos 4 chunks com `503 UNAVAILABLE — no capacity`, mas o JSON final saiu com
@@ -274,7 +274,7 @@ orçamento no primeiro timeout (E2). Os dois são pré-condição do PO-2.
 
 **Escrito em:** 2026-09-24.
 
-**Next step:** revisão e merge do PR (RC5 feito; push e PR autorizados pelo operador).
+**Next step:** nenhum no código — PR #3 aprovado e mergeado (squash). Resta o SC-003: conferir o próximo RC6 real com 503 no dosiq.
 Depois do merge, o primeiro RC6 real no dosiq com 503 fecha o SC-003 (verificação de campo).
 
 **Failed:** `failed: []`. Nenhuma intervenção revertida. O primeiro vermelho rodou contaminado (o core
