@@ -29,7 +29,7 @@
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
-ENGINE_CORE_EXPECTED="1.1.0"
+ENGINE_CORE_EXPECTED="1.2.0"
 # shellcheck source=lib/engine-core.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/engine-core.sh"
 if [ "${ENGINE_CORE_VERSION:-}" != "$ENGINE_CORE_EXPECTED" ]; then
@@ -194,8 +194,10 @@ ENGINE=""; OUTJ="$WORKDIR/out.json"
 for eng in agy claude; do
   if [ "$eng" = agy ] && [ "$HAVE_AGY" != 1 ]; then continue; fi
   if [ "$eng" = claude ] && [ "$HAVE_CLAUDE" != 1 ]; then continue; fi
-  if run_engine "$eng" "$PROMPT" "$OUTJ" && valid "$OUTJ"; then ENGINE="$eng"; break; fi
-  log "second-opinion: $eng falhou ou saiu do schema — $(engine_err_hint "$eng")"
+  # (003) retry de erro transitorio + modelo alternativo do agy, pelo @core 1.2.0. A troca
+  # agy -> claude abaixo CONTINUA: aqui ha uma voz so, nao ha independencia a contar (FR-012).
+  if run_engine_resilient "$eng" "$PROMPT" "$OUTJ" 1 so && valid "$OUTJ"; then ENGINE="$eng"; break; fi
+  log "second-opinion: $eng falhou [${ENGINE_LAST_CLASS:-schema}] ou saiu do schema — $(engine_err_hint "$eng")"
 done
 
 [ -n "$ENGINE" ] || fail_open "⚠️ second opinion unavailable — agy and claude both failed/absent; the artifact was NOT independently reviewed."

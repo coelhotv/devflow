@@ -30,7 +30,7 @@
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
-ENGINE_CORE_EXPECTED="1.1.0"
+ENGINE_CORE_EXPECTED="1.2.0"
 # shellcheck source=lib/engine-core.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/engine-core.sh"
 if [ "${ENGINE_CORE_VERSION:-}" != "$ENGINE_CORE_EXPECTED" ]; then
