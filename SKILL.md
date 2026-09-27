@@ -86,7 +86,7 @@ a tier and produce **only** the artifacts that tier requires.
 
 | Signal | Tier 0 — Trivial | Tier 1 — Standard | Tier 2 — Epic / High-Risk |
 |--------|------------------|-------------------|---------------------------|
-| Scope | ≤2 files, 1 layer | 3–8 files, 1 feature | multi-file, delivered as **N slices** (1 slice = 1 PR) |
+| Scope | ≤2 files, 1 layer | 3–8 files, 1 feature | multi-file; delivered in the **fewest slices that work** (default 1) |
 | goal_type | `fix` / `docs` / `chore` | `feature` / `fix` / `refactor` | `feature` / `refactor` (epic) |
 | DB migration | none | none | **yes** |
 | Contract (CON-NNN) | none | additive/none | **breaking or new/uncatalogued** |
@@ -113,18 +113,41 @@ Tier 1 — Standard:   Suggest RC3 (Eng Review) + RC5 critical-only. Others opt-
 Tier 2 — Epic:       Suggest full autoplan (RC1→RC2→RC3→RC4) + RC5 critical-only (capped v2.0).
                      FULL set: spec.md, plan.md, tasks.md, checklists/requirements.md,
                      contracts/ as needed. ONE numbered spec dir — do NOT split an epic into
-                     sibling NNN sub-specs. Delivery is sliced: see *Tier 2 is multi-slice* below.
+                     sibling NNN sub-specs. Delivery MAY be sliced: see *Tier 2 slicing* below.
                      analysis.md is MANDATORY, gated, and written PER SLICE (see C1.5).
 ```
 
 > [!NOTE]
 > Tier 2 usa o mesmo nível de review que Tier 1 (critical-only). O full checklist (Pass 2 INFORMATIONAL) permanece reservado para versão futura após validação prática — NÃO foi habilitado no bump v2.1 (que introduziu Proof Obligations + RC5 Pass 0, distintos do Pass 2).
 
-### Tier 2 is multi-slice
+### Tier 2 slicing — one slice by default
 
-A Tier 2 epic ships in **slices**: one slice = one PR = one coding session. The canonical word is
+**Default: ONE slice.** A Tier 2 tier is about RISK (migration, contract, cross-platform), not about
+size, and risk does not shrink by being cut into PRs. Every extra slice has a real, recurring cost
+the operator pays: a fresh session re-loading context (tokens against a 5h/weekly plan quota), its
+own C1.5 analysis, SQP, RC5/RC6, smoke setup on device, follow-ups and merge management. Splitting
+one defect per slice is the failure mode — it looks orderly and multiplies that cost by N.
+
+**Split only with a written reason in the slice table**, one of:
+1. **Deploy order the PR cannot express** — something must be live in prod (and adopted by the
+   fleet) before the next part can even be written or tested.
+2. **Review size** — the diff would exceed what one review reads carefully (~800 changed lines of
+   non-generated code, as a guide).
+3. **Independent rollback / risk isolation the operator asked for** — e.g. an irreversible data
+   operation the operator wants merged and watched alone.
+4. **Genuinely different release channels** (e.g. store build vs OTA) that cannot share a PR.
+
+"The defects are unrelated", "it reads cleaner" or "smaller PRs are best practice" are NOT
+reasons. If one smoke session can exercise all of it, it is one slice. When in doubt, propose one
+slice and name the split you declined — the operator can ask for it.
+
+**A slice may ship as 2 PRs** when the only reason to split is deploy order inside the same work
+(migration applied and merged first, code right after). Same analysis, same POs, same smoke; the
+`PR #` column lists both. That is cheaper than a second slice and must be preferred over it.
+
+When sliced, one slice = one coding session. The canonical word is
 **slice** (existing specs may say *fase*, *wave*, *PR A* — legacy synonyms; do not rename them
-retroactively). The epic stays in **ONE** numbered directory.
+retroactively). The epic stays in **ONE** numbered directory, sliced or not.
 
 **`spec.md` is the umbrella** and carries what is true across slices: epic-level SC, cross-cutting
 decisions, and a **slice table** that is the authority on order — the slice's letter/number is a

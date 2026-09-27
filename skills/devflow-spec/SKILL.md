@@ -71,9 +71,11 @@ Classify the work using the Work Tiers table. Record session.tier in state.json.
   Tier 0 → do NOT enter Specifying. Tell the operator "Tier 0 — no spec needed;
            ready to code under C1-C5 directly." STOP.
   Tier 1 → create the dir but only spec.md (lite) + tasks.md (see S3/S4).
-  Tier 2 → full dir + full bundle in ONE numbered dir. Plan the DELIVERY in slices
-           (1 slice = 1 PR) — never in sibling NNN sub-specs; see *Tier 2 is multi-slice*
-           in the core.
+  Tier 2 → full dir + full bundle in ONE numbered dir. Delivery defaults to ONE slice;
+           split only with a written reason from *Tier 2 slicing* in the core (deploy order,
+           review size, isolation the operator asked for, different release channel).
+           Each slice costs the operator a session, a smoke and quota — one defect per
+           slice is NOT a reason. Never sibling NNN sub-specs.
 If the tier is ambiguous, ASK the operator before creating any artifact.
 ```
 
@@ -118,7 +120,9 @@ Tier 2 (full) — also:
   - Key Entities (when data is involved)
   - Explicit data-migration scenarios when a schema/enum/format changes (see Reality note below)
   - PO blocks are formal; regulated work adds `audit`/`evidence` fields (see Proof Obligations).
-  - **Slice table** — the default for Tier 2 (see *Tier 2 is multi-slice* in the core). One row
+  - **Slice table** — always present in Tier 2, usually with ONE row (see *Tier 2 slicing* in
+    the core). Every row beyond the first carries a `why split` cell citing one of the core's
+    reasons; a row without it is merged back. One row
     per slice: `scope` (FR + task ranges) · `tier` (never above the epic's) · `depends on` ·
     `POs owned` · `PR #` (filled at merge). The TABLE is the authority on order, not the slice's
     letter. Put the epic-level SC here too, distinct from each slice's.
@@ -185,4 +189,5 @@ STOP. Awaiting Planning mode invocation.
 | Register/update the spec row in the specs index/README on creation AND every status change | Create a spec dir or change its status without updating the specs index (silent drift) |
 | Escrever ≥2 Non-Goals que nomeiem um FR adjacente recusado | Escrever "não refatorar o resto" e chamar de Non-Goal |
 | Promover a CON-NNN o invariante que vale fora desta spec | Deixar `INV-N` local virar contrato implícito do projeto |
+| Tier 2 com 1 slice; cada slice extra com motivo escrito (deploy, tamanho, isolamento pedido, canal) | Fatiar 1 defeito por slice — cada slice custa sessão, smoke e cota ao operador |
 <!-- devflow-split:qr:end -->
