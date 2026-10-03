@@ -251,6 +251,24 @@ Write output to plans/specs/NNN-feature-name/analysis.md — or, when the epic i
    segunda opinião nunca bloqueia o C1.5.
    [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-005]
 
+1f. AFIRMAÇÕES SOBRE CÓDIGO — a Evidence Table confere o que a spec NOMEIA; não confere frases do
+   próprio analysis/plan do tipo "X lê/escreve/chama Y". Toda frase assim cita `arquivo:linha` LIDO
+   nesta sessão; sem a leitura, vai para `uncertainty:` (1d) — inferência não fecha ✅. Premissa
+   carregada sem leitura é a que o C3 desmente (dosiq 097: "o PDF lê a lista viva em todos os
+   períodos"; só o atalho de 7d lia — 30/90d já usavam a view).
+
+1g. ESCRITORES DO PRIMITIVO — para cada RPC/tabela/canal que o slice toca, inventarie TODOS os
+   escritores por grep do primitivo de ESCRITA (ex.: o nome do upsert), não pelo consumidor que a
+   spec cita. Uma linha por escritor: | Primitivo | Escritor (file:line) | Coberto pelo slice? |.
+   Escritor fora do escopo vira decisão do operador ou item declarado, nunca surpresa do smoke
+   (dosiq 091: o 2º canal de push, `apns_liveactivity`, só apareceu no smoke).
+   Achado que corrige o PLANO antes do código vai na seção própria `## Correções ao plano` do
+   `analysis-<slice>.md` — achado · evidência medida · correção a aplicar em plan.md/tasks.md —
+   referenciada pelo C5/4b. Não improvise subseção dentro de outra (dosiq 085: §4a/§4b dentro de
+   Obtainability).
+   [origin: reactive · MP-2026-10-03-C15 · 3 observações / 3 specs (085, 091, 097); agregação por
+   família C1.5, declarada na proposta]
+
 2. CROSS-FILE CONSISTENCY — spec.md ↔ plan.md ↔ tasks.md ↔ analysis.md must AGREE.
    Flag any contradiction (e.g. plan says "insert direct" while analysis says "via RPC").
    Contradiction between artifacts = HIGH at minimum.
@@ -1110,4 +1128,5 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 | Fechar a revisão com `No issues found` quando não há achado | Fabricar um MEDIUM para justificar a execução do RC5 |
 | Dar snippet + input→desfecho + por que as guardas não pegam em todo HIGH/CRITICAL | Reportar CRITICAL que é hipótese sem a parte (c) |
 | Registrar em `uncertainty:` o que ficou sem resposta no C1.5/C4 | Converter ignorância em conteúdo plausível na Evidence Table |
+| Citar `arquivo:linha` lido para toda frase "X lê/escreve Y" do analysis; inventariar todos os escritores do primitivo tocado (C1.5 1f/1g) | Carregar premissa sobre código sem leitura, ou inventariar só o consumidor que a spec nomeia |
 <!-- devflow-split:qr:end -->
