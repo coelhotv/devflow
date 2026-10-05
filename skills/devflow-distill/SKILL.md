@@ -201,7 +201,17 @@ Steps (in order):
      b. Document the removed CON-NNN in the distillation journal entry
      c. If removal was unintentional, flag for human review
 
-4. EMIT reconciliation block in journal entry:
+4. SPEC STATUS RECONCILIATION (only if the project has `scripts/specs-board.mjs`; dosiq):
+   a. Run `node scripts/specs-board.mjs --check`. Exit 1 = drift: spec.md header `Status` ≠ index
+      row in plans/specs/README.md, Falta/Trava outside the closed vocabulary, or a `superseded`
+      spec cited as a candidate in plans/strategy-2026/ without its successor.
+   b. Fix each ERRO at the source (index wins; header mirrors it — R-275), re-run until 0 erros.
+      Avisos (spec sem spec.md) are informational.
+   c. Run `node scripts/specs-board.mjs --write` to regenerate plans/specs/STATUS_BOARD.md.
+   d. Commit the moat (plans/ symlinks → dosiq-moat) with the reconciliation.
+   LOG in the journal: specs_check: {erros_before, erros_after}.
+
+5. EMIT reconciliation block in journal entry:
    {
      "type": "distillation",
      "reconciliation": {
