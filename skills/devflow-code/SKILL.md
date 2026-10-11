@@ -917,7 +917,8 @@ If there are ASK items → STOP and await operator decision. (Do not proceed to 
 
 **Execution:**
 ```
-1. Diff:    git diff $(git merge-base HEAD main)...HEAD, filtered to code files (.js/.jsx/.ts/.tsx).
+1. Diff:    git diff $(git merge-base HEAD main)...HEAD, filtered to code files (.js/.jsx/.mjs/.cjs/.ts/.tsx);
+            risk files outside those globs are listed as NOT reviewed (see "Saída e cobertura").
 2. Context: attach, in this order:
               a. CLAUDE.md — HOIST its "Regras Críticas" section to the TOP; the per-hunk rule mapping
                  in the Extensions (step 3) depends on the reviewer seeing these rules first.
@@ -937,6 +938,20 @@ If there are ASK items → STOP and await operator decision. (Do not proceed to 
 5. Publish: post inline comments on the PR via `gh api` (reuse the gemini-review.yml ingestion pipeline
             with GEMINI_BOT_LOGIN swapped). Severity tags as Gemini did (critical/high/medium/low).
 ```
+
+#### RC6 — Saída e cobertura (v3.3.0 · MP-2026-10-11-RC6)
+
+- **Leia o ARQUIVO, nunca o stdout.** O veredito vai para `--json-out=PATH` (ou `RC6_JSON_OUT`;
+  default `${TMPDIR:-/tmp}/rc6-<PR|local>.json`, e o script loga o caminho). Com `2>&1`, log e
+  mensagens do `--post` dividem o stream e o `json.load` quebra (dosiq 082 D1, 101 #878).
+- **`coverage=full` só quando TUDO que é de risco foi revisado.** Arquivo de risco fora dos globs de
+  código (`.sql` `.swift` `.kt` `.kts` `.java` `.m` `.mm` `.py` `.sh`) entra em
+  `coverage.not_reviewed_by_type` e torna o veredito `partial` (dosiq 098: PR de migração SQL saía
+  `full` revisando só remoções triviais). PR só com esses arquivos sai `partial` com 0 chunks — nunca
+  "limpo". O autor declara no PR quem revisou o que ficou de fora.
+- **Teto de chunks:** `RC6_MAX_CHUNKS` (default 6). Passou do teto, ficam os chunks de maior risco. Se
+  o arquivo que mais importa caiu, **suba o teto antes de fatiar o PR** (dosiq 069 A2: teto 8 ⇒
+  cobertura full, 0 achados).
 
 #### RC6 Reviewer Extensions (append to the reused RC5 checklist)
 

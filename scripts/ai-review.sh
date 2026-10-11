@@ -25,6 +25,13 @@
 #                 is read-modify-write and the coder session owns it — two
 #                 writers without a lock lose one write silently).
 #     --tier1/2   force pass strategy; default is auto-detected from the diff.
+#     --json-out=PATH  (or RC6_JSON_OUT) where the final verdict JSON is written.
+#                 Default: ${TMPDIR:-/tmp}/rc6-<PR|local>.json. READ THIS FILE, never parse
+#                 stdout: with 2>&1 the log lines and the --post messages share the stream
+#                 (MP-2026-10-11-RC6; dosiq 082 D1 and 101 #878 broke on exactly that).
+#     RC6_MAX_CHUNKS (default 6) caps engine calls. Past it coverage is PARTIAL and the
+#                 top-risk chunks survive. If the file you care about most was dropped,
+#                 raise the cap BEFORE splitting the PR (dosiq 069 A2: cap 8 → full).
 #
 # Env (078/T3.6): RC6_SELECTOR=0 desliga o bloco SELECTED MEMORIES (default 1),
 #     RC6_SELECTOR_LIMIT=N quantas memórias inteiras ele injeta (default 5, é o
@@ -61,6 +68,10 @@ CTX_BUDGET="${RC6_CTX_BUDGET:-150000}"        # byte budget for FULL-FILE attach
 # incluindo .github/scripts/*.cjs, que é a automação que gateia os PRs. Um PR só de .mjs
 # recebia "No code changes" e passava como CLEAN sem uma linha revisada (falso negativo).
 CODE_GLOBS=('*.js' '*.jsx' '*.mjs' '*.cjs' '*.ts' '*.tsx')
+# MP-2026-10-11-RC6: arquivos de RISCO que o RC6 não revisa. Antes eles simplesmente não entravam
+# no diff, e um PR cujo risco era uma migração SQL saía `coverage=full` (dosiq 098). Agora entram na
+# cobertura como NÃO revisados, por tipo, e tornam o veredito `partial`.
+RISK_UNREVIEWED_GLOBS=('*.sql' '*.swift' '*.kt' '*.kts' '*.java' '*.m' '*.mm' '*.py' '*.sh')
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -72,7 +83,7 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 # ---- args -------------------------------------------------------------------
-POST=0; PR=""; FORCE_TIER=""; BREAKDOWN=0
+POST=0; PR=""; FORCE_TIER=""; BREAKDOWN=0; JSON_OUT="${RC6_JSON_OUT:-}"
 for a in "$@"; do
   case "$a" in
     --post)      POST=1 ;;
@@ -80,8 +91,9 @@ for a in "$@"; do
     --tier1)     FORCE_TIER=1 ;;
     --tier2)     FORCE_TIER=2 ;;
     --breakdown) BREAKDOWN=1 ;;   # 080/PO-6: parcelas do preambulo e SAI, sem chamar motor
+    --json-out=*) JSON_OUT="${a#--json-out=}" ;;
     [0-9]*)      PR="$a" ;;
-    *) echo "usage: ai-review.sh [<PR#>] [--dry-run|--post] [--tier1|--tier2] [--breakdown]" >&2; exit 2 ;;
+    *) echo "usage: ai-review.sh [<PR#>] [--dry-run|--post] [--tier1|--tier2] [--breakdown] [--json-out=PATH]" >&2; exit 2 ;;
   esac
 done
 
@@ -128,8 +140,27 @@ log "base=$BASE head=$HEAD_SHA pr=${PR:-<none>} post=$POST"
   log "⚠️ could not read PR #$PR baseRefName — assuming 'main'. If this PR targets an integration branch, RERUN with RC6_MAIN=<branch>"
 
 git diff "$BASE"...HEAD --diff-filter=d -- "${CODE_GLOBS[@]}" > "$WORKDIR/diff.txt" || true
+git diff "$BASE"...HEAD --name-only --diff-filter=d -- "${RISK_UNREVIEWED_GLOBS[@]}" > "$WORKDIR/unreviewed_types.txt" || true
+export RC6_UNREVIEWED_TYPES="$WORKDIR/unreviewed_types.txt"
+[ -n "$JSON_OUT" ] || JSON_OUT="${TMPDIR:-/tmp}/rc6-${PR:-local}.json"
 if [ ! -s "$WORKDIR/diff.txt" ]; then
-  echo '{"summary":"No code changes (.js/.jsx/.mjs/.cjs/.ts/.tsx) vs base.","findings":[]}'
+  # Sem código revisável. Se há arquivo de risco fora dos globs, NÃO é "limpo": é cobertura zero.
+  python3 - "$WORKDIR/unreviewed_types.txt" > "$JSON_OUT" <<'PYN'
+import json, sys, os
+fs = [l.strip() for l in open(sys.argv[1]) if l.strip()]
+by = {}
+for f in fs:
+    ext = os.path.splitext(f)[1].lstrip(".") or "?"
+    by[ext] = by.get(ext, 0) + 1
+cov = {"chunks_reviewed": 0, "chunks_planned": 0, "partial": bool(fs),
+       "not_reviewed": fs, "not_reviewed_by_type": by,
+       "not_reviewed_detail": [{"file": f, "reason": "type_not_reviewed"} for f in fs]}
+print(json.dumps({"summary": "No code changes (.js/.jsx/.mjs/.cjs/.ts/.tsx) vs base."
+                  + (" %d risk file(s) NOT reviewed: %s" % (len(fs), ", ".join(sorted(by))) if fs else ""),
+                  "coverage": cov, "findings": []}, ensure_ascii=False))
+PYN
+  cat "$JSON_OUT"
+  log "verdict JSON: $JSON_OUT"
   exit 0
 fi
 
@@ -681,7 +712,7 @@ DROPPED_FILES=""
 # survive changes.
 if [ "$NCHUNKS" -gt "$MAX_CHUNKS" ]; then
   log "⚠️ $NCHUNKS chunks > cap $MAX_CHUNKS — PARTIAL COVERAGE."
-  log "   This PR is too large for a reliable RC6 — split it. (Override: RC6_MAX_CHUNKS)"
+  log "   If the file you care about most is dropped below, raise RC6_MAX_CHUNKS first; split the PR only if that is not enough."
   # Heredoc inside a command substitution leaks its body to the shell (same
   # trap already documented for parse_cands.py) — parser lives in its own file.
   # Ranker is a versioned file, not a heredoc: it carries a regression corpus
@@ -1390,8 +1421,18 @@ if cov_rows and chunk_ids:
                 pass
 else:
     per_pass, reviewers = {}, None
+_ut = _os2.environ.get("RC6_UNREVIEWED_TYPES", "")
+type_unreviewed = [l.strip() for l in open(_ut) if l.strip()] if _ut and _os2.path.exists(_ut) else []
+by_type = {}
+for f in type_unreviewed:
+    ext = _os2.path.splitext(f)[1].lstrip(".") or "?"
+    by_type[ext] = by_type.get(ext, 0) + 1
+    dropped_files.append(f)
+    not_reviewed_detail.append({"file": f, "reason": "type_not_reviewed"})
 coverage = {"chunks_reviewed": n_reviewed, "chunks_planned": n_planned,
-            "partial": n_reviewed < n_planned,
+            # MP-2026-10-11-RC6: arquivo de risco fora dos globs também torna a cobertura parcial.
+            "partial": n_reviewed < n_planned or bool(type_unreviewed),
+            "not_reviewed_by_type": by_type,
             # Naming what was NOT looked at is the point: an unnamed gap reads as
             # "reviewed" to everyone downstream.
             "not_reviewed": dropped_files,
@@ -1463,6 +1504,7 @@ PYR
   [ -s "$WORKDIR/reflect.log" ] && sed 's/^/  /' "$WORKDIR/reflect.log" >&2
 fi
 
+cp "$MERGED" "$JSON_OUT" 2>/dev/null && log "verdict JSON: $JSON_OUT" || log "⚠️ não consegui gravar $JSON_OUT"
 cat "$MERGED"
 
 # ---- dry-run stops here (no PR / state mutation) ----------------------------
@@ -1561,6 +1603,10 @@ if cov:
         # refazer o PR por causa de um 503 do provedor.
         cov_line += " — ⚠️ **PARTIAL: engine failure** (%s). Human review must cover the gap; re-running RC6 is NOT the rule." % \
             ", ".join(sorted(set(f["class"] for f in failed)))
+    elif cov.get("partial") and cov.get("chunks_reviewed",0) == cov.get("chunks_planned",0) and cov.get("not_reviewed_by_type"):
+        bt = cov["not_reviewed_by_type"]
+        cov_line += " — ⚠️ **PARTIAL: file types RC6 does not review** (%s). Human review must cover them." % \
+            ", ".join("%d .%s" % (n, e) for e, n in sorted(bt.items()))
     elif cov.get("partial"):
         cov_line += " — ⚠️ **PARTIAL: split this PR.** Chunks kept are the highest-risk ones (dropped args > logic/date > hot paths; `_dev`/tests deprioritized), NOT the first N."
         nr = cov.get("not_reviewed") or []
