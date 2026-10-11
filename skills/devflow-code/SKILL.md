@@ -269,6 +269,29 @@ Write output to plans/specs/NNN-feature-name/analysis.md — or, when the epic i
    [origin: reactive · MP-2026-10-03-C15 · 3 observações / 3 specs (085, 091, 097); agregação por
    família C1.5, declarada na proposta]
 
+1h. MATRIZ DE CAMINHOS — quando a MESMA ação do usuário entra por mais de uma superfície (botão de
+   notificação, widget/Live Activity, tela cheia, app aberto, job do servidor, outra plataforma),
+   liste TODAS numa tabela antes do C2:
+   | Ação | Entrada | Plataforma | App (fechado · background · aberto) | Rede (on · off) | Quem executa | Dados disponíveis | Resultado esperado |
+   - A mesma ação termina num PONTO ÚNICO (uma função); efeito colateral escrito em um caminho só é o
+     farol do bug ("esconder a superfície" existia só no Android; o "Adiar" offline perdia a ação).
+   - Cada célula vira um caso de PO MANUAL/smoke (C4). Célula "não sei" = spike, não suposição.
+   [PILOTO 2026-10 · origin: proactive (reactive single-spec) · MP-2026-10-11-C15M · dosiq 101: 10 de
+   32 achados eram entrada esquecida (C-1, 12, 17, 22, 24, 25, 28, 31, 32). Assinatura de atrito
+   prevista: `no-slot` em C1.5 ou C4/PO MANUAL citando "caminho/entrada não listada". Falsificação: 5
+   slices com matriz preenchida e zero célula que virou PO ou achado ⇒ REMOVER]
+
+1i. CONTRATOS DE PLATAFORMA — todo comportamento de SDK/SO nativo que o desenho ASSUME (ciclo de vida
+   em background, formato de data no fio, quem recebe token/evento, quando a UI redesenha, o que roda
+   sem abrir o app) cita a fonte VERIFICADA (doc de contratos do projeto, `file:line` de teste em
+   device, ou spike desta sessão). Sem fonte ⇒ vira TASK de spike no device ANTES do C2, e o resultado
+   entra no doc de contratos do projeto. "O SO deve…" sem fonte vai para `uncertainty:` (1d).
+   [PILOTO 2026-10 · origin: proactive (reactive single-spec) · MP-2026-10-11-C15M · dosiq 101: 6
+   achados de comportamento de plataforma descobertos só no device (C-13, 15, 16, 19, 30, 31) — Date em
+   segundos desde 2001, `request` falha em background, token só por `activityUpdates`. Assinatura
+   prevista: `wrong_premise` em C1.5 citando plataforma. Falsificação: 5 slices nativos com 1i e
+   nenhum spike gerado nem premissa corrigida ⇒ REMOVER]
+
 2. CROSS-FILE CONSISTENCY — spec.md ↔ plan.md ↔ tasks.md ↔ analysis.md must AGREE.
    Flag any contradiction (e.g. plan says "insert direct" while analysis says "via RPC").
    Contradiction between artifacts = HIGH at minimum.
@@ -480,6 +503,16 @@ CLOSE EVERY PROOF OBLIGATION (Tier 1+). For each `po` block of the task whose st
   The turn does NOT close while any PO is still `[ ] open`. `[x]` without pasted evidence is a
   protocol violation — it is the exact prematurely-"done" failure POs exist to prevent.
   MANUAL POs require concrete pasted evidence too (screenshot/curl/output), not just a claim.
+
+  SMOKE EM DEVICE POR MATRIZ (quando o slice tem 1h): o roteiro de smoke é a matriz de caminhos;
+  rode-a INTEIRA num build antes de corrigir. Cada achado entra no `analysis-<slice>.md` na hora
+  (`## Correções ao plano`), e as correções saem em LOTE — um PR, um build novo, matriz de novo. O
+  operador pode segurar o PR até a matriz fechar. Corrigir-e-buildar por achado é o padrão a evitar.
+  [PILOTO 2026-10 · origin: proactive (reactive single-spec) · MP-2026-10-11-C15M · toca o C4 COM
+  incidente real: dosiq 101 = 8 builds iOS por 1 achado por vez; as 2 rodadas em lote fecharam 7
+  achados em 2 builds. 2ª observação: dosiq 092 (`no-slot`, como forçar condições de smoke). Assinatura
+  prevista: `no-slot` em C4/PO MANUAL. Falsificação: 5 slices com smoke em device em que o lote não
+  reduziu builds (builds ≥ achados) ⇒ REMOVER]
 
   DECLARE `evidence_class:` ao fechar e confronte com o que o `proof:` prometia:
     proof: era comando executável → `execution` ou `reconciliation`. Fechar com `static-read` ou
@@ -1144,4 +1177,5 @@ Workflow: run /check-review first → then run DEVFLOW reviewing to sync finding
 | Dar snippet + input→desfecho + por que as guardas não pegam em todo HIGH/CRITICAL | Reportar CRITICAL que é hipótese sem a parte (c) |
 | Registrar em `uncertainty:` o que ficou sem resposta no C1.5/C4 | Converter ignorância em conteúdo plausível na Evidence Table |
 | Citar `arquivo:linha` lido para toda frase "X lê/escreve Y" do analysis; inventariar todos os escritores do primitivo tocado (C1.5 1f/1g) | Carregar premissa sobre código sem leitura, ou inventariar só o consumidor que a spec nomeia |
+| Listar todas as entradas de uma ação multi-superfície numa matriz e citar fonte verificada (ou spike) para cada comportamento de plataforma assumido (C1.5 1h/1i, PILOTO); smoke em device roda a matriz inteira e corrige em lote (C4) | Descobrir a próxima entrada esquecida ou a próxima premissa de SO no smoke, um build por achado |
 <!-- devflow-split:qr:end -->
