@@ -167,7 +167,7 @@ fi
 PASSB_TIMEOUT="${RC6_PASSB_TIMEOUT:-480}"
 # shellcheck disable=SC2034
 AGY_TIMEOUT="${RC6_AGY_TIMEOUT:-8m}"
-RC6_AGY_MODEL="${RC6_AGY_MODEL:-gemini-3.8-flash-medium}"
+RC6_AGY_MODEL="${RC6_AGY_MODEL:-gemini-4-hydrogen-medium}"
 probe_engines
 build_engine_args "$SCHEMA"
 

@@ -214,7 +214,7 @@ Since `@core` 1.2.0 (spec 003, after dosiq#835 reported full coverage while 3 of
 | `RC6_BACKOFF` | `30 90` | Seconds before extra attempt N (last value repeats); `RC6_JITTER=1` adds up to +⅓. |
 | `RC6_RETRY_BUDGET` | `300` | Extra seconds allowed per run (waits + extra attempts + second round). |
 | `RC6_BREAKER` | `3` | Consecutive transient failures that stop immediate retries. |
-| `RC6_AGY_MODEL_FALLBACK` | `gemini-3.7-flash-medium` | Fallback model for agy; empty disables. Never used by the A/B measurement. |
+| `RC6_AGY_MODEL_FALLBACK` | `gemini-3.8-flash-medium` | Fallback model for agy; empty disables. Never used by the A/B measurement. |
 | `RC6_STATUS_FILE` | `$TMPDIR/rc6-status-<pid>.jsonl` | Where status events go. |
 | `RC6_ENGINE_CLAUDE` | `1` | `0` keeps RC6 off claude (quota guard). |
 
