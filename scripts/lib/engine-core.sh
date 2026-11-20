@@ -498,7 +498,7 @@ run_engine_resilient() {
     sleep "$w"; RC6_SPENT=$(( RC6_SPENT + w ))
   done
   # Modelo alternativo: so para `transient` (capacidade do pool DAQUELE modelo) e so no agy.
-  local fb="${RC6_AGY_MODEL_FALLBACK-gemini-3.8-flash-medium}"
+  local fb="${RC6_AGY_MODEL_FALLBACK-gemini-4-hydrogen-medium}"
   if [ "$cls" = transient ] && [ "$allow_fb" = 1 ] && [ "$engine" = agy ] && [ "$BREAKER_OPEN" = 0 ] \
      && [ -n "$fb" ] && [ "$fb" != "${RC6_AGY_MODEL:-}" ] && [ "$(rc6_budget_left)" -gt 0 ]; then
     rc6_status model_fallback "\"model\":\"$fb\""

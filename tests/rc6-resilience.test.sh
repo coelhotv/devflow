@@ -39,7 +39,7 @@ for a in "$@"; do
   prev="$a"
 done
 chunk="$(printf '%s' "$prompt" | grep -oE 'part [0-9]+/' | head -1 | tr -dc '0-9')"
-if [ "$model" = "${FAKE_FB_MODEL:-gemini-3.8-flash-medium}" ]; then
+if [ "$model" = "${FAKE_FB_MODEL:-gemini-4-hydrogen-medium}" ]; then
   tok="${FAKE_AGY_FB:-ok}"
 else
   n="$(cat "$FAKE_DIR/agy.n" 2>/dev/null || echo 0)"; n=$((n+1)); echo "$n" > "$FAKE_DIR/agy.n"
@@ -134,7 +134,7 @@ FAKE_AGY_SCRIPT="503x,ok" RC6_RETRIES=2 run retryx
 FAKE_AGY_SCRIPT="503,503" RC6_RETRIES=1 run fallback
 [ "$(j '(d["coverage"]["per_pass"]["A"]["ok"], d["coverage"]["per_pass"]["A"]["model_fallback"])')" = "(4, 1)" ] \
   && ok "503 persistente → ok no modelo alternativo" || bad "fallback: $(j 'd["coverage"].get("per_pass")')"
-grep -q 'model=gemini-3.8-flash-medium' "$D/agy.calls" && ok "fallback chamou gemini-3.8-flash-medium" \
+grep -q 'model=gemini-4-hydrogen-medium' "$D/agy.calls" && ok "fallback chamou gemini-4-hydrogen-medium" \
   || bad "modelo alternativo nao foi chamado"
 
 FAKE_AGY_SCRIPT="429" RC6_RETRIES=2 run quota

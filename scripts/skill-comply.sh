@@ -131,7 +131,7 @@ fi
 PASSB_TIMEOUT="${RC6_PASSB_TIMEOUT:-480}"
 # shellcheck disable=SC2034
 AGY_TIMEOUT="${RC6_AGY_TIMEOUT:-8m}"
-RC6_AGY_MODEL="${RC6_AGY_MODEL:-gemini-4-hydrogen-medium}"
+RC6_AGY_MODEL="${RC6_AGY_MODEL:-gemini-4-neon-medium}"
 probe_engines
 # Texto livre por decisao (ver cabecalho): schema tornaria a medicao tautologica.
 # shellcheck disable=SC2034  # lidas pelo core (build_engine_args / run_engine)

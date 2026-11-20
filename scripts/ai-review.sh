@@ -11,7 +11,7 @@
 # Independence by construction: this runs in a fresh process with NO access to
 # the coding agent's chat/reasoning — only the diff + full files + rule catalogs.
 #
-# Engines (OAuth quota, $0 marginal): agy (Gemini 4 Hydrogen Medium) generalist; claude -p
+# Engines (OAuth quota, $0 marginal): agy (Gemini 4 Neon Medium) generalist; claude -p
 # (Opus/Sonnet) for the domain-rule pass on migration/architectural PRs.
 #
 # Usage:
@@ -929,7 +929,7 @@ cat > "$SCHEMA" <<'JSON'
 JSON
 
 # Engine argv (sem tools, sem slash commands, com schema quando o probe permitiu): @core 1.1.0.
-RC6_AGY_MODEL="${RC6_AGY_MODEL:-gemini-4-hydrogen-medium}"
+RC6_AGY_MODEL="${RC6_AGY_MODEL:-gemini-4-neon-medium}"
 build_engine_args "$SCHEMA"
 
 
