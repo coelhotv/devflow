@@ -206,10 +206,16 @@ Since `@core` 1.2.0 (spec 003, after dosiq#835 reported full coverage while 3 of
 
 - **Coverage is what was reviewed, not what was planned.** `coverage.chunks_reviewed` counts chunks reviewed by every active pass; `per_pass.{A,B}` and `independent_reviewers.{min,max}` say how many reviewers each chunk actually had.
 - **Transient engine errors are retried, others are not.** Errors are classified `transient | timeout | quota | fatal` from each attempt's error text (including a failure envelope returned with exit 0). Only `transient` is retried (backoff, then a fallback model, then one re-queue at the end), all under one time budget per run.
-- **The last stderr line is the verdict:** `[rc6] VERDICT coverage=partial A=1/4 B=4/4 reviewers_min=1 …`, matching the JSON. `partial` is recorded in the PR, not a reason to run RC6 again. A JSONL status feed (`[rc6] status: <path>`) lets a background caller follow progress.
+- **Turn-1 truncation guard & Pass B hardening (`@core` 1.3.0):** `unwrap_structured` logs `thinking=` / `turns=` and flags Turn-1 `agy` context saturation (`~79.6K` tokens) without false-positiving on multi-turn `high` effort (`cache_read` check when `num_turns >= 2`), marking `coverage.truncated_chunks` + `partial: true`. `ai-review.sh` places `DIFF` before `FULL FILES`, defaults `RC6_MAX_CHUNKS=8`, escalates Pass B `agy` fallback to `gemini-4-neon-high` (`10m`), and exposes `coverage.selector` / `selector=FAILED` on selector errors or fail-safe degradation.
+- **The last stderr line is the verdict:** `[rc6] VERDICT coverage=partial A=1/4 B=4/4 reviewers_min=1 …`, matching the JSON (appending `truncated=<N>` and `selector=FAILED` when triggered). `partial` is recorded in the PR, not a reason to run RC6 again. A JSONL status feed (`[rc6] status: <path>`) lets a background caller follow progress.
 
 | Env var | Default | Effect |
 |---|---|---|
+| `RC6_AGY_MODEL` | `gemini-4-neon-medium` | Primary `agy` model (Pass A and standalone scripts). |
+| `RC6_AGY_PASSB_MODEL` | `gemini-4-neon-high` | `agy` model for Pass B fallback; empty reuses `RC6_AGY_MODEL`. |
+| `RC6_AGY_PASSB_TIMEOUT` | `${RC6_AGY_TIMEOUT:-10m}` | Per-chunk `--print-timeout` during Pass B `agy` fallback. |
+| `RC6_MAX_CHUNKS` | `8` | Maximum chunks sent per pass before risk ranking drops excess chunks. |
+| `RC6_AGY_TRUNC_TOKENS` | `78000` | Turn-1 `agy` truncation warning threshold (`<=0` disables). |
 | `RC6_RETRIES` | `2` | Extra attempts per call. `0` also disables the second round (pre-003 behavior). |
 | `RC6_BACKOFF` | `30 90` | Seconds before extra attempt N (last value repeats); `RC6_JITTER=1` adds up to +⅓. |
 | `RC6_RETRY_BUDGET` | `300` | Extra seconds allowed per run (waits + extra attempts + second round). |

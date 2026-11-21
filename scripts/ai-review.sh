@@ -29,9 +29,9 @@
 #                 Default: ${TMPDIR:-/tmp}/rc6-<PR|local>.json. READ THIS FILE, never parse
 #                 stdout: with 2>&1 the log lines and the --post messages share the stream
 #                 (MP-2026-10-11-RC6; dosiq 082 D1 and 101 #878 broke on exactly that).
-#     RC6_MAX_CHUNKS (default 6) caps engine calls. Past it coverage is PARTIAL and the
+#     RC6_MAX_CHUNKS (default 8) caps engine calls. Past it coverage is PARTIAL and the
 #                 top-risk chunks survive. If the file you care about most was dropped,
-#                 raise the cap BEFORE splitting the PR (dosiq 069 A2: cap 8 → full).
+#                 raise the cap BEFORE splitting the PR (dosiq 069 A2 / #971: cap 8 → full).
 #
 # Env (078/T3.6): RC6_SELECTOR=0 desliga o bloco SELECTED MEMORIES (default 1),
 #     RC6_SELECTOR_LIMIT=N quantas memórias inteiras ele injeta (default 5, é o
@@ -49,7 +49,7 @@ set -euo pipefail
 # ---- @core: funcoes agnosticas de motor (001/F1) ----------------------------
 # Extraidas para scripts/lib/engine-core.sh sem alteracao de comportamento. A versao
 # esperada e citada aqui: core novo sob consumidor velho falha ALTO, nao em silencio.
-ENGINE_CORE_EXPECTED="1.2.0"
+ENGINE_CORE_EXPECTED="1.3.0"
 # shellcheck source=lib/engine-core.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/engine-core.sh"
 if [ "${ENGINE_CORE_VERSION:-}" != "$ENGINE_CORE_EXPECTED" ]; then
@@ -412,6 +412,9 @@ SELECTOR_LIMIT="${RC6_SELECTOR_LIMIT:-5}"
 SELECTOR_SCRIPT="${RC6_SELECTOR_SCRIPT:-$REPO_ROOT/scripts/select-rules.mjs}"
 PREAMBLE_SELECTED="$WORKDIR/preamble_selected.txt"
 : > "$PREAMBLE_SELECTED"
+SELECTOR_STATUS="disabled"
+SELECTOR_COUNT=0
+SELECTOR_REASON=""
 if [ "$SELECTOR" != 0 ] && [ -f "$SELECTOR_SCRIPT" ] && command -v node >/dev/null 2>&1; then
   if node "$SELECTOR_SCRIPT" --diff-file "$WORKDIR/diff.txt" --limit "$SELECTOR_LIMIT" \
        > "$WORKDIR/selected_raw.txt" 2>"$WORKDIR/selected.err"; then
@@ -452,14 +455,37 @@ PYDEDUP
       } > "$PREAMBLE_SELECTED"
       # Contar por '^## ' contaria os subtítulos DO CORPO das memórias (uma regra tem seções
       # próprias) e inflava 5 para 25. O cabeçalho de bloco é '## <ID> — ...' / '## [HOT] <ID>'.
-      log "selector: $(grep -cE '^## (\[HOT\] )?(R|AP|ADR)-[0-9]+' "$WORKDIR/selected_raw.txt" || echo 0) memória(s), $(wc -c < "$PREAMBLE_SELECTED" | tr -d ' ')B"
+      SELECTOR_COUNT="$( { grep -cE '^## (\[HOT\] )?(R|AP|ADR)-[0-9]+' "$WORKDIR/selected_raw.txt" || true; } | tr -dc '0-9' )"
+      SELECTOR_COUNT="${SELECTOR_COUNT:-0}"
+      SELECTOR_STATUS="ok"
+      log "selector: ${SELECTOR_COUNT} memória(s), $(wc -c < "$PREAMBLE_SELECTED" | tr -d ' ')B"
     else
-      log "selector: saída vazia — preâmbulo segue sem o bloco (fail-open)"
+      SELECTOR_ERR_HINT=""
+      if [ -s "$WORKDIR/selected.err" ]; then
+        SELECTOR_ERR_HINT="$( { tr '\n' ' ' < "$WORKDIR/selected.err" || true; } | head -c 200 | sed 's/[[:space:]]*$//' )"
+      fi
+      if [ -n "$SELECTOR_ERR_HINT" ]; then
+        SELECTOR_STATUS="failed"
+        SELECTOR_REASON="$SELECTOR_ERR_HINT"
+        log "⚠️ selector: saída vazia com erro/fail-safe — preâmbulo segue sem o bloco (fail-open); stderr: $SELECTOR_ERR_HINT"
+      else
+        SELECTOR_STATUS="empty"
+        SELECTOR_REASON="empty output"
+        log "selector: saída vazia — preâmbulo segue sem o bloco (fail-open)"
+      fi
     fi
   else
-    log "selector: falhou (exit != 0) — preâmbulo segue sem o bloco (fail-open); stderr: $(head -c 200 "$WORKDIR/selected.err" 2>/dev/null)"
+    SELECTOR_REASON=""
+    if [ -s "$WORKDIR/selected.err" ]; then
+      SELECTOR_REASON="$( { tr '\n' ' ' < "$WORKDIR/selected.err" || true; } | head -c 200 | sed 's/[[:space:]]*$//' )"
+    fi
+    if [ -z "$SELECTOR_REASON" ]; then SELECTOR_REASON="exit != 0"; fi
+    SELECTOR_STATUS="failed"
+    log "⚠️ selector: FALHOU (exit != 0) — preâmbulo segue sem o bloco (fail-open); stderr: $SELECTOR_REASON"
   fi
 elif [ "$SELECTOR" != 0 ]; then
+  SELECTOR_STATUS="unavailable"
+  SELECTOR_REASON="script or node missing"
   log "selector: indisponível ($SELECTOR_SCRIPT ou node ausente) — preâmbulo sem o bloco"
 fi
 
@@ -690,7 +716,7 @@ log "preamble ${PRE_BYTES}B · chunk budget ${CHUNK_BUDGET}B · diff split into 
 # Wall-clock/quota cap: each chunk is one engine call (minutes each). Past the
 # cap, coverage goes PARTIAL with a loud warning — the honest fix is splitting
 # the PR, not an hour-long review that burns the week's quota.
-MAX_CHUNKS="${RC6_MAX_CHUNKS:-6}"
+MAX_CHUNKS="${RC6_MAX_CHUNKS:-8}"
 NPLANNED="$NCHUNKS"
 # CHUNK_IDS is what the passes iterate: the ORIGINAL indices that survive the cap.
 CHUNK_IDS=(); i=0
@@ -736,26 +762,29 @@ if [ "$NCHUNKS" -gt "$MAX_CHUNKS" ]; then
   [ -n "$DROPPED_FILES" ] && log "   NÃO revisados: $(printf '%s' "$DROPPED_FILES" | tr '|' ' ')"
 fi
 
-# builds one engine payload: preamble + the chunk's full files + the chunk's diff
+# builds one engine payload: preamble + diff + full files (target before reference
+# so Turn-1 tail truncation cannot clip the diff first)
 build_chunk_ctx() { # $1=chunk-index $2=outfile
   local i="$1" out="$2" f packs="" pre_file="$PREAMBLE" use_filter=0
   # Body first: its size is what decides the auto mode, and it is identical
   # whether or not the catalog gets filtered.
   local body="$WORKDIR/body_${i}.txt"
   {
+    echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="; cat "$WORKDIR/chunk_${i}.diff"
     echo; echo "===== FULL FILES (post-change content — audit unchanged lines too) ====="
     while IFS= read -r f; do
       [ -n "$f" ] && grep -qxF "$f" "$WORKDIR/fullfiles.txt" && [ -f "$REPO_ROOT/$f" ] \
         && { echo; echo "----- FILE $f -----"; cat "$REPO_ROOT/$f"; }
     done < "$WORKDIR/chunk_${i}.files"
-    echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="; cat "$WORKDIR/chunk_${i}.diff"
   } > "$body"
 
   case "$PACK_FILTER" in
     1) use_filter=1 ;;
     auto)
       # P4: engage ONLY where the alternative is a silently sampled payload.
-      local unfiltered=$(( PRE_BYTES + $(wc -c < "$body") ))
+      local instr_b
+      instr_b="$(printf '%s' "${RC6_INSTRUCTION:-}" | wc -c | tr -d ' ')"
+      local unfiltered=$(( PRE_BYTES + $(wc -c < "$body") + instr_b ))
       if [ "$unfiltered" -gt "$AUTO_FILTER_ABOVE" ]; then
         use_filter=1
         log "chunk $((i+1)) auto-filter ON: unfiltered payload ${unfiltered}B > ${AUTO_FILTER_ABOVE}B (agy samples in silence above this)"
@@ -886,7 +915,9 @@ PASSB_FOCUS=$'\nFOCUS FOR THIS PASS: Extensions #7 (Domain Rule Conformance) and
 
 
 PASSB_TIMEOUT="${RC6_PASSB_TIMEOUT:-480}"   # seconds; mirrors agy's --print-timeout 8m
-AGY_TIMEOUT="${RC6_AGY_TIMEOUT:-8m}"        # agy's own --print-timeout (per chunk)
+AGY_TIMEOUT="${RC6_AGY_TIMEOUT:-8m}"        # agy's own --print-timeout (per chunk, Pass A)
+PASSB_AGY_MODEL="${RC6_AGY_PASSB_MODEL-gemini-4-neon-high}"
+PASSB_AGY_TIMEOUT="${RC6_AGY_PASSB_TIMEOUT:-${RC6_AGY_TIMEOUT:-10m}}"
 
 # ---- structured output contract ---------------------------------------------
 # MIRRORS the OUTPUT schema inside $RC6_INSTRUCTION above — keep the two in sync.
@@ -1000,14 +1031,14 @@ OUTS=(); ENGINES=()
 # 4 chunks do pass A mortos por 503, o JSON saiu `partial:false` (dosiq#835, AP-325 dentro da
 # ferramenta de review). Agora cada chunk de cada passe deixa UMA linha no coverage.tsv com o
 # desfecho, e o merge deriva a cobertura dali — nunca do que foi planejado.
-#   colunas: pass  chunk-id  ok|deferred|failed  classe  tentativas  retried  fallback
+#   colunas: pass  chunk-id  ok|deferred|failed  classe  tentativas  retried  fallback  truncated
 COV_TSV="$WORKDIR/coverage.tsv"; : > "$COV_TSV"
 # shellcheck disable=SC2034  # lidas pelo @core (rc6_status / log do run_engine_resilient)
 RC6_STATUS_PASS=-; RC6_STATUS_CHUNK=-
 rc6_status_init
 cov_mark() { # $1=pass $2=chunk-id $3=desfecho $4=classe
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" \
-    "${ENGINE_LAST_ATTEMPTS:-0}" "${ENGINE_LAST_RETRIED:-0}" "${ENGINE_LAST_FALLBACK:-0}" >> "$COV_TSV"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" \
+    "${ENGINE_LAST_ATTEMPTS:-0}" "${ENGINE_LAST_RETRIED:-0}" "${ENGINE_LAST_FALLBACK:-0}" "${ENGINE_LAST_TRUNCATED:-0}" >> "$COV_TSV"
 }
 
 # Um chunk no agy, com retry/fallback do @core. Falha recuperavel (transient, ou timeout que
@@ -1023,6 +1054,7 @@ review_chunk() {
     OUTS+=("$4"); ENGINES+=("agy"); cov_mark "$p" "$i" ok ok
     # Marca a saida do modelo alternativo: o A/B do 056/PO-5 nao pode usa-la (E3).
     if [ "$ENGINE_LAST_FALLBACK" = 1 ]; then via=", modelo alternativo"; : > "$4.modelfb"; fi
+    if [ "${ENGINE_LAST_TRUNCATED:-0}" = 1 ]; then via="${via}, ⚠️TRUNCATED"; fi
     log "pass $p chunk $((i+1))/$NPLANNED ($lbl$via) ok"
     return 0
   fi
@@ -1053,7 +1085,7 @@ second_round() {
       review_chunk "$1" "$i" "$2_$i.txt" "$3_$i.json" "$4, 2ª rodada" 2 || true
     else
       RC6_STATUS_PASS="$1"; RC6_STATUS_CHUNK="$((i+1))/$NPLANNED"
-      ENGINE_LAST_ATTEMPTS=0; ENGINE_LAST_RETRIED=0; ENGINE_LAST_FALLBACK=0
+      ENGINE_LAST_ATTEMPTS=0; ENGINE_LAST_RETRIED=0; ENGINE_LAST_FALLBACK=0; ENGINE_LAST_TRUNCATED=0
       cov_mark "$1" "$i" failed "${clss[$k]}"
       rc6_status failed "\"class\":\"${clss[$k]}\",\"reason\":\"budget\""
       log "pass $1 chunk $((i+1))/$NPLANNED: segunda rodada pulada — orçamento restante $(rc6_budget_left)s não cobre um ${clss[$k]}"
@@ -1111,6 +1143,7 @@ if [ "$AB_MODE" != 0 ]; then
     # (034-D.1), so the pair would compare a filtered run against noise. That
     # regime is also not what PO-5 gates — mode `auto` already filters there;
     # what PO-5 still owes an answer on is mode 1 (filter even when it fits).
+    AB_INSTR_B="$(printf '%s' "$RC6_INSTRUCTION" | wc -c | tr -d ' ')"
     ab_worst=0
     for i in "${CHUNK_IDS[@]}"; do
       b="$(wc -c < "$WORKDIR/chunk_${i}.diff")"
@@ -1118,7 +1151,7 @@ if [ "$AB_MODE" != 0 ]; then
         [ -n "$f" ] && grep -qxF "$f" "$WORKDIR/fullfiles.txt" 2>/dev/null && [ -f "$REPO_ROOT/$f" ] \
           && b=$(( b + $(wc -c < "$REPO_ROOT/$f") ))
       done < "$WORKDIR/chunk_${i}.files"
-      b=$(( b + PRE_BYTES ))
+      b=$(( b + PRE_BYTES + AB_INSTR_B ))
       [ "$b" -gt "$ab_worst" ] && ab_worst="$b"
     done
     AB_PACKS="$(printf '%s\n' "${CHANGED[@]:-}" | packs_for_files)"
@@ -1250,11 +1283,11 @@ if [ "$TIER" = 2 ]; then
   fi
   {
     cat "$PREB"
+    echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="; cat "$WORKDIR/diff.txt"
     echo; echo "===== FULL FILES (post-change content — audit unchanged lines too) ====="
     for f in "${FULLFILES[@]:-}"; do
       [ -n "${f:-}" ] && [ -f "$REPO_ROOT/$f" ] && { echo; echo "----- FILE $f -----"; cat "$REPO_ROOT/$f"; }
     done
-    echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="; cat "$WORKDIR/diff.txt"
   } > "$CTXB"
   build_prompt "$PASSB_FOCUS" "$CTXB" "$WORKDIR/promptB.txt"
   RC6_STATUS_PASS=B; RC6_STATUS_CHUNK=full
@@ -1268,12 +1301,22 @@ if [ "$TIER" = 2 ]; then
     # o fallback silencioso faz o run inteiro parecer "agy-only por escolha".
     # `|| true`: sob `set -e` um `[ ] && log` com condição falsa derruba o script inteiro.
     { [ "$HAVE_CLAUDE" = 1 ] && log "pass B (claude) FAILED — $(engine_err_hint claude); caindo p/ agy chunked"; } || true
+    _saved_agy_model="$RC6_AGY_MODEL"
+    _saved_agy_timeout="$AGY_TIMEOUT"
+    if [ -n "$PASSB_AGY_MODEL" ]; then RC6_AGY_MODEL="$PASSB_AGY_MODEL"; fi
+    AGY_TIMEOUT="$PASSB_AGY_TIMEOUT"
+    build_engine_args "$SCHEMA"
+    log "pass B (agy): model=$RC6_AGY_MODEL timeout=$AGY_TIMEOUT"
     for i in "${CHUNK_IDS[@]}"; do
       build_prompt "$PASSB_FOCUS" "$WORKDIR/ctxA_$i.txt" "$WORKDIR/promptB_$i.txt"
-      review_chunk B "$i" "$WORKDIR/promptB_$i.txt" "$WORKDIR/outB_$i.json" "agy fallback" 1 || true
+      review_chunk B "$i" "$WORKDIR/promptB_$i.txt" "$WORKDIR/outB_$i.json" "agy fallback, $RC6_AGY_MODEL" 1 || true
     done
-    second_round B "$WORKDIR/promptB" "$WORKDIR/outB" "agy fallback"
+    second_round B "$WORKDIR/promptB" "$WORKDIR/outB" "agy fallback, $RC6_AGY_MODEL"
+    RC6_AGY_MODEL="$_saved_agy_model"
+    AGY_TIMEOUT="$_saved_agy_timeout"
+    build_engine_args "$SCHEMA"
   elif [ "$HAVE_CLAUDE" = 1 ]; then
+    ENGINE_LAST_ATTEMPTS=0; ENGINE_LAST_RETRIED=0; ENGINE_LAST_FALLBACK=0; ENGINE_LAST_TRUNCATED=0
     for i in "${CHUNK_IDS[@]}"; do cov_mark B "$i" failed "${ENGINE_LAST_CLASS:-fatal}"; done
     log "pass B (claude) FAILED — $(engine_err_hint claude); sem agy p/ fallback"
   else
@@ -1300,6 +1343,8 @@ parts = ["coverage=%s" % ("partial" if c.get("partial") else "full")]
 parts += ["%s=%d/%d" % (p, pp[p]["ok"], pp[p]["planned"]) for p in sorted(pp)]
 r = (c.get("independent_reviewers") or {}).get("min")
 if r is not None: parts.append("reviewers_min=%d" % r)
+if c.get("truncated_chunks"): parts.append("truncated=%d" % c["truncated_chunks"])
+if (c.get("selector") or {}).get("status") == "failed": parts.append("selector=FAILED")
 tail = ""
 if c.get("partial"): tail = " — cobertura PARCIAL: registre no PR; não é motivo p/ rodar de novo"
 elif r is not None and r < len(pp): tail = " — algum chunk teve 1 revisor só"
@@ -1323,6 +1368,7 @@ ENGINE_LABEL="$(printf '%s\n' "${ENGINES[@]}" | sort -u | paste -sd+ -)"
 [ "$NCHUNKS" -gt 1 ] && ENGINE_LABEL="${ENGINE_LABEL} (${NCHUNKS} chunks)"
 MERGED="$WORKDIR/merged.json"
 RC6_COV_TSV="$COV_TSV" RC6_CHUNK_IDS="${CHUNK_IDS[*]}" RC6_WORKDIR="$WORKDIR" \
+RC6_SELECTOR_STATUS="$SELECTOR_STATUS" RC6_SELECTOR_COUNT="$SELECTOR_COUNT" RC6_SELECTOR_REASON="$SELECTOR_REASON" \
 python3 - "$MERGED" "$ENGINE_LABEL" "$NCHUNKS" "$NPLANNED" "$DROPPED_FILES" "${OUTS[@]}" <<'PY'
 import sys, json, re
 out_path, engine_label = sys.argv[1], sys.argv[2]
@@ -1385,27 +1431,32 @@ cov_rows = {}
 _tsv = _os2.environ.get("RC6_COV_TSV", "")
 if _tsv and _os2.path.exists(_tsv):
     for ln in open(_tsv):
-        p_, c_, res, cls, att, rt, fb = (ln.rstrip("\n").split("\t") + [""] * 7)[:7]
+        p_, c_, res, cls, att, rt, fb, tr = (ln.rstrip("\n").split("\t") + [""] * 8)[:8]
         if not p_: continue
         prev = cov_rows.get((p_, c_), {"attempts": 0, "retried": 0})
         cov_rows[(p_, c_)] = {"res": res, "cls": cls,
                               "attempts": prev["attempts"] + int(att or 0),
-                              "retried": max(prev["retried"], int(rt or 0)), "fb": int(fb or 0)}
+                              "retried": max(prev["retried"], int(rt or 0)), "fb": int(fb or 0),
+                              "tr": int(tr or 0)}
 chunk_ids = [c for c in _os2.environ.get("RC6_CHUNK_IDS", "").split() if c]
 not_reviewed_detail = [{"file": f, "reason": "cap"} for f in dropped_files]
+trunc_total = 0
 if cov_rows and chunk_ids:
     passes = sorted(set(p_ for p_, _ in cov_rows))
     per_pass = {}
     for p_ in passes:
         rows = {c: cov_rows[(p_, c)] for c in chunk_ids if (p_, c) in cov_rows}
+        trunc_list = [int(c) + 1 for c, r in sorted(rows.items(), key=lambda kv: int(kv[0])) if r["res"] == "ok" and r["tr"]]
         per_pass[p_] = {
             "planned": len(chunk_ids),
             "ok": sum(1 for r in rows.values() if r["res"] == "ok"),
             "retried": sum(1 for r in rows.values() if r["retried"]),
             "model_fallback": sum(1 for r in rows.values() if r["res"] == "ok" and r["fb"]),
+            "truncated": trunc_list,
             "failed": [{"chunk": int(c) + 1, "class": r["cls"], "attempts": r["attempts"]}
                        for c, r in sorted(rows.items(), key=lambda kv: int(kv[0])) if r["res"] != "ok"],
         }
+    trunc_total = sum(len(v["truncated"]) for v in per_pass.values())
     per_chunk = {c: sum(1 for p_ in passes if cov_rows.get((p_, c), {}).get("res") == "ok")
                  for c in chunk_ids}
     n_reviewed = sum(1 for c in chunk_ids if per_chunk[c] == len(passes))
@@ -1431,7 +1482,8 @@ for f in type_unreviewed:
     not_reviewed_detail.append({"file": f, "reason": "type_not_reviewed"})
 coverage = {"chunks_reviewed": n_reviewed, "chunks_planned": n_planned,
             # MP-2026-10-11-RC6: arquivo de risco fora dos globs também torna a cobertura parcial.
-            "partial": n_reviewed < n_planned or bool(type_unreviewed),
+            "partial": n_reviewed < n_planned or bool(type_unreviewed) or trunc_total > 0,
+            "truncated_chunks": trunc_total,
             "not_reviewed_by_type": by_type,
             # Naming what was NOT looked at is the point: an unnamed gap reads as
             # "reviewed" to everyone downstream.
@@ -1440,6 +1492,13 @@ coverage = {"chunks_reviewed": n_reviewed, "chunks_planned": n_planned,
 if per_pass:
     coverage["per_pass"] = per_pass
     coverage["independent_reviewers"] = reviewers
+sel_status = _os2.environ.get("RC6_SELECTOR_STATUS", "")
+if sel_status:
+    sel_obj = {"status": sel_status, "count": int(_os2.environ.get("RC6_SELECTOR_COUNT") or 0)}
+    sel_reason = _os2.environ.get("RC6_SELECTOR_REASON", "")
+    if sel_reason:
+        sel_obj["reason"] = sel_reason
+    coverage["selector"] = sel_obj
 result = {
     "engine": engine_label,
     "coverage": coverage,
@@ -1607,6 +1666,8 @@ if cov:
         bt = cov["not_reviewed_by_type"]
         cov_line += " — ⚠️ **PARTIAL: file types RC6 does not review** (%s). Human review must cover them." % \
             ", ".join("%d .%s" % (n, e) for e, n in sorted(bt.items()))
+    elif cov.get("partial") and cov.get("truncated_chunks"):
+        cov_line += " — ⚠️ **PARTIAL: prompt truncated at agy Turn-1 limit** (%d chunk(s)). Lower RC6_CTX_TOTAL_MAX or inspect oversized files." % cov["truncated_chunks"]
     elif cov.get("partial"):
         cov_line += " — ⚠️ **PARTIAL: split this PR.** Chunks kept are the highest-risk ones (dropped args > logic/date > hot paths; `_dev`/tests deprioritized), NOT the first N."
         nr = cov.get("not_reviewed") or []
@@ -1614,6 +1675,9 @@ if cov:
             shown = ", ".join("`%s`" % f for f in nr[:20])
             more = "" if len(nr) <= 20 else " … +%d" % (len(nr) - 20)
             cov_line += "\n\n<details><summary>⚠️ %d file(s) NOT reviewed</summary>\n\n%s%s\n\n</details>" % (len(nr), shown, more)
+    sel = cov.get("selector") or {}
+    if sel.get("status") == "failed":
+        cov_line += "\n⚠️ **Selector failed (fail-open):** selected memories were NOT injected (%s)." % (sel.get("reason") or "unknown")
     cov_line += "\n"
 head = (f"## 🤖 RC6 — Independent AI Review (`{merged['engine']}`)\n\n"
         f"{merged['summary']}\n\n"

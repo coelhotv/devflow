@@ -22,6 +22,7 @@
 #   fail_open         — (1.1.0) imprime o JSON de "revisao indisponivel" e sai 0
 #   dur_secs / classify_engine_err / rc6_status_init / rc6_status / rc6_budget_left /
 #   rc6_second_round_ok / run_engine_resilient — (1.2.0) resiliencia do motor (spec 003)
+#   ENGINE_LAST_TRUNCATED / thinking+turns telemetry — (1.3.0) deteccao de truncamento Turn 1
 #
 # O QUE NAO MORA AQUI: montagem de preambulo, selecao de arquivos, gate de reflexao,
 # publicacao no PR, schema de review. Isso e dominio, nao motor.
@@ -36,12 +37,14 @@
 #   AGY_SCHEMA / CLAUDE_SCHEMA / AGY_ARGS[] /
 #   CLAUDE_ARGS[] / PASSB_TIMEOUT                      (run_engine)
 #   AGY_TIMEOUT / RC6_AGY_MODEL                        (build_engine_args)
-#   RC6_ENGINE_CLAUDE / RC6_ALLOW_SENSITIVE            (probe_engines / egress_guard; opcionais)
+#   RC6_ENGINE_CLAUDE / RC6_ALLOW_SENSITIVE /
+#   RC6_AGY_TRUNC_TOKENS                               (probe/egress/unwrap; opcionais, default 78000)
 # ...e ESCREVE estas, que passam a ser globais do consumidor apos a chamada:
 #   HAVE_AGY HAVE_CLAUDE AGY_SCHEMA AGY_NOSLASH CLAUDE_SCHEMA CLAUDE_NOSLASH CLAUDE_NOPERSIST
 #                                                      (probe_engines)
 #   AGY_ARGS[] CLAUDE_ARGS[]                           (build_engine_args)
-#   ENGINE_LAST_* RC6_SPENT BREAKER_OPEN BREAKER_STREAK ENGINE_KILLED (run_engine_resilient)
+#   ENGINE_LAST_* (incl. ENGINE_LAST_TRUNCATED=0|1) RC6_SPENT BREAKER_OPEN BREAKER_STREAK ENGINE_KILLED
+#                                                      (run_engine / run_engine_resilient)
 # O core tambem NAO faz `set -euo pipefail`: quem define o modo de erro e o script principal.
 # ⚠️ Por isso toda funcao que termina num teste (`[ X ] && ...`) fecha com `return 0`: sob o
 # `set -e` do consumidor, um teste falso como ULTIMO comando vira o exit status da funcao e
@@ -50,7 +53,7 @@
 # Uso:  source "$(dirname "${BASH_SOURCE[0]}")/lib/engine-core.sh"
 
 # shellcheck disable=SC2034  # lido pelo consumidor apos o source — este e o contrato
-ENGINE_CORE_VERSION="1.2.0"
+ENGINE_CORE_VERSION="1.3.0"
 
 
 log() { printf '\033[2m[rc6]\033[0m %s\n' "$*" >&2; }
@@ -81,11 +84,14 @@ clamp_index() { clamp_lines "$1"; }
 #   claude: --tools "" disables all built-in tools; --strict-mcp-config with no
 #           --mcp-config disables every MCP server. Prompt via STDIN (argv would
 #           risk ARG_MAX on fat tier-2 contexts).
-#   agy:    has no explicit no-tools flag (re-checked 2026-08-02); closest is
-#           --sandbox (terminal restrictions) + --mode plan (no edits) +
-#           --disable-slash-commands (1.1.9 made print mode expand slash commands
-#           and skills — an untrusted diff must not reach that expander). Prompt
-#           must be argv (-p requires an argument; no stdin support).
+#   agy:    has no explicit no-tools flag (verified through 1.5.13); closest is
+#           --sandbox (terminal restrictions) + --disable-slash-commands (1.1.9 made
+#           print mode expand slash commands and skills — untrusted diffs must not
+#           reach that expander). Note on 1.5.13: --mode plan is a no-op with
+#           --disable-slash-commands (removed in 1249ecd), --effort conflicts with
+#           suffixed model names (effort belongs in --model suffix), and
+#           --input-format stream-json bypasses ARG_MAX but hits the same ~79.6K
+#           Turn-1 input_tokens ceiling; prompt via argv remains standard for <=150KB.
 # Portable wall-clock bound (no `timeout`/`gtimeout` on macOS). Runs "$@" and kills
 # it after $1 seconds. Guards against an engine that HANGS instead of erroring —
 # critical for claude, which (unlike agy's --print-timeout) has no built-in cap and
@@ -173,19 +179,45 @@ json.dump(obj, open(dst, "w"), ensure_ascii=False)
 # 034-D.1 instead of inferring it from divergent runs (056/T038).
 u = r.get("usage") or {}
 if isinstance(u, dict) and u:
+    import os
     ins = u.get("input_tokens", "?")
     outs = u.get("output_tokens", "?")
+    think = u.get("thinking_tokens")
     cache = u.get("cache_read_tokens", u.get("cache_read_input_tokens"))
+    turns = r.get("num_turns")
     bits = ["input=%s" % ins, "output=%s" % outs]
+    if think not in (None, ""): bits.append("thinking=%s" % think)
     if cache not in (None, ""): bits.append("cache_read=%s" % cache)
+    if turns not in (None, ""): bits.append("turns=%s" % turns)
     cost = r.get("total_cost_usd")
     if cost not in (None, ""): bits.append("cost=$%.4f" % cost)
+    # (1.3.0) Turn-1 truncation guard (agy ~79.6K ceiling): in multi-turn calls
+    # (e.g. gemini-4-neon-high with num_turns=2), usage.input_tokens sums both turns
+    # (up to ~98K) while cache_read_tokens tracks the Turn-1 prefix (~64K). Checking
+    # raw input_tokens alone creates false positives on neon-high.
+    if eng == "agy":
+        try:
+            cap = int(os.environ.get("RC6_AGY_TRUNC_TOKENS") or "78000")
+        except Exception:
+            cap = 78000
+        if cap > 0:
+            ins_n = ins if (isinstance(ins, int) and not isinstance(ins, bool)) else None
+            cache_n = cache if (isinstance(cache, int) and not isinstance(cache, bool)) else None
+            turns_n = turns if (isinstance(turns, int) and not isinstance(turns, bool)) else 1
+            trunc = (
+                (turns_n <= 1 and ins_n is not None and ins_n >= cap)
+                or (turns_n >= 2 and cache_n is not None and cache_n >= cap)
+                or (turns_n >= 2 and not cache_n and ins_n is not None and ins_n >= cap * turns_n)
+            )
+            if trunc:
+                bits.append("TRUNCATED=1")
     print(" ".join(bits))
 PY
 }
 
 run_engine() {
   local engine="$1" pf="$2" out="$3" raw="$3.raw"
+  ENGINE_LAST_TRUNCATED=0
   case "$engine" in
     # stdin closed (</dev/null): headless agy must never block waiting for input.
     # (1.2.0) run_bounded tambem no agy: o --print-timeout dele e do proprio CLI, e um CLI
@@ -201,7 +233,15 @@ run_engine() {
           || { unwrap_structured agy "$raw" /dev/null >/dev/null 2>>"$WORKDIR/agy.err" || true; return 1; }
         local usage_agy
         usage_agy="$(unwrap_structured agy "$raw" "$out" 2>>"$WORKDIR/agy.err")" || return 1
-        [ -n "$usage_agy" ] && log "  agy usage: $usage_agy"
+        if [ -n "$usage_agy" ]; then
+          log "  agy usage: $usage_agy"
+          case " $usage_agy " in
+            *" TRUNCATED=1 "*)
+              ENGINE_LAST_TRUNCATED=1
+              log "  ⚠️ agy atingiu o teto de contexto no Turn 1 (~79.6K tokens; limite RC6_AGY_TRUNC_TOKENS=${RC6_AGY_TRUNC_TOKENS:-78000}) — cauda do prompt provavelmente truncada em silêncio"
+              ;;
+          esac
+        fi
       else
         run_bounded "$agy_cap" agy "${AGY_ARGS[@]}" -p "$(cat "$pf")" \
           > "$out" 2>"$WORKDIR/agy.err" < /dev/null || return 1
@@ -456,14 +496,15 @@ _rc6_backoff() { # $1=numero da tentativa extra (1..) -> segundos
 #   ENGINE_LAST_ATTEMPTS chamadas feitas (modelo alternativo incluso)
 #   ENGINE_LAST_RETRIED  1 se houve tentativa extra no mesmo modelo
 #   ENGINE_LAST_FALLBACK 1 se a saida valida veio do modelo alternativo
+#   ENGINE_LAST_TRUNCATED 1 se o envelope do agy atingiu o teto de Turn 1
 # Cada tentativa que falha deixa o proprio erro em $WORKDIR/<engine>.<rotulo>.<n>.err (FR-009):
 # o $engine.err e reescrito a cada chamada, e a primeira falha e muitas vezes a que explica.
 # O A/B do 056/PO-5 chama com $4=0: modelo alternativo no baseline mediria o modelo, nao o
 # filtro (E3). O run_engine BRUTO continua exportado — esta funcao so o envolve.
 run_engine_resilient() {
   local engine="$1" pf="$2" out="$3" allow_fb="${4:-0}" tag="${5:-call}"
-  local max="${RC6_RETRIES:-2}" n=0 cls w t0
-  ENGINE_LAST_CLASS=""; ENGINE_LAST_ATTEMPTS=0; ENGINE_LAST_RETRIED=0; ENGINE_LAST_FALLBACK=0
+  local max="${RC6_RETRIES:-2}" n=0 cls w t0 tr_json=""
+  ENGINE_LAST_CLASS=""; ENGINE_LAST_ATTEMPTS=0; ENGINE_LAST_RETRIED=0; ENGINE_LAST_FALLBACK=0; ENGINE_LAST_TRUNCATED=0
   [ "$BREAKER_OPEN" = 1 ] && max=0   # breaker aberto: uma tentativa, falhou -> segunda rodada
   rc6_status started "\"engine\":\"$engine\""
   while :; do
@@ -472,7 +513,9 @@ run_engine_resilient() {
     if run_engine "$engine" "$pf" "$out"; then
       _rc6_extra "$n" && RC6_SPENT=$(( RC6_SPENT + $(date +%s) - t0 ))
       BREAKER_STREAK=0; ENGINE_LAST_CLASS=ok
-      rc6_status ok "\"attempt\":$n"
+      tr_json=""
+      if [ "${ENGINE_LAST_TRUNCATED:-0}" = 1 ]; then tr_json=',"truncated":true'; fi
+      rc6_status ok "\"attempt\":$n$tr_json"
       return 0
     fi
     _rc6_extra "$n" && RC6_SPENT=$(( RC6_SPENT + $(date +%s) - t0 ))
@@ -512,7 +555,9 @@ run_engine_resilient() {
       AGY_ARGS=("${saved[@]}")
       RC6_SPENT=$(( RC6_SPENT + $(date +%s) - t0 ))
       BREAKER_STREAK=0; ENGINE_LAST_CLASS=ok; ENGINE_LAST_FALLBACK=1
-      rc6_status ok "\"attempt\":$n,\"model\":\"$fb\""
+      tr_json=""
+      if [ "${ENGINE_LAST_TRUNCATED:-0}" = 1 ]; then tr_json=',"truncated":true'; fi
+      rc6_status ok "\"attempt\":$n,\"model\":\"$fb\"$tr_json"
       return 0
     fi
     AGY_ARGS=("${saved[@]}")

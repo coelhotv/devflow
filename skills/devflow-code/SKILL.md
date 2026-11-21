@@ -945,8 +945,8 @@ If there are ASK items → STOP and await operator decision. (Do not proceed to 
 **Independence is the whole point — enforce it by construction:**
 - Run in a **fresh headless process**, NOT in the coding agent's session. Do **not** pass the coder's chat history, reasoning, or "what I intended" — only the diff + the rule catalogs. Cold-start is the feature, not a cost.
 - Engine (OAuth quota, **$0 marginal** — no metered API):
-  - **Primary: `agy -p` (Gemini 3.8 Flash)** — larger weekly quota, absorbs routine volume.
-  - **Fallback / escalation: `claude -p` (Opus 4.8 / Sonnet 4.6)** — stronger reasoning; use on architectural PRs or when `agy -p` is unavailable/weak.
+  - **Primary: `agy -p` (`gemini-4-neon-medium` no Pass A; fallback `gemini-4-hydrogen-medium`)** — larger weekly quota, absorbs routine volume. Notas empíricas de CLI (`agy 1.5.13`): `--mode plan` é no-op com `--disable-slash-commands`; `--effort` conflita com nomes de modelo sufixados (o esforço vai no próprio sufixo do modelo); teto real de ~`79.6K` `input_tokens` no Turn 1 mesmo via `--input-format stream-json`.
+  - **Pass B (`tier2` / migration / architectural): `claude -p` (Opus/Sonnet)** — stronger reasoning; se `RC6_ENGINE_CLAUDE=0` ou `claude` falhar, faz fallback chunked para `agy -p` escalado via `RC6_AGY_PASSB_MODEL` (default `gemini-4-neon-high`, `RC6_AGY_PASSB_TIMEOUT` default `10m` quando `RC6_AGY_TIMEOUT` não está definido).
 
 **Execution:**
 ```
@@ -955,13 +955,16 @@ If there are ASK items → STOP and await operator decision. (Do not proceed to 
 2. Context: attach, in this order:
               a. CLAUDE.md — HOIST its "Regras Críticas" section to the TOP; the per-hunk rule mapping
                  in the Extensions (step 3) depends on the reviewer seeing these rules first.
-              b. RULES_INDEX.md + ANTI_PATTERNS_INDEX.md — load the R-NNN / AP-NNN detail files whose
-                 scope matches the changed files (e.g. AP-216 when Supabase auth / `{data,error}` is touched).
-              c. FULL file content (NOT just the diff hunk) for every file whose diff changes control flow,
+              b. RULES_INDEX.md + ANTI_PATTERNS_INDEX.md + SELECTED MEMORIES (select-rules.mjs) + detail files
+                 whose scope matches the changed files (e.g. AP-216 when Supabase auth / `{data,error}` is touched).
+              c. DIFF vs base — placed BEFORE full files so any silent tail truncation at the ~79.6K Turn-1
+                 limit cannot clip the target diff before the surrounding reference context.
+              d. FULL file content (NOT just the diff hunk) for every file whose diff changes control flow,
                  arithmetic, date/time handling, or exceeds ~20 changed lines. Diff-only context is RC6's
                  #1 blind spot — latent bugs routinely live in the unchanged lines next to a change
                  (RC6 field note 2026-07: the HeroDoseCard timezone bug was missed for exactly this reason).
-              ~100-150KB ≈ 25-40K tokens — fits; model self-filters, no RAG/embeddings needed.
+              <=150KB total per chunk (~58K prompt tokens + ~21.5K CLI/tool base < ~79.6K Turn-1 ceiling).
+              Above that limit, `agy` truncates the tail silently; `@core` 1.3.0 flags it via `truncated=N`.
 3. Prompt:  REUSE the RC5 "Pass 1 — CRITICAL Checklist" + "Verification of Claims (Anti-Rationalization)"
             + "Suppressions" verbatim, THEN append the "RC6 Reviewer Extensions" below. Add: "You are an
             INDEPENDENT auditor. You did NOT write this code and have no context beyond the diff + files +
@@ -982,9 +985,9 @@ If there are ASK items → STOP and await operator decision. (Do not proceed to 
   `coverage.not_reviewed_by_type` e torna o veredito `partial` (dosiq 098: PR de migração SQL saía
   `full` revisando só remoções triviais). PR só com esses arquivos sai `partial` com 0 chunks — nunca
   "limpo". O autor declara no PR quem revisou o que ficou de fora.
-- **Teto de chunks:** `RC6_MAX_CHUNKS` (default 6). Passou do teto, ficam os chunks de maior risco. Se
-  o arquivo que mais importa caiu, **suba o teto antes de fatiar o PR** (dosiq 069 A2: teto 8 ⇒
-  cobertura full, 0 achados).
+- **Teto de chunks:** `RC6_MAX_CHUNKS` (default 8). Passou do teto, ficam os chunks de maior risco. Se
+  o arquivo que mais importa caiu, **suba o teto antes de fatiar o PR** (dosiq 069 A2 / #971: teto 8 ⇒
+  cobertura full).
 
 #### RC6 Reviewer Extensions (append to the reused RC5 checklist)
 
@@ -1044,9 +1047,10 @@ both on DoseListItem) — RC6 must not. Every finding MUST set `"introduced"` an
 Cost is $0 (OAuth), so extra passes are cheap — scale by risk:
 - **Tier 1** (small diff, no logic/migration): single pass — `agy` generalist vs CRITICAL + Extensions.
 - **Tier 2 / migration / logic-preserving PR:** TWO passes, UNION the findings:
-    - **Pass A** — `agy` generalist vs CRITICAL checklist + Extension #6 (footguns).
+    - **Pass A** — `agy` generalist (`gemini-4-neon-medium`) vs CRITICAL checklist + Extension #6 (footguns).
     - **Pass B** — domain-rule specialist vs Extensions #7/#8, with FULL-file context. Run on `claude -p`
-      (Opus/Sonnet, stronger reasoning) for migration/architectural PRs; `agy` otherwise.
+      (Opus/Sonnet, stronger reasoning) for migration/architectural PRs; quando `claude` estiver indisponível
+      ou `RC6_ENGINE_CLAUDE=0`, o fallback em `agy` usa `RC6_AGY_PASSB_MODEL` (`gemini-4-neon-high`, `10m`).
     - Merge + dedupe by (file, line, issue-class); keep the higher severity on collision.
 - If `/cavecrew` exists locally, optionally fan Pass B into specialists (timezone, concurrency,
   test-quality) per §1493.
@@ -1068,10 +1072,15 @@ READ THE LAST STDERR LINE, then the JSON — they must say the same thing:
 - `coverage=partial` → record it in the PR (which pass, how many chunks, which class) and treat the
   uncovered part as **not independently reviewed**. It is NOT a reason to run RC6 again: RC6 runs
   once per PR, and a second run on the same commit burns quota for noise (dosiq#757).
+- `truncated=<N>` (`coverage.truncated_chunks > 0`) → pelo menos N chunks atingiram o teto de ~79.6K tokens
+  no Turn 1 do `agy` (vira `coverage=partial` automaticamente); reduza `RC6_CTX_TOTAL_MAX` ou divida o arquivo antes de confiar no passe.
+- `selector=FAILED` (`coverage.selector.status == "failed"`) → `select-rules.mjs` falhou ou entrou em `fail-safe 056`
+  (fail-open visível); registre no PR que as memórias selecionadas por diff não entraram no preâmbulo.
 - `reviewers_min=1` on a tier-2 run → at least one chunk had ONE independent reviewer, not two.
   Report it as such; never summarize that run as a "clean double pass" (dosiq#835).
 - The JSON carries the detail: `coverage.per_pass.<A|B>.{planned, ok, retried, model_fallback,
-  failed[{chunk, class, attempts}]}` and `coverage.independent_reviewers.{min, max}`.
+  truncated, failed[{chunk, class, attempts}]}`, `coverage.truncated_chunks`, `coverage.selector`,
+  and `coverage.independent_reviewers.{min, max}`.
 - Running RC6 in the background? The stderr line `[rc6] status: <path>` (printed right before the
   first engine call; set `RC6_STATUS_FILE` to choose the path up front) points to a JSONL
   feed (`started`/`retrying`/`model_fallback`/`deferred`/`failed`/`breaker_open`/`ok`/`done`) you can
