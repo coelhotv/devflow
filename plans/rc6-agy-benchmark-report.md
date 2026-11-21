@@ -1,34 +1,40 @@
 # Relatório de Benchmark — `agy` 1.5.13, Chunking e Effort Level no RC6 (`devflow` / `dosiq`)
 
-**Escopo e integridade:** medições empíricas executadas sobre `agy` `1.5.13` com caso real do PR #971 (`dosiq`, commit base `a1569160`, diff `38cba08d` vs `248ff9d9`), sem mutações em `/Users/coelhotv/SKILLS/devflow`, `/Users/coelhotv/git/dosiq` ou `/Users/coelhotv/git/dosiq-moat`, e com zero chamadas ao `claude` (`RC6_ENGINE_CLAUDE=0`). Passo 5 (concorrência) foi pulado por decisão do operador.
+**Escopo e integridade:** medições empíricas executadas sobre `agy` `1.5.13` com caso real do PR #971 (`dosiq`, commit base `a1569160`, diff `38cba08d` vs `248ff9d9`), sem mutações durante a coleta em `devflow`, `dosiq` ou `dosiq-moat`, e com zero chamadas ao `claude` (`RC6_ENGINE_CLAUDE=0`). Passo 5 (concorrência) foi pulado por decisão do operador.
+
+> [!NOTE]
+> **Status de Implementação (2026-11-21):** após este diagnóstico, as recomendações prioritárias foram implementadas e validadas:
+> - **`devflow` (`main`, commit `58ca2ce`, `@core` `1.3.0`):** todos os 5 itens P0 — com refinamento do item 2 na revisão de engenharia para mover `DIFF` antes de `FULL FILES` dentro de `build_chunk_ctx`/`CTXB`, mantendo `RC6_INSTRUCTION` + preâmbulo no topo para preservar o framing contra prompt injection — mais a suíte offline [rc6-truncation-and-selector.test.sh](../tests/rc6-truncation-and-selector.test.sh) (`36/36`).
+> - **`dosiq` (`main`, PR `#972`, commit `244b7c4e`):** item P1 #1 — extração de `scripts/schemas/memory-constants.mjs` sem dependências externas e guarda `fs.realpathSync` em `scripts/select-rules.mjs` (funciona em worktrees isolados sem `node_modules` e via symlinks `/tmp`/`/var`).
+> - **Postergados por decisão do operador:** evolução das specs em `dosiq-moat` (`087`, `075`, `089`), benchmark de concorrência (Passo 5) e medição de `gemini-4-neon-xhigh`.
 
 ---
 
 ## 1. Veredito Executivo
 
-1. **Chunking em `~150KB` (`CTX_BUDGET=150000`) continua obrigatório no `agy` `1.5.13`.** Tanto via `argv` (`-p`) quanto via `stdin` (`--input-format stream-json`), o `agy` impõe um teto rígido de `~79.6K` `input_tokens` no Turn 1 (`~57.9K` tokens de prompt do usuário + `~21.5K–21.7K` tokens base de CLI/tool-schemas). Acima desse limite (já visível em `200KB` com `2/3` agulhas recuperadas), o CLI retorna `rc=0` e `status=SUCCESS`, porém **trunca silenciosamente a cauda do prompt** — exatamente onde o RC6 posiciona os diffs.
+1. **Chunking em `~150KB` (`CTX_BUDGET=150000`) continua obrigatório no `agy` `1.5.13`.** Tanto via `argv` (`-p`) quanto via `stdin` (`--input-format stream-json`), o `agy` impõe um teto rígido de `~79.6K` `input_tokens` no Turn 1 (`~57.9K` tokens de prompt do usuário + `~21.5K–21.7K` tokens base de CLI/tool-schemas). Acima desse limite (já visível em `200KB` com `2/3` agulhas recuperadas), o CLI retorna `rc=0` e `status=SUCCESS`, porém **trunca silenciosamente a cauda do prompt**.
 2. **Modelo, effort e transporte não rompem a parede de `~79.6K` no Turn 1.** `gemini-4-neon-low`, `gemini-4-neon-medium`, `gemini-4-neon-high`, `gemini-4-argon-medium` e `gemini-4-hydrogen-medium` tiveram exatamente a mesma perda de cauda em `250KB` (`2/3`). O modo `--input-format stream-json` resolve o limite `ARG_MAX` do sistema operacional (`1,048,576 B`), mas sofre o mesmo corte em `1,199,992 B` (`in=79,627`, `1/3`).
 3. **Implicit prefix caching entre execuções e multi-turno em única sessão não reduzem esse custo hoje.** Duas chamadas independentes de `~143KB` compartilhando um prefixo byte-idêntico de `102,952 B` (`100,740` chars) registraram `cache_read_tokens=0`. Encadear chunks em sessão multi-turno estouraria o contexto já no segundo turno e ficaria exposto à issue aberta `#1166` (reuso de `structured_output` anterior em follow-ups).
 4. **Effort level em `gemini-4-neon` governa diretamente o recall sem aumentar o prefill do Turn 1.** No mini-bench com `select-rules.mjs` ativo (`K_slot` + `K_hook`, `~148KB` cada, todos com `cache_read_tokens` entre `63,812` e `64,571`):
    - `low`: `1/9` (`11%`) em `118.4s` acumulados nos 2 chunks — custo de prefill idêntico com perda severa de qualidade.
    - `medium`: `5/9` (`56%`) em `280.2s` — equilíbrio adequado para Pass A rotineiro.
    - `high`: `9/9` (`100%`, `0` falsos positivos) em `585.7s` — igualou os achados críticos/médios/baixos do Pass B original com Claude (`F7` + `R-254`), mas atingiu `314.09s` em 1 chunk, aproximando-se do `AGY_TIMEOUT=8m` (`480s`).
-5. **Preâmbulo (`~102KB`) exige poda inteligente, nunca remoção cega de índices.** Remover índices sem compensação (`C3`, `RC6_INDEXES=0`) zerou o recall (`0` findings), concentrando código demais por chunk e perdendo ancoragem. Já manter [`select-rules.mjs`](file:///Users/coelhotv/git/dosiq/scripts/select-rules.mjs) operacional mostrou-se determinante para capturar regras de domínio como `AP-365` (`F4`) em todos os níveis de esforço.
+5. **Preâmbulo (`~102KB`) exige poda inteligente, nunca remoção cega de índices.** Remover índices sem compensação (`C3`, `RC6_INDEXES=0`) zerou o recall (`0` findings), concentrando código demais por chunk e perdendo ancoragem. Já manter `dosiq/scripts/select-rules.mjs` operacional mostrou-se determinante para capturar regras de domínio como `AP-365` (`F4`) em todos os níveis de esforço.
 
 ---
 
-## 2. Inventário da Arquitetura de QA Externo (`devflow`)
+## 2. Inventário da Arquitetura de QA Externo (`devflow` — baseline `@core` `1.2.0` antes de `58ca2ce`)
 
-A camada de invocação é centralizada na biblioteca [`engine-core.sh`](file:///Users/coelhotv/SKILLS/devflow/scripts/lib/engine-core.sh) (`ENGINE_CORE_VERSION="1.2.0"`, 534 linhas), consumida por três scripts que exigem `ENGINE_CORE_EXPECTED="1.2.0"`:
+A camada de invocação é centralizada na biblioteca [engine-core.sh](../scripts/lib/engine-core.sh) (medida em `ENGINE_CORE_VERSION="1.2.0"`, 534 linhas, antes do bump para `1.3.0`), consumida por três scripts que validam `ENGINE_CORE_EXPECTED`:
 
-| Componente | Arquivo | Padrões / Parâmetros Verificados | Observações de Código |
+| Componente | Arquivo | Padrões / Parâmetros Medidos (pré-`58ca2ce`) | Observações de Código (pré-`58ca2ce`) |
 |---|---|---|---|
-| Core compartilhado | [`engine-core.sh`](file:///Users/coelhotv/SKILLS/devflow/scripts/lib/engine-core.sh) | `RC6_AGY_MODEL_FALLBACK=gemini-4-hydrogen-medium` ([L501](file:///Users/coelhotv/SKILLS/devflow/scripts/lib/engine-core.sh#L501)) | `build_engine_args` ([L303](file:///Users/coelhotv/SKILLS/devflow/scripts/lib/engine-core.sh#L303)) sem `--mode plan` (removido no commit `1249ecd`; nota em [L84-L88](file:///Users/coelhotv/SKILLS/devflow/scripts/lib/engine-core.sh#L84-L88)); accounting de `usage` em [L174-L185](file:///Users/coelhotv/SKILLS/devflow/scripts/lib/engine-core.sh#L174-L185); `run_bounded`, `unwrap_structured`, `egress_guard`, `fail_open`. |
-| Review principal (RC6) | [`ai-review.sh`](file:///Users/coelhotv/SKILLS/devflow/scripts/ai-review.sh) | `CTX_BUDGET=150000`, `CTX_TOTAL_MAX=150000`, `IDX_LINE_MAX=80`, `RC6_MAX_CHUNKS=6`, `RC6_INDEXES=1`, `PACK_FILTER=auto`, `RC6_AGY_MODEL=gemini-4-neon-medium`, `AGY_TIMEOUT=8m`, `PASSB_TIMEOUT=480` | Constantes de tier/fullfile em [L62-L66](file:///Users/coelhotv/SKILLS/devflow/scripts/ai-review.sh#L62-L66) (`MAX_FULLFILE_LINES=20`, `TIER2_FILE_THRESHOLD=8`, `MAX_FULLFILES=14`), globs em [L70-L74](file:///Users/coelhotv/SKILLS/devflow/scripts/ai-review.sh#L70-L74), budgets em [L270-L285](file:///Users/coelhotv/SKILLS/devflow/scripts/ai-review.sh#L270-L285) e [L646-L693](file:///Users/coelhotv/SKILLS/devflow/scripts/ai-review.sh#L646-L693). Em `build_prompt` ([L938-L940](file:///Users/coelhotv/SKILLS/devflow/scripts/ai-review.sh#L938-L940), [L1155-L1156](file:///Users/coelhotv/SKILLS/devflow/scripts/ai-review.sh#L1155-L1156)), `$EXTRA` antecede `$ctx`. |
-| Segunda opinião | [`second-opinion.sh`](file:///Users/coelhotv/SKILLS/devflow/scripts/second-opinion.sh) | `gemini-4-neon-medium`, `agy` -> `claude` fallback | 218 linhas; execução sem chunking. |
-| Conformidade de skill | [`skill-comply.sh`](file:///Users/coelhotv/SKILLS/devflow/scripts/skill-comply.sh) | `gemini-4-neon-medium`, `agy` -> `claude` fallback | 164 linhas; execução sem chunking. |
-| Utilitários de apoio | [`rank_chunks.py`](file:///Users/coelhotv/SKILLS/devflow/scripts/rank_chunks.py), [`reflect-gate.sh`](file:///Users/coelhotv/SKILLS/devflow/scripts/reflect-gate.sh) | Ranking de chunks (42L) e gate pós-review (120L) | Ordenação de risco usada para selecionar chunks prioritários dentro do teto `RC6_MAX_CHUNKS`. |
-| Documentação & skills | [`devflow-code/SKILL.md`](file:///Users/coelhotv/SKILLS/devflow/skills/devflow-code/SKILL.md#L948), [`devflow-ceremony/SKILL.md`](file:///Users/coelhotv/SKILLS/devflow/skills/devflow-ceremony/SKILL.md#L250-L310), [`README.md`](file:///Users/coelhotv/SKILLS/devflow/README.md#L195-L250) | Documentação do fluxo RC6 e modelos | [`devflow-code/SKILL.md`](file:///Users/coelhotv/SKILLS/devflow/skills/devflow-code/SKILL.md#L948) ainda referencia `Primary: agy -p (Gemini 3.8 Flash)`, desatualizado em relação ao padrão `gemini-4-neon-medium` do código. |
+| Core compartilhado | [engine-core.sh](../scripts/lib/engine-core.sh) | `RC6_AGY_MODEL_FALLBACK=gemini-4-hydrogen-medium` | `build_engine_args` sem `--mode plan` (removido no commit `1249ecd`; comentário histórico ainda o mencionava); accounting de `usage` sem `thinking`/`turns` ou guarda Turn 1; `run_bounded`, `unwrap_structured`, `egress_guard`, `fail_open`. |
+| Review principal (RC6) | [ai-review.sh](../scripts/ai-review.sh) | `CTX_BUDGET=150000`, `CTX_TOTAL_MAX=150000`, `IDX_LINE_MAX=80`, `RC6_MAX_CHUNKS=6`, `RC6_INDEXES=1`, `PACK_FILTER=auto`, `RC6_AGY_MODEL=gemini-4-neon-medium`, `AGY_TIMEOUT=8m`, `PASSB_TIMEOUT=480` | `MAX_FULLFILE_LINES=20`, `TIER2_FILE_THRESHOLD=8`, `MAX_FULLFILES=14`; `build_chunk_ctx` emitia `FULL FILES` antes de `DIFF`; Pass B `agy` reutilizava o modelo `medium` do Pass A; `auto` não somava `RC6_INSTRUCTION`. |
+| Segunda opinião | [second-opinion.sh](../scripts/second-opinion.sh) | `gemini-4-neon-medium`, `agy` -> `claude` fallback | 218 linhas; execução sem chunking. |
+| Conformidade de skill | [skill-comply.sh](../scripts/skill-comply.sh) | `gemini-4-neon-medium`, `agy` -> `claude` fallback | 164 linhas; execução sem chunking. |
+| Utilitários de apoio | [rank_chunks.py](../scripts/rank_chunks.py), [reflect-gate.sh](../scripts/reflect-gate.sh) | Ranking de chunks (42L) e gate pós-review (120L) | Ordenação de risco usada para selecionar chunks prioritários dentro do teto `RC6_MAX_CHUNKS`. |
+| Documentação & skills | [devflow-code/SKILL.md](../skills/devflow-code/SKILL.md), [devflow-ceremony/SKILL.md](../skills/devflow-ceremony/SKILL.md), [README.md](../README.md) | Documentação do fluxo RC6 e modelos | `devflow-code/SKILL.md` ainda referenciava `Primary: agy -p (Gemini 3.8 Flash)`, desatualizado em relação ao padrão `gemini-4-neon-medium` do código. |
 
 ---
 
@@ -36,7 +42,7 @@ A camada de invocação é centralizada na biblioteca [`engine-core.sh`](file://
 
 ### 3.1 Fase 0 — Inventário do PR #971 e `RC6_MEASURE=1` (0 chamadas LLM)
 
-Fontes: [`pr971_view.json`](file:///Users/coelhotv/.gemini/antigravity/brain/29baf5d0-07fe-43c3-a590-4b3eb76f06e9/scratch/agy-bench/phase0/pr971_view.json), [`measure.log`](file:///Users/coelhotv/.gemini/antigravity/brain/29baf5d0-07fe-43c3-a590-4b3eb76f06e9/scratch/agy-bench/phase0/measure.log).
+Fontes (artefatos de scratch locais da sessão): `phase0/pr971_view.json`, `phase0/measure.log`.
 
 - **PR #971 (`38cba08d` vs `248ff9d9`):** 48 arquivos (`+3162/-117`), sendo 46 `CODE_GLOBS` (`207,310 B` de diff de código; `230,363 B` total), `0` `RISK_UNREVIEWED_GLOBS` e 2 arquivos `.md`.
 - **Baseline histórico validado no commit `a1569160` (`agy+claude (7 chunks)`, `RC6_MAX_CHUNKS=7`):** 7 findings:
@@ -58,7 +64,7 @@ Fontes: [`pr971_view.json`](file:///Users/coelhotv/.gemini/antigravity/brain/29b
 
 ### 3.2 Fase 1 — Validação de Flags, Permissões e Transporte
 
-Fonte: [`results.json` (Fase 1)](file:///Users/coelhotv/.gemini/antigravity/brain/29baf5d0-07fe-43c3-a590-4b3eb76f06e9/scratch/agy-bench/phase1/results.json).
+Fonte (scratch local da sessão): `phase1/results.json`.
 
 | Caso | Configuração Testada | `rc` | Duração (`dur`) | Tokens (`in` / `out` / `think` / `cache`) | Resultado Observado |
 |---|---|---|---|---|---|
@@ -72,7 +78,7 @@ Fonte: [`results.json` (Fase 1)](file:///Users/coelhotv/.gemini/antigravity/brai
 
 ### 3.3 Fase 2 — Curva *Needle-at-the-End* e Transporte `stream-json`
 
-Fontes: [`results.json` (Fase 2)](file:///Users/coelhotv/.gemini/antigravity/brain/29baf5d0-07fe-43c3-a590-4b3eb76f06e9/scratch/agy-bench/phase2/results.json), [`stream_results.json`](file:///Users/coelhotv/.gemini/antigravity/brain/29baf5d0-07fe-43c3-a590-4b3eb76f06e9/scratch/agy-bench/phase2/stream_results.json) e [pesquisa do subagente sobre `stream-json`](file:///Users/coelhotv/.gemini/antigravity/brain/41e58e27-af17-4eb2-924e-2436cb24dc9b/.system_generated/logs/transcript.jsonl).
+Fontes (scratch local da sessão + pesquisa em documentação oficial): `phase2/results.json`, `phase2/stream_results.json`.
 
 | Caso | Transporte | Bytes de Prompt | `rc` / Status | Latência | `input_tokens` | `delta` vs base | `bpt` | `out` / `think` / `cache` | Agulhas |
 |---|---|---|---|---|---|---|---|---|---|
@@ -87,7 +93,7 @@ Fontes: [`results.json` (Fase 2)](file:///Users/coelhotv/.gemini/antigravity/bra
 
 ### 3.4 Fase 4A — Mini-sonda de Modelos/Effort e Prefix Caching
 
-Fonte: [`results.json` (Fase 4A)](file:///Users/coelhotv/.gemini/antigravity/brain/29baf5d0-07fe-43c3-a590-4b3eb76f06e9/scratch/agy-bench/phase4a/results.json).
+Fonte (scratch local da sessão): `phase4a/results.json`.
 
 **Sonda de teto por modelo/effort (`249,912 B`):**
 
@@ -109,10 +115,10 @@ Não houve aproveitamento de cache implícito entre chamadas independentes no CL
 
 ### 3.5 Fase 4B — Benchmark no Worktree `a1569160` (`--dry-run --tier1`, `RC6_MAX_CHUNKS=8`)
 
-Fontes: [`summary.json` (Fase 4B)](file:///Users/coelhotv/.gemini/antigravity/brain/29baf5d0-07fe-43c3-a590-4b3eb76f06e9/scratch/agy-bench/phase4b/summary.json), [`measure_a1569160.log`](file:///Users/coelhotv/.gemini/antigravity/brain/29baf5d0-07fe-43c3-a590-4b3eb76f06e9/scratch/agy-bench/phase4b/measure_a1569160.log).
+Fontes (scratch local da sessão): `phase4b/summary.json`, `phase4b/measure_a1569160.log`.
 
 > [!WARNING]
-> Neste worktree temporário isolado sem `node_modules`, o script [`select-rules.mjs`](file:///Users/coelhotv/git/dosiq/scripts/select-rules.mjs) falhou na importação de `js-yaml` e entrou em **fail-open** silencioso, não injetando as 4 memórias de domínio (`10,168 B`). Os resultados comparam `C1`, `C2` e `C3` sob essa condição idêntica entre si.
+> Neste worktree temporário isolado sem `node_modules`, o script `dosiq/scripts/select-rules.mjs` falhou na importação indireta de `js-yaml` (via `memory-frontmatter.schema.mjs`) e entrou em **fail-open** silencioso, não injetando as 4 memórias de domínio (`10,168 B`). Os resultados comparam `C1`, `C2` e `C3` sob essa condição idêntica entre si. (Causa-raiz resolvida posteriormente em `dosiq#972`.)
 
 | Cenário | Config | Chunks | Bytes Totais | Latência Total | `sum_in` | `max_in` | `sum_cache` | `sum_out` | Findings (distribuição) |
 |---|---|---|---|---|---|---|---|---|---|
@@ -124,7 +130,7 @@ Fontes: [`summary.json` (Fase 4B)](file:///Users/coelhotv/.gemini/antigravity/br
 
 ### 3.6 Fase 4C — Mini-bench de Effort Level com `select-rules.mjs` Ativo
 
-Fontes: [`summary.json` (Fase 4C)](file:///Users/coelhotv/.gemini/antigravity/brain/29baf5d0-07fe-43c3-a590-4b3eb76f06e9/scratch/agy-bench/phase4c/summary.json), [`capture.stderr.log`](file:///Users/coelhotv/.gemini/antigravity/brain/29baf5d0-07fe-43c3-a590-4b3eb76f06e9/scratch/agy-bench/phase4c/capture.stderr.log).
+Fontes (scratch local da sessão): `phase4c/summary.json`, `phase4c/capture.stderr.log`.
 
 Prompts exatos capturados de `a1569160` com symlink para `node_modules` (`select-rules.mjs`: `4 memória(s), 10168B`, `PRE_BYTES=103,181 B`, 7 chunks no PR). Avaliados os 2 chunks mais densos: `K_slot` (`chunk_02.prompt.txt`, `148,255 B`) e `K_hook` (`chunk_04.prompt.txt`, `147,592 B`), 6 execuções sequenciais, todas `rc=0`, `SUCCESS`, `num_turns=2`:
 
@@ -139,40 +145,40 @@ Prompts exatos capturados de `a1569160` com symlink para `node_modules` (`select
 
 **Dois comportamentos críticos revelados na Fase 4C:**
 1. **Explicação de `in=94,661` / `97,785` sem violar a parede de `~79.6K`:** em chamadas de code review (`num_turns=2`), `usage.input_tokens` soma os tokens de entrada do Turn 1 + Turn 2. O Turn 2 relê o prefixo em cache (`cache_read_tokens` de `64,559` e `63,812`) somado ao raciocínio/saída do Turn 1 para emitir o JSON estruturado. Portanto, o payload original do chunk nunca encostou nos `~79.6K` do Turn 1 — o excedente veio da re-leitura de ~`28.6K–32.2K` `thinking_tokens` do Turn 1 no Turn 2.
-2. **Impacto causal do seletor de regras:** diferentemente da Fase 4B (fail-open sem `js-yaml`), com [`select-rules.mjs`](file:///Users/coelhotv/git/dosiq/scripts/select-rules.mjs) ativo o achado `F4` (`useTodaySetup.ts:142`, `AP-365`) foi detectado nos três níveis (`low`, `medium`, `high`).
+2. **Impacto causal do seletor de regras:** diferentemente da Fase 4B (fail-open sem `js-yaml`), com `dosiq/scripts/select-rules.mjs` ativo o achado `F4` (`useTodaySetup.ts:142`, `AP-365`) foi detectado nos três níveis (`low`, `medium`, `high`).
 
 ---
 
 ## 4. Avaliação das Specs de Contexto/QA no `dosiq-moat`
 
-Base lida: [`README.md`](file:///Users/coelhotv/git/dosiq-moat/plans/specs/README.md) (`034`, `056`, `058`, `060`, `078`, `079`, `080` marcadas como `delivered`; `081` marcada como `superseded`). Avaliação das specs em `draft`:
+Base lida: `dosiq-moat/plans/specs/README.md` (`034`, `056`, `058`, `060`, `078`, `079`, `080` marcadas como `delivered`; `081` marcada como `superseded`). Avaliação das specs em `draft`:
 
 | Spec | Dados Verificados no Repositório | Parecer Técnico Cruzado com o Benchmark |
 |---|---|---|
-| [`087-spike-jev/spec.md`](file:///Users/coelhotv/git/dosiq-moat/plans/specs/087-spike-jev/spec.md) (`draft`) | Referência System One a US\$0.042/M input; avaliação do seletor léxico com `recall@5=2/6` e `recall@60=5/6`; `ADR-097` propondo corte de `339 -> 232` regras (`152` via `detail` e `38` [`16%`] via seletor). | **Alta sinergia com o gargalo real.** Hoje o preâmbulo consome `102,403 B` (`wiki=54,599 B`, `detail=23,196 B`, `CLAUDE.md=14,440 B`, `seletor=10,168 B`), deixando apenas `39,597 B` de `CHUNK_BUDGET`. Cortar regras ociosas libera orçamento de código sem quebrar o teto de `~79.6K`. Atenção: dados os `100%` obtidos pelo `neon-high` em `K_slot`/`K_hook` e a falha observada em `select-rules.mjs` sem `js-yaml`, o ganho imediato está em aumentar a precisão/recall do seletor (hoje `2/6` em top-5) e reduzir `wiki`/`detail` antes de introduzir outro modelo no loop. |
-| [`075-graftroom-benchmark/spec.md`](file:///Users/coelhotv/git/dosiq-moat/plans/specs/075-graftroom-benchmark/spec.md) & [`measurement.md`](file:///Users/coelhotv/git/dosiq-moat/plans/specs/075-graftroom-benchmark/measurement.md) (`draft`) | Seções A e C com `0` amostras; uso ad-hoc por `grep` em ~1% vs `grep -rn`; Seção B com **miss-to-ZERO** em JSX (`LogFormInjectionSiteSection` / `InjectionSitePicker`) e constante exportada (`ALARM_CRITICAL_CHANNEL_ID`); Seção D com `1/2` hit. | **Não pronta para compor contexto de QA do RC6.** Em código React Native / TypeScript (como `ConfiraSheet.tsx`, `TodaySetupSlot.tsx`, `TodayScreen.tsx`), falhar em componentes JSX e constantes exportadas comprometeria exatamente os arquivos críticos de UI. Completar A e C e sanar a indexação JSX antes de adotá-la como fonte primária de contexto. |
-| [`089-spec-drift-detection/spec.md`](file:///Users/coelhotv/git/dosiq-moat/plans/specs/089-spec-drift-detection/spec.md) (`draft`) | ~`1,295` citações de código entre specs pendentes; Layer 2 projetada sobre `graftroom blast`. | **Separar entregáveis.** A Layer 1 determinística (validação direta de existência de caminhos/símbolos citados em disco) pode avançar imediatamente de forma independente; a Layer 2 deve permanecer condicionada ao desbloqueio da spec `075` (indexação confiável de JSX e constantes exportadas). |
+| `dosiq-moat/plans/specs/087-spike-jev/spec.md` (`draft`) | Referência System One a US\$0.042/M input; avaliação do seletor léxico com `recall@5=2/6` e `recall@60=5/6`; `ADR-097` propondo corte de `339 -> 232` regras (`152` via `detail` e `38` [`16%`] via seletor). | **Alta sinergia com o gargalo real.** Hoje o preâmbulo consome `102,403 B` (`wiki=54,599 B`, `detail=23,196 B`, `CLAUDE.md=14,440 B`, `seletor=10,168 B`), deixando apenas `39,597 B` de `CHUNK_BUDGET`. Cortar regras ociosas libera orçamento de código sem quebrar o teto de `~79.6K`. Atenção: dados os `100%` obtidos pelo `neon-high` em `K_slot`/`K_hook` e a falha observada em `select-rules.mjs` sem `js-yaml`, o ganho imediato está em aumentar a precisão/recall do seletor (hoje `2/6` em top-5) e reduzir `wiki`/`detail` antes de introduzir outro modelo no loop. |
+| `dosiq-moat/plans/specs/075-graftroom-benchmark/spec.md` & `measurement.md` (`draft`) | Seções A e C com `0` amostras; uso ad-hoc por `grep` em ~1% vs `grep -rn`; Seção B com **miss-to-ZERO** em JSX (`LogFormInjectionSiteSection` / `InjectionSitePicker`) e constante exportada (`ALARM_CRITICAL_CHANNEL_ID`); Seção D com `1/2` hit. | **Não pronta para compor contexto de QA do RC6.** Em código React Native / TypeScript (como `ConfiraSheet.tsx`, `TodaySetupSlot.tsx`, `TodayScreen.tsx`), falhar em componentes JSX e constantes exportadas comprometeria exatamente os arquivos críticos de UI. Completar A e C e sanar a indexação JSX antes de adotá-la como fonte primária de contexto. |
+| `dosiq-moat/plans/specs/089-spec-drift-detection/spec.md` (`draft`) | ~`1,295` citações de código entre specs pendentes; Layer 2 projetada sobre `graftroom blast`. | **Separar entregáveis.** A Layer 1 determinística (validação direta de existência de caminhos/símbolos citados em disco) pode avançar imediatamente de forma independente; a Layer 2 deve permanecer condicionada ao desbloqueio da spec `075` (indexação confiável de JSX e constantes exportadas). |
 
 ---
 
 ## 5. Recomendações Priorizadas
 
-### P0 — `devflow` (sem alterações já aplicadas nesta rodada)
+### P0 — `devflow` (implementado em `58ca2ce`)
 
-1. **Preservar chunking em `<=150KB` (`CTX_BUDGET=150000`, `CTX_TOTAL_MAX=150000`):** não tentar escalar chunks via `stream-json` nem por modelo/effort alternativo enquanto a parede de `~79.6K` tokens no Turn 1 existir no `agy`.
-2. **Proteger a ordem do prompt em `build_prompt` ([`ai-review.sh`](file:///Users/coelhotv/SKILLS/devflow/scripts/ai-review.sh#L938-L940)):** hoje `$EXTRA` vai antes de `$ctx` (deixando o diff na cauda, onde ocorre o corte silencioso). Garantir orçamento rígido pré-invocação e considerar priorizar metadados fixos + diff antes de blocos expansíveis quando próximo do limite.
-3. **Corrigir heurística de truncamento para `num_turns >= 2` em [`engine-core.sh`](file:///Users/coelhotv/SKILLS/devflow/scripts/lib/engine-core.sh):** nunca disparar alarme de teto apenas com `usage.input_tokens >= 78500`, porque em `neon-high` (`num_turns=2`) `usage.input_tokens` acumula ambos os turnos (`94,661` / `97,785`). Para `num_turns >= 2`, monitorar `cache_read_tokens` próximo de `~79.6K` (proxy do prompt do Turn 1); quando `num_turns == 1`, usar `input_tokens` diretamente.
-4. **Calibrar estratégia de Effort, Timeout e `RC6_MAX_CHUNKS` em [`ai-review.sh`](file:///Users/coelhotv/SKILLS/devflow/scripts/ai-review.sh):**
+1. **Preservar chunking em `<=150KB` (`CTX_BUDGET=150000`, `CTX_TOTAL_MAX=150000`):** não tentar escalar chunks via `stream-json` nem por modelo/effort alternativo enquanto a parede de `~79.6K` tokens no Turn 1 existir no `agy`. *(Mantido.)*
+2. **Proteger a ordem do prompt em [ai-review.sh](../scripts/ai-review.sh):** o diagnóstico apontava `$EXTRA` antes de `$ctx` em `build_prompt`; na revisão de código verificou-se que `$EXTRA` tem só ~2 linhas e que o peso real vinha de `FULL FILES` antes de `DIFF` em `build_chunk_ctx`/`CTXB`. Implementado colocando `DIFF` antes de `FULL FILES` (mantendo `RC6_INSTRUCTION` + preâmbulo protegidos no topo) e incluindo os bytes da instrução no `PACK_FILTER=auto`. *(Implementado.)*
+3. **Corrigir heurística de truncamento para `num_turns >= 2` em [engine-core.sh](../scripts/lib/engine-core.sh):** nunca disparar alarme de teto apenas com `usage.input_tokens >= 78500`, porque em `neon-high` (`num_turns=2`) `usage.input_tokens` acumula ambos os turnos (`94,661` / `97,785`). Monitora `cache_read_tokens` em `num_turns >= 2` e `input_tokens` quando `num_turns <= 1`, expondo `truncated_chunks` e `truncated=<N>` no `VERDICT`. *(Implementado.)*
+4. **Calibrar estratégia de Effort, Timeout e `RC6_MAX_CHUNKS` em [ai-review.sh](../scripts/ai-review.sh):**
    - Manter `gemini-4-neon-medium` no Pass A rotineiro; **não** baixar para `low` (`11%` no mini-bench pelo mesmo prefill).
-   - Quando rodar sem Claude (`RC6_ENGINE_CLAUDE=0`), adotar `gemini-4-neon-high` no Pass B ou nos top chunks ordenados por [`rank_chunks.py`](file:///Users/coelhotv/SKILLS/devflow/scripts/rank_chunks.py), ajustando `AGY_TIMEOUT` (hoje `8m` = `480s`) com margem confortável acima dos `314.09s` observados em chunk único isolado.
-   - Revisar `RC6_MAX_CHUNKS=6`: no PR #971 o limite `6` descartou o chunk `3/7` (5 arquivos). Considerar aumentar para `>=7–8` em PRs desse porte ou documentar o corte explícito no resumo do review.
-5. **Atualizar [`devflow-code/SKILL.md`](file:///Users/coelhotv/SKILLS/devflow/skills/devflow-code/SKILL.md#L948):** substituir a referência legada `Gemini 3.8 Flash` por `gemini-4-neon-medium` (e fallback `gemini-4-hydrogen-medium`), além de registrar que `--mode plan` é no-op com `--disable-slash-commands` e `--effort` conflita com sufixos de modelo no `agy 1.5.13`.
+   - No Pass B fallback em `agy`, escalar via `RC6_AGY_PASSB_MODEL=gemini-4-neon-high` com `RC6_AGY_PASSB_TIMEOUT` default `10m` (`600s`, acima dos `314.09s` medidos) mantendo override explícito.
+   - Elevar `RC6_MAX_CHUNKS` default de `6` para `8` (em `dosiq#971`, cap `6` descartava o chunk `3/7`). *(Implementado.)*
+5. **Atualizar [devflow-code/SKILL.md](../skills/devflow-code/SKILL.md):** substituir a referência legada `Gemini 3.8 Flash` por `gemini-4-neon-medium` / fallback `gemini-4-hydrogen-medium` / Pass B `gemini-4-neon-high`, além de registrar as restrições do `agy 1.5.13` (`--mode plan`, `--effort`, `stream-json`). *(Implementado + coberto por [rc6-truncation-and-selector.test.sh](../tests/rc6-truncation-and-selector.test.sh) e [DEVFLOW-META.md](../DEVFLOW-META.md).)*
 
 ### P1 — `dosiq-moat` e integração `dosiq`
 
-1. **Remover fail-open silencioso de [`select-rules.mjs`](file:///Users/coelhotv/git/dosiq/scripts/select-rules.mjs):** em reviews executados a partir de worktrees isolados sem `node_modules`, resolver `js-yaml` de forma resiliente ou sinalizar no output do preâmbulo que o seletor falhou (evitando repetir a perda de cobertura vista na Fase 4B).
-2. **Priorizar poda de `wiki`/`detail` e calibração do seletor (`087-spike-jev`):** reduzir os `102,403 B` atuais de preâmbulo eleva o espaço útil por chunk dentro dos `150KB` existentes.
-3. **Condicionar Layer 2 de `089` ao fechamento de `075`:** executar medições faltantes A/C e corrigir miss-to-ZERO de JSX/constantes antes de acoplar `graftroom blast` à detecção de drift ou ao QA.
+1. **Remover fail-open silencioso de `dosiq/scripts/select-rules.mjs`:** *(implementado)* — constantes puras isoladas em `scripts/schemas/memory-constants.mjs` + guarda de symlink (`fs.realpathSync`) em `dosiq#972` (`244b7c4e`), e fail-open tornado visível em [ai-review.sh](../scripts/ai-review.sh) (`coverage.selector`, `selector=FAILED` no `VERDICT` e alerta no `--post`).
+2. **Priorizar poda de `wiki`/`detail` e calibração do seletor (`087-spike-jev`):** *(postergado)* — reduzir os `102,403 B` atuais de preâmbulo eleva o espaço útil por chunk dentro dos `150KB` existentes.
+3. **Condicionar Layer 2 de `089` ao fechamento de `075`:** *(postergado)* — executar medições faltantes A/C e corrigir miss-to-ZERO de JSX/constantes antes de acoplar `graftroom blast` à detecção de drift ou ao QA.
 
 ---
 
@@ -181,4 +187,4 @@ Base lida: [`README.md`](file:///Users/coelhotv/git/dosiq-moat/plans/specs/READM
 - **Concorrência (Passo 5 pulado por decisão do operador):** não foram medidas contenção, latência agregada ou rate limits com 2–3 chamadas `agy` paralelas (relevante se Pass A paralelizar chunks, especialmente com `high` perto de `314s`).
 - **`gemini-4-neon-xhigh` não testado** neste ciclo.
 - **Fase 4C com amostra focal (`2` chunks, `1` execução por célula):** o mini-bench comparou `low`/`medium`/`high` nos chunks `K_slot` e `K_hook` do PR #971 (6 chamadas ao todo); não mede variância estocástica multi-seed nem generalização entre múltiplos PRs distintos.
-- **Fase 4B sob fail-open do seletor:** os cenários `C1`, `C2` e `C3` rodaram no worktree temporário sem `js-yaml`, o que explica a ausência das memórias do seletor em todos os três cenários comparados naquela fase.
+- **Fase 4B sob fail-open do seletor:** os cenários `C1`, `C2` e `C3` rodaram no worktree temporário sem `js-yaml` (antes da correção `dosiq#972`), o que explica a ausência das memórias do seletor em todos os três cenários comparados naquela fase.
