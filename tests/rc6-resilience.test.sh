@@ -204,6 +204,25 @@ esac
 python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$D/out.json" 2>/dev/null \
   && ok "stdout segue sendo so o JSON" || bad "stdout nao e JSON puro"
 
+echo "== RC6_ENGINE_AGY=0 — forcar claude em Tier 1 e Tier 2"
+RC6_ENGINE_AGY=0 run claude_t1 --tier1
+[ "$(wc -l < "$D/agy.calls" | tr -d ' ')" = 0 ] && ok "RC6_ENGINE_AGY=0 tier1: agy nao chamado" \
+  || bad "RC6_ENGINE_AGY=0 tier1: agy=$(wc -l < "$D/agy.calls" | tr -d ' ')"
+[ "$(wc -l < "$D/claude.calls" | tr -d ' ')" = 4 ] && ok "RC6_ENGINE_AGY=0 tier1: claude chamado 4x (pass A)" \
+  || bad "RC6_ENGINE_AGY=0 tier1: claude=$(wc -l < "$D/claude.calls" | tr -d ' ')"
+[ "$(j '(d["coverage"]["per_pass"]["A"]["ok"], d["coverage"]["partial"], d["coverage"]["independent_reviewers"]["min"])')" = "(4, False, 1)" ] \
+  && ok "RC6_ENGINE_AGY=0 tier1: A=4/4, partial=false, reviewers.min=1" \
+  || bad "RC6_ENGINE_AGY=0 tier1: $(j 'd.get("coverage")')"
+
+RC6_ENGINE_AGY=0 run claude_t2 --tier2
+[ "$(wc -l < "$D/agy.calls" | tr -d ' ')" = 0 ] && ok "RC6_ENGINE_AGY=0 tier2: agy nao chamado" \
+  || bad "RC6_ENGINE_AGY=0 tier2: agy=$(wc -l < "$D/agy.calls" | tr -d ' ')"
+[ "$(wc -l < "$D/claude.calls" | tr -d ' ')" = 5 ] && ok "RC6_ENGINE_AGY=0 tier2: claude chamado 5x (4 pass A + 1 pass B)" \
+  || bad "RC6_ENGINE_AGY=0 tier2: claude=$(wc -l < "$D/claude.calls" | tr -d ' ')"
+[ "$(j '(d["coverage"]["per_pass"]["A"]["ok"], d["coverage"]["per_pass"]["B"]["ok"], d["coverage"]["partial"], d["coverage"]["independent_reviewers"]["min"])')" = "(4, 4, False, 2)" ] \
+  && ok "RC6_ENGINE_AGY=0 tier2: A=4/4, B=4/4, partial=false, reviewers.min=2" \
+  || bad "RC6_ENGINE_AGY=0 tier2: $(j 'd.get("coverage")')"
+
 echo
 echo "rc6-resilience: $pass passaram, $fail falharam"
 [ "$fail" = 0 ]

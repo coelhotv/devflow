@@ -36,8 +36,8 @@
 #   IDX_LINE_MAX   — inteiro                           (clamp_lines)
 #   AGY_SCHEMA / CLAUDE_SCHEMA / AGY_ARGS[] /
 #   CLAUDE_ARGS[] / PASSB_TIMEOUT                      (run_engine)
-#   AGY_TIMEOUT / RC6_AGY_MODEL                        (build_engine_args)
-#   RC6_ENGINE_CLAUDE / RC6_ALLOW_SENSITIVE /
+#   AGY_TIMEOUT / RC6_AGY_MODEL / RC6_CLAUDE_MODEL     (build_engine_args)
+#   RC6_ENGINE_AGY / RC6_ENGINE_CLAUDE / RC6_ALLOW_SENSITIVE /
 #   RC6_AGY_TRUNC_TOKENS                               (probe/egress/unwrap; opcionais, default 78000)
 # ...e ESCREVE estas, que passam a ser globais do consumidor apos a chamada:
 #   HAVE_AGY HAVE_CLAUDE AGY_SCHEMA AGY_NOSLASH CLAUDE_SCHEMA CLAUDE_NOSLASH CLAUDE_NOPERSIST
@@ -309,6 +309,7 @@ ab_total() { printf '%s' "$1" | tr '/' '+' | bc; }
 probe_engines() {
   HAVE_AGY=0;    command -v agy    >/dev/null && HAVE_AGY=1
   HAVE_CLAUDE=0; command -v claude >/dev/null && HAVE_CLAUDE=1
+  [ "${RC6_ENGINE_AGY:-1}" = 0 ] && { HAVE_AGY=0; log "RC6_ENGINE_AGY=0 — agy disabled; pass A will use claude"; }
   [ "${RC6_ENGINE_CLAUDE:-1}" = 0 ] && { HAVE_CLAUDE=0; log "RC6_ENGINE_CLAUDE=0 — claude disabled; pass B will use agy"; }
   AGY_SCHEMA=0; AGY_NOSLASH=0; CLAUDE_SCHEMA=0; CLAUDE_NOSLASH=0; CLAUDE_NOPERSIST=0
   local help
@@ -343,7 +344,7 @@ build_engine_args() {
   AGY_ARGS=(--sandbox --print-timeout "$AGY_TIMEOUT" --model "$RC6_AGY_MODEL")
   [ "$AGY_NOSLASH" = 1 ] && AGY_ARGS+=(--disable-slash-commands)
   [ "$AGY_SCHEMA"  = 1 ] && AGY_ARGS+=(--output-format json --json-schema "$schema")
-  CLAUDE_ARGS=(--model sonnet --tools "" --strict-mcp-config --setting-sources "")
+  CLAUDE_ARGS=(--model "${RC6_CLAUDE_MODEL:-sonnet}" --tools "" --strict-mcp-config --setting-sources "")
   [ "$CLAUDE_NOSLASH" = 1 ]   && CLAUDE_ARGS+=(--disable-slash-commands)
   [ "$CLAUDE_NOPERSIST" = 1 ] && CLAUDE_ARGS+=(--no-session-persistence)
   [ "$CLAUDE_SCHEMA" = 1 ]    && CLAUDE_ARGS+=(--output-format json --json-schema "$(cat "$schema")")

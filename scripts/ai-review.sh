@@ -38,6 +38,15 @@
 #     termo que dimensiona o bloco), RC6_SELECTOR_SCRIPT=<path> aponta o seletor
 #     (default <repo>/scripts/select-rules.mjs). Ausência de qualquer um deles é
 #     fail-open com log, nunca erro.
+#     RC6_CHUNK_SCOPE=0 volta ao escopo global legado (default 1 / A1: executa
+#     select-rules.mjs e DETAIL_FILES por chunk com dedupe local e recálculo de
+#     budget; reservas RC6_CHUNK_DETAIL_RESERVE=6000, RC6_CHUNK_SEL_RESERVE=12000).
+#     RC6_ADAPTIVE_EFFORT=auto|1|0 roteia o effort por risco do chunk via rank_chunks.py
+#     (C2; default auto: ativo quando RC6_AGY_MODEL não foi fixado explicitamente;
+#     chunks HOT no Pass A usam RC6_AGY_HOT_MODEL=gemini-4-neon-high e timeout
+#     RC6_AGY_HOT_TIMEOUT=10m quando Pass B não rodar agy em neon-high
+#     [TIER!=2 || HAVE_CLAUDE=1 || PASSB_AGY_MODEL=""]; chunks COLD no fallback Pass B
+#     usam o modelo base).
 #
 # Exit: 0 clean or issues_found (non-blocking by design — human gate R-060 is
 #       final). Fail-open: if all engines are unavailable, emits a warning JSON
@@ -64,6 +73,21 @@ TIER2_FILE_THRESHOLD="${RC6_TIER2_FILES:-8}"
 MAX_FULLFILES="${RC6_MAX_FULLFILES:-14}"      # cap full-file attachments (migration PRs match ~everything)
 CTX_BUDGET="${RC6_CTX_BUDGET:-150000}"        # byte budget for FULL-FILE attachments only (base ctx ~300KB;
                                               # keep total argv well under ARG_MAX ~1MB)
+rc6_num() { # R-312: env que nao e inteiro >= 0 cai no default, em vez de desarmar o freio
+  case "${1:-}" in ''|*[!0-9]*) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac
+}
+CHUNK_SCOPE="${RC6_CHUNK_SCOPE:-1}"
+CHUNK_DETAIL_RESERVE="$(rc6_num "${RC6_CHUNK_DETAIL_RESERVE:-}" 6000)"
+CHUNK_SEL_RESERVE="$(rc6_num "${RC6_CHUNK_SEL_RESERVE:-}" 12000)"
+AGY_MODEL_EXPLICIT=0; [ -n "${RC6_AGY_MODEL:-}" ] && AGY_MODEL_EXPLICIT=1
+ADAPTIVE_EFFORT_MODE="${RC6_ADAPTIVE_EFFORT:-auto}"
+EFFORT_HOT_MIN="$(rc6_num "${RC6_EFFORT_HOT_MIN:-}" 4)"
+HOT_AGY_MODEL="${RC6_AGY_HOT_MODEL:-gemini-4-neon-high}"
+HOT_AGY_TIMEOUT="${RC6_AGY_HOT_TIMEOUT:-${RC6_AGY_TIMEOUT:-10m}}"
+ADAPTIVE_EFFORT_ON=0
+if [ "$ADAPTIVE_EFFORT_MODE" = 1 ] || { [ "$ADAPTIVE_EFFORT_MODE" = auto ] && [ "$AGY_MODEL_EXPLICIT" = 0 ]; }; then
+  ADAPTIVE_EFFORT_ON=1
+fi
 # .mjs/.cjs entram desde 2026-08-30: eram um ponto cego total do RC6 — 33 arquivos no dosiq,
 # incluindo .github/scripts/*.cjs, que é a automação que gateia os PRs. Um PR só de .mjs
 # recebia "No code changes" e passava como CLEAN sem uma linha revisada (falso negativo).
@@ -254,17 +278,84 @@ done < <(printf '%s\n' "${CANDS[@]:-}" | sort -t"$TAB" -k1,1nr -k2,2n)
 log "full-file attach: ${#FULLFILES[@]}/${#CANDS[@]} candidate(s), ~${acc}B (drops-first)"
 log "  files: ${FULLFILES[*]:-<none>}"
 
-# ---- best-effort: load R-NNN/AP-NNN detail files whose ids appear in the diff
-DETAIL_FILES=()
+# ---- best-effort: memory index + reusable DETAIL / SELECTOR helpers (A1) ---
+DETAIL_MAX="${RC6_DETAIL_MAX:-24000}"
+MEM_INDEX="$WORKDIR/memory_files.tsv"
+: > "$MEM_INDEX"
 if [ -d "$REPO_ROOT/.agent/memory" ]; then
-  IDS=()
-  while IFS= read -r _l; do [ -n "$_l" ] && IDS+=("$_l"); done \
-    < <(grep -Eoh 'A?P?R?-[0-9]{3}' "$WORKDIR/diff.txt" 2>/dev/null | sort -u || true)
-  while IFS= read -r df; do DETAIL_FILES+=("$df"); done < <(
-    for id in "${IDS[@]:-}"; do
-      [ -n "$id" ] && find "$REPO_ROOT/.agent/memory" -name "${id}.md" 2>/dev/null
-    done | sort -u)
+  {
+    find "$REPO_ROOT/.agent/memory" -type f -name '*.md' 2>/dev/null || true
+  } | awk -F/ '
+    {
+      fn = $NF
+      sub(/\.md$/, "", fn)
+      if (fn ~ /^(R|AP)-[0-9][0-9][0-9]$/ && !seen[fn]++) {
+        printf "%s\t%s\n", fn, $0
+      }
+    }
+  ' | sort > "$MEM_INDEX" || true
 fi
+
+cat > "$WORKDIR/dedup_selected.py" <<'PYDEDUP'
+import re, sys
+raw_path, det_path, meta_path = sys.argv[1], sys.argv[2], sys.argv[3]
+head = re.compile(r'^## (?:\[HOT\] )?((?:R|AP|ADR)-[0-9]+)')
+det_re = re.compile(r'^===== DETAIL ((?:R|AP|ADR)-[0-9]+)')
+skip = set()
+try:
+    with open(det_path, encoding='utf-8', errors='replace') as df:
+        for line in df:
+            m = det_re.match(line)
+            if m:
+                skip.add(m.group(1))
+except OSError:
+    pass
+blocks, cur = [], []
+with open(raw_path, encoding='utf-8', errors='replace') as rf:
+    for line in rf:
+        if head.match(line):
+            if cur:
+                blocks.append(cur)
+            cur = [line]
+        elif cur:
+            cur.append(line)
+if cur:
+    blocks.append(cur)
+out = [b for b in blocks if head.match(b[0]).group(1) not in skip]
+emitted_ids, seen = [], set()
+for b in out:
+    rid = head.match(b[0]).group(1)
+    if rid not in seen:
+        seen.add(rid)
+        emitted_ids.append(rid)
+with open(meta_path, 'w', encoding='utf-8') as mf:
+    mf.write("%d\n%d\n%s\n" % (len(blocks), len(out), " ".join(emitted_ids)))
+sys.stdout.write("".join("".join(b) for b in out))
+PYDEDUP
+
+build_detail_for_diff() { # $1=diff_file $2=out_file [$3=max_bytes]
+  local diff_f="$1" out_f="$2" max_b="${3:-$DETAIL_MAX}"
+  local dacc=0 ids_raw id df dsz
+  : > "$out_f"
+  [ -s "$MEM_INDEX" ] || return 0
+  [ -s "$diff_f" ] || return 0
+  [ "$max_b" -le 0 ] && return 0
+  ids_raw="$(python3 -c 'import re,sys; print("\n".join(sorted(set(re.findall(r"(?<![A-Za-z0-9_])(?:AP|R)-[0-9]{3}(?![0-9])", open(sys.argv[1], errors="replace").read())))))' "$diff_f" 2>/dev/null || true)"
+  [ -n "$ids_raw" ] || return 0
+  {
+    for id in $ids_raw; do
+      df="$(awk -F'\t' -v target="$id" '$1 == target { print $2; exit }' "$MEM_INDEX")"
+      [ -n "${df:-}" ] && [ -f "$df" ] || continue
+      dsz="$(wc -c < "$df" | tr -d ' ')"
+      dacc=$((dacc + dsz))
+      if [ "$dacc" -gt "$max_b" ]; then
+        echo; echo "(further R/AP detail files omitted — budget; see clamped indexes above)"
+        break
+      fi
+      echo; echo "===== DETAIL $(basename "$df") ====="; cat "$df"
+    done
+  } > "$out_f"
+}
 
 # ---- assemble shared context -----------------------------------------------
 # EMPIRICAL ENGINE LIMIT (2026-07-17, bisected with needle-at-the-end probes):
@@ -387,110 +478,124 @@ PREAMBLE_HEAD="$WORKDIR/preamble_head.txt"
 } > "$PREAMBLE_HEAD"
 
 # DETAIL files: capped in TOTAL and never filtered (they are cited-in-diff by id).
+# Global DETAIL is still assembled for --breakdown, legacy RC6_CHUNK_SCOPE=0,
+# claude Tier-2 full-context Pass B, and CHUNK_DETAIL_RESERVE clamping.
 PREAMBLE_DETAIL="$WORKDIR/preamble_detail.txt"
-{
-  DETAIL_MAX="${RC6_DETAIL_MAX:-24000}"; dacc=0
-  for df in "${DETAIL_FILES[@]:-}"; do
-    [ -n "${df:-}" ] && [ -f "$df" ] || continue
-    dsz="$(wc -c < "$df")"; dacc=$((dacc + dsz))
-    [ "$dacc" -gt "$DETAIL_MAX" ] && { echo; echo "(further R/AP detail files omitted — budget; see clamped indexes above)"; break; }
-    echo; echo "===== DETAIL $(basename "$df") ====="; cat "$df"
-  done
-} > "$PREAMBLE_DETAIL"
+build_detail_for_diff "$WORKDIR/diff.txt" "$PREAMBLE_DETAIL" "$DETAIL_MAX"
 
-# SELECTED MEMORIES (spec 060/T012 · 078/T3.6) — roteamento em vez de despejo.
-# O bloco abaixo NÃO cresce com o acervo: o seletor pontua o índice COMPILADO contra o
-# diff e devolve no máximo RC6_SELECTOR_LIMIT memórias INTEIRAS. É o oposto do índice
-# clampado, que manda 611 linhas decapitadas: aqui vão poucas, completas e escolhidas.
-# Ele ADICIONA — não remove os índices. O corte é decisão do PR 7 da 078, pelo A/B, e
-# não pode ser tomada de carona aqui (substituto ANTES do corte).
-# Fail-open por desenho: script ausente, node ausente, índice ilegível ou saída vazia =>
-# preâmbulo sem o bloco, review segue. O seletor tem fail-safe próprio (FR-007 da 060),
-# mas um gate que morre porque o ROTEADOR morreu é pior que um gate sem roteamento.
+# SELECTED MEMORIES (spec 060/T012 · 078/T3.6 · A1 per-chunk) — roteamento em vez de despejo.
 SELECTOR="${RC6_SELECTOR:-1}"
 SELECTOR_LIMIT="${RC6_SELECTOR_LIMIT:-5}"
+SELECTOR_FORMAT="${RC6_SELECTOR_FORMAT:-}"
+SELECTOR_RELATED="${RC6_SELECTOR_RELATED:-1}"
 SELECTOR_SCRIPT="${RC6_SELECTOR_SCRIPT:-$REPO_ROOT/scripts/select-rules.mjs}"
+GRAPH_CHUNK="${RC6_GRAPH_CHUNK:-1}"
+CALLEES_ON="${RC6_CALLEES:-1}"
+CALLEES_MAX_BYTES="$(rc6_num "${RC6_CALLEES_MAX_BYTES:-}" 12000)"
 PREAMBLE_SELECTED="$WORKDIR/preamble_selected.txt"
 : > "$PREAMBLE_SELECTED"
 SELECTOR_STATUS="disabled"
 SELECTOR_COUNT=0
 SELECTOR_REASON=""
-if [ "$SELECTOR" != 0 ] && [ -f "$SELECTOR_SCRIPT" ] && command -v node >/dev/null 2>&1; then
-  if node "$SELECTOR_SCRIPT" --diff-file "$WORKDIR/diff.txt" --limit "$SELECTOR_LIMIT" \
-       > "$WORKDIR/selected_raw.txt" 2>"$WORKDIR/selected.err"; then
-    # DEDUPE contra os DETAIL files: uma memória citada por id no diff já entra INTEIRA
-    # abaixo. Sem isto o mesmo texto viajaria duas vezes no mesmo preâmbulo — pagar duas
-    # vezes pelo mesmo conteúdo, num orçamento que este PR existe para respeitar.
-    # A lista de skip sai do PREAMBLE_DETAIL JÁ MONTADO, não de DETAIL_FILES: o bloco de
-    # detail tem cap próprio (RC6_DETAIL_MAX) e descarta o excedente. Deduplicar contra a
-    # lista PRETENDIDA em vez da EMITIDA removia a memória das DUAS pontas — cortada do
-    # detail pelo cap e do seletor pelo dedupe, some sem uma linha de log. Medido com o
-    # diff d365257c^...main: AP-345 estava exatamente nesse buraco.
-    grep -oE '^===== DETAIL (R|AP|ADR)-[0-9]+' "$PREAMBLE_DETAIL" 2>/dev/null \
-      | sed -E 's#^===== DETAIL ##' | sort -u > "$WORKDIR/selected_skip.txt" || : > "$WORKDIR/selected_skip.txt"
-    python3 - "$WORKDIR/selected_raw.txt" "$WORKDIR/selected_skip.txt" > "$WORKDIR/selected.txt" <<'PYDEDUP'
-import re, sys
-blocks, cur = [], []
-head = re.compile(r'^## (?:\[HOT\] )?((?:R|AP|ADR)-[0-9]+)')
-for line in open(sys.argv[1], encoding='utf-8'):
-    if head.match(line):
-        if cur: blocks.append(cur)
-        cur = [line]
-    elif cur:
-        cur.append(line)
-skip = {l.strip() for l in open(sys.argv[2], encoding='utf-8') if l.strip()}
-if cur: blocks.append(cur)
-out = [b for b in blocks if head.match(b[0]).group(1) not in skip]
-sys.stdout.write(''.join(''.join(b) for b in out))
-PYDEDUP
-    mv "$WORKDIR/selected.txt" "$WORKDIR/selected_raw.txt"
-    if [ -s "$WORKDIR/selected_raw.txt" ]; then
+SELECTOR_SCOPE="global"
+SEL_CHUNKS_OK=0; SEL_CHUNKS_FAILED=0; SEL_CHUNKS_EMPTY=0
+
+run_selector_for_diff() { # $1=diff_file $2=detail_file $3=out_file $4=meta_file $5=err_file [$6=related_file]
+  local diff_f="$1" det_f="$2" out_f="$3" meta_f="$4" err_f="$5" rel_f="${6:-}"
+  local hint="" pre_c="0" post_c="0" e_ids=""
+  : > "$out_f"; : > "$err_f"
+  if [ "$SELECTOR" = 0 ]; then
+    printf 'disabled\n0\n\n\n' > "$meta_f"
+    return 0
+  fi
+  if [ ! -f "$SELECTOR_SCRIPT" ] || ! command -v node >/dev/null 2>&1; then
+    printf 'unavailable\n0\nscript or node missing\n\n' > "$meta_f"
+    return 0
+  fi
+  local sel_args=(--diff-file "$diff_f" --limit "$SELECTOR_LIMIT")
+  if [ -n "$SELECTOR_FORMAT" ]; then
+    sel_args+=(--format "$SELECTOR_FORMAT")
+  fi
+  if [ "$SELECTOR_RELATED" = 1 ] && [ -n "$rel_f" ] && [ -s "$rel_f" ]; then
+    local _rel_paths=() _rp=""
+    while IFS= read -r _rp; do
+      [ -n "$_rp" ] && _rel_paths+=("$_rp")
+    done < "$rel_f"
+    if [ "${#_rel_paths[@]}" -gt 0 ]; then
+      sel_args+=(--related-paths "${_rel_paths[@]}")
+    fi
+  fi
+  local sel_cmd_rc=0
+  node "$SELECTOR_SCRIPT" "${sel_args[@]}" > "${out_f}.raw" 2>"$err_f" || sel_cmd_rc=$?
+  if [ "$sel_cmd_rc" -eq 0 ]; then
+    python3 "$WORKDIR/dedup_selected.py" "${out_f}.raw" "$det_f" "${meta_f}.dedup" > "${out_f}.dedup"
+    pre_c="$(sed -n '1p' "${meta_f}.dedup" 2>/dev/null || echo 0)"
+    post_c="$(sed -n '2p' "${meta_f}.dedup" 2>/dev/null || echo 0)"
+    e_ids="$(sed -n '3p' "${meta_f}.dedup" 2>/dev/null || true)"
+    pre_c="${pre_c:-0}"; post_c="${post_c:-0}"
+    if [ "$pre_c" -eq 0 ]; then
+      if [ -s "$err_f" ]; then
+        hint="$( { tr '\n' ' ' < "$err_f" || true; } | head -c 200 | sed 's/[[:space:]]*$//' )"
+      fi
+      if [ -n "$hint" ]; then
+        printf 'failed\n0\n%s\n\n' "$hint" > "$meta_f"
+      else
+        printf 'empty\n0\nempty output\n\n' > "$meta_f"
+      fi
+      return 0
+    fi
+    if [ -s "${out_f}.dedup" ]; then
       {
         echo
         echo "===== SELECTED MEMORIES (compiled index; top-${SELECTOR_LIMIT} by diff match; FULL text) ====="
         echo "Estas foram ESCOLHIDAS pelo diff — o score e o motivo vão em cada bloco. Prioridade"
         echo "sobre as linhas dos índices abaixo, que chegam clampadas e sem seleção."
         echo
-        cat "$WORKDIR/selected_raw.txt"
-      } > "$PREAMBLE_SELECTED"
-      # Contar por '^## ' contaria os subtítulos DO CORPO das memórias (uma regra tem seções
-      # próprias) e inflava 5 para 25. O cabeçalho de bloco é '## <ID> — ...' / '## [HOT] <ID>'.
-      SELECTOR_COUNT="$( { grep -cE '^## (\[HOT\] )?(R|AP|ADR)-[0-9]+' "$WORKDIR/selected_raw.txt" || true; } | tr -dc '0-9' )"
-      SELECTOR_COUNT="${SELECTOR_COUNT:-0}"
-      SELECTOR_STATUS="ok"
-      log "selector: ${SELECTOR_COUNT} memória(s), $(wc -c < "$PREAMBLE_SELECTED" | tr -d ' ')B"
-    else
-      SELECTOR_ERR_HINT=""
-      if [ -s "$WORKDIR/selected.err" ]; then
-        SELECTOR_ERR_HINT="$( { tr '\n' ' ' < "$WORKDIR/selected.err" || true; } | head -c 200 | sed 's/[[:space:]]*$//' )"
-      fi
-      if [ -n "$SELECTOR_ERR_HINT" ]; then
-        SELECTOR_STATUS="failed"
-        SELECTOR_REASON="$SELECTOR_ERR_HINT"
-        log "⚠️ selector: saída vazia com erro/fail-safe — preâmbulo segue sem o bloco (fail-open); stderr: $SELECTOR_ERR_HINT"
-      else
-        SELECTOR_STATUS="empty"
-        SELECTOR_REASON="empty output"
-        log "selector: saída vazia — preâmbulo segue sem o bloco (fail-open)"
-      fi
+        cat "${out_f}.dedup"
+      } > "$out_f"
     fi
+    printf 'ok\n%s\n\n%s\n' "$post_c" "$e_ids" > "$meta_f"
   else
-    SELECTOR_REASON=""
-    if [ -s "$WORKDIR/selected.err" ]; then
-      SELECTOR_REASON="$( { tr '\n' ' ' < "$WORKDIR/selected.err" || true; } | head -c 200 | sed 's/[[:space:]]*$//' )"
+    if [ -s "$err_f" ]; then
+      hint="$( { tr '\n' ' ' < "$err_f" || true; } | head -c 200 | sed 's/[[:space:]]*$//' )"
     fi
-    if [ -z "$SELECTOR_REASON" ]; then SELECTOR_REASON="exit != 0"; fi
-    SELECTOR_STATUS="failed"
-    log "⚠️ selector: FALHOU (exit != 0) — preâmbulo segue sem o bloco (fail-open); stderr: $SELECTOR_REASON"
+    [ -n "$hint" ] || hint="exit != 0"
+    printf 'failed\n0\n%s\n\n' "$hint" > "$meta_f"
   fi
-elif [ "$SELECTOR" != 0 ]; then
+}
+
+NEED_GLOBAL_SELECTOR=0
+if [ "$CHUNK_SCOPE" = 0 ] || [ "$BREAKDOWN" = 1 ] || { [ "$TIER" = 2 ] && [ "$HAVE_CLAUDE" = 1 ]; }; then
+  NEED_GLOBAL_SELECTOR=1
+fi
+if [ "$NEED_GLOBAL_SELECTOR" = 1 ] && [ "$SELECTOR" != 0 ]; then
+  run_selector_for_diff "$WORKDIR/diff.txt" "$PREAMBLE_DETAIL" "$PREAMBLE_SELECTED" "$WORKDIR/selector_global.meta" "$WORKDIR/selected.err"
+  SELECTOR_STATUS="$(sed -n '1p' "$WORKDIR/selector_global.meta")"
+  SELECTOR_COUNT="$(sed -n '2p' "$WORKDIR/selector_global.meta")"
+  SELECTOR_REASON="$(sed -n '3p' "$WORKDIR/selector_global.meta")"
+  SELECTOR_COUNT="${SELECTOR_COUNT:-0}"
+  case "$SELECTOR_STATUS" in
+    ok)
+      log "selector: ${SELECTOR_COUNT} memória(s), $(wc -c < "$PREAMBLE_SELECTED" | tr -d ' ')B" ;;
+    empty)
+      log "selector: saída vazia — preâmbulo segue sem o bloco (fail-open)" ;;
+    failed)
+      if [ -s "$WORKDIR/selected.raw" ] 2>/dev/null || grep -q 'exit != 0' <<<"$SELECTOR_REASON"; then
+        log "⚠️ selector: FALHOU (exit != 0) — preâmbulo segue sem o bloco (fail-open); stderr: $SELECTOR_REASON"
+      else
+        log "⚠️ selector: FALHOU — preâmbulo segue sem o bloco (fail-open); stderr: $SELECTOR_REASON"
+      fi ;;
+    unavailable)
+      log "selector: indisponível ($SELECTOR_SCRIPT ou node ausente) — preâmbulo sem o bloco" ;;
+  esac
+elif [ "$SELECTOR" != 0 ] && { [ ! -f "$SELECTOR_SCRIPT" ] || ! command -v node >/dev/null 2>&1; }; then
   SELECTOR_STATUS="unavailable"
   SELECTOR_REASON="script or node missing"
   log "selector: indisponível ($SELECTOR_SCRIPT ou node ausente) — preâmbulo sem o bloco"
 fi
 
 
-# emit_preamble $1=space-packs("" => whole catalogs). HEAD + filtered indexes + DETAIL.
+# emit_preamble $1=space-packs("" => whole catalogs) [$2=selected_file] [$3=detail_file].
 # RC6_INDEXES=0 tira os dois índices .md do preâmbulo — é O CORTE que o ADR-097 propõe,
 # atrás de env var para ser MEDÍVEL e REVERSÍVEL antes de virar default (078/T3.10).
 # Default 1: cortar por padrão sem o A/B seria decidir pelo argumento em vez do número.
@@ -521,12 +626,12 @@ emit_wiki_block() {
   return 0
 }
 
-emit_preamble() {
-  local packs="$1"
+emit_preamble() { # $1=packs [$2=selected_file] [$3=detail_file]
+  local packs="$1" sel_f="${2:-$PREAMBLE_SELECTED}" det_f="${3:-$PREAMBLE_DETAIL}"
   cat "$PREAMBLE_HEAD"
-  cat "$PREAMBLE_SELECTED"
+  cat "$sel_f"
   emit_wiki_block "$packs"
-  cat "$PREAMBLE_DETAIL"
+  cat "$det_f"
 }
 
 # 080/T011+T013: breakdown por parcela. Imprime as 4 parcelas na ORDEM em que
@@ -573,9 +678,6 @@ PRE_BYTES="$(wc -c < "$PREAMBLE")"
 # atualizasse a propria baseline a cada run, ele subiria junto com o que deveria vigiar
 # e jamais poderia falhar — um gate incapaz de reprovar e da familia do AP-325.
 # Sem baseline o gate se declara NAO ARMADO e diz como arma-lo; nunca finge vigiar.
-rc6_num() { # R-312: env que nao e inteiro >= 0 cai no default, em vez de desarmar o freio
-  case "${1:-}" in ''|*[!0-9]*) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac
-}
 GROWTH_MAX_BPD="$(rc6_num "${RC6_GROWTH_MAX_BPD:-}" 1500)"
 BASELINE_FILE="${RC6_BASELINE_FILE:-$REPO_ROOT/.agent/memory/rc6-preamble-baseline.json}"
 
@@ -669,50 +771,33 @@ fi
 # runs on the same commit returned three nearly-disjoint finding sets, one with
 # a fabricated critical. Chunking by file keeps EVERY agy call deterministic
 # (under budget); the merge step already consolidates multiple outputs.
-CHUNK_BUDGET=$(( CTX_TOTAL_MAX - PRE_BYTES - 8000 ))
+HEAD_BYTES="$(wc -c < "$PREAMBLE_HEAD" | tr -d ' ')"
+GLOBAL_DETAIL_BYTES="$(wc -c < "$PREAMBLE_DETAIL" | tr -d ' ')"
+PLAN_PRE_BYTES="$PRE_BYTES"
+if [ "$CHUNK_SCOPE" = 1 ]; then
+  WIKI_PLAN_BYTES="$WIKI_BYTES"
+  if [ "$PACK_FILTER" = 1 ]; then
+    _packs_all="$(printf '%s\n' "${CHANGED[@]:-}" | packs_for_files)"
+    WIKI_PLAN_BYTES="$(emit_wiki_block "$_packs_all" | wc -c | tr -d ' ')"
+  fi
+  DET_RESERVE="$GLOBAL_DETAIL_BYTES"
+  [ "$DET_RESERVE" -gt "$CHUNK_DETAIL_RESERVE" ] && DET_RESERVE="$CHUNK_DETAIL_RESERVE"
+  SEL_RESERVE=0
+  if [ "$SELECTOR" != 0 ] && [ -f "$SELECTOR_SCRIPT" ] && command -v node >/dev/null 2>&1; then
+    SEL_RESERVE="$CHUNK_SEL_RESERVE"
+  fi
+  PLAN_PRE_BYTES=$(( HEAD_BYTES + WIKI_PLAN_BYTES + DET_RESERVE + SEL_RESERVE ))
+fi
+CHUNK_BUDGET=$(( CTX_TOTAL_MAX - PLAN_PRE_BYTES - 8000 ))
 [ "$CHUNK_BUDGET" -lt 30000 ] && CHUNK_BUDGET=30000
 printf '%s\n' "${FULLFILES[@]:-}" > "$WORKDIR/fullfiles.txt"
-python3 - "$WORKDIR/diff.txt" "$WORKDIR" "$CHUNK_BUDGET" "$REPO_ROOT" <<'PY'
-import sys, os, re
-diff_path, workdir, budget, root = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
-fullfiles = set(l.strip() for l in open(os.path.join(workdir, "fullfiles.txt")) if l.strip())
-
-blocks = []  # (path, text, cost)
-cur = []
-for line in open(diff_path, errors='replace'):
-    if line.startswith('diff --git') and cur:
-        blocks.append(cur); cur = []
-    cur.append(line)
-if cur: blocks.append(cur)
-
-def block_info(buf):
-    text = ''.join(buf)
-    path = None
-    for l in buf:
-        if l.startswith('+++ b/'): path = l[6:].rstrip('\n'); break
-    cost = len(text)
-    if path in fullfiles:
-        try: cost += os.path.getsize(os.path.join(root, path))
-        except OSError: pass
-    return path, text, cost
-
-chunks, cur_files, cur_texts, acc = [], [], [], 0
-for buf in blocks:
-    path, text, cost = block_info(buf)
-    if acc and acc + cost > budget:
-        chunks.append((cur_files, cur_texts)); cur_files, cur_texts, acc = [], [], 0
-    cur_files.append(path or ''); cur_texts.append(text); acc += cost
-    if cost > budget:  # single oversized file: ships alone, flagged
-        sys.stderr.write("[rc6] WARN: %s alone exceeds chunk budget (%dB) — its pass is advisory\n" % (path, cost))
-if cur_texts: chunks.append((cur_files, cur_texts))
-
-for i, (files, texts) in enumerate(chunks):
-    open(os.path.join(workdir, "chunk_%d.diff" % i), "w").write(''.join(texts))
-    open(os.path.join(workdir, "chunk_%d.files" % i), "w").write('\n'.join(f for f in files if f) + '\n')
-# stdout is the script's JSON contract — chunk count is derived via ls, nothing printed here
-PY
+python3 "$SELF_DIR/rc6_graph_context.py" chunk \
+  "$WORKDIR/diff.txt" "$WORKDIR" "$CHUNK_BUDGET" "$REPO_ROOT" "$GRAPH_CHUNK"
 NCHUNKS="$(ls "$WORKDIR"/chunk_*.diff 2>/dev/null | wc -l | tr -d ' ')"
 log "preamble ${PRE_BYTES}B · chunk budget ${CHUNK_BUDGET}B · diff split into $NCHUNKS chunk(s)"
+if [ "$CHUNK_SCOPE" = 1 ] && [ "$PLAN_PRE_BYTES" -ne "$PRE_BYTES" ]; then
+  log "  per-chunk plan: pre=${PLAN_PRE_BYTES}B (head=${HEAD_BYTES}B + wiki=${WIKI_PLAN_BYTES}B + det_res=${DET_RESERVE}B + sel_res=${SEL_RESERVE}B)"
+fi
 # Wall-clock/quota cap: each chunk is one engine call (minutes each). Past the
 # cap, coverage goes PARTIAL with a loud warning — the honest fix is splitting
 # the PR, not an hour-long review that burns the week's quota.
@@ -723,33 +808,38 @@ CHUNK_IDS=(); i=0
 while [ "$i" -lt "$NCHUNKS" ]; do CHUNK_IDS+=("$i"); i=$((i+1)); done
 DROPPED_FILES=""
 
-# ---- risk ranking of chunks (spec 056/T040) ---------------------------------
-# Truncating at the cap used to keep the FIRST N chunks — i.e. whichever files
-# sort earliest by path in `git diff`. Measured on dosiq#794 (98 files, 6/13
-# covered): chunk 1 was `_dev/screens/DevHubScreen.tsx`, dev tooling, reviewed
-# only because `_dev` sorts early, while 7 chunks of production code were never
-# looked at. Coverage was not just partial, it was ARBITRARILY partial.
-#
-# The signal is already computed above (drops/changed/logic per file), so
-# ranking costs no extra engine call and stays deterministic — testable offline.
-# Chunk composition is deliberately NOT reordered: files keep travelling with
-# their neighbours, because pass A is already blind across chunk boundaries and
-# scattering a feature would spend the last locality we have. Only WHICH chunks
-# survive changes.
+# ---- risk ranking + effort tier classification (spec 056/T040 + C2) ---------
+# Ranker is a versioned file, not a heredoc: it carries a regression corpus
+# (tests/test-rank-chunks.sh) frozen on the dosiq#794 diff. Runs on ALL PRs so
+# C2 can route effort by chunk risk even when NCHUNKS <= MAX_CHUNKS; truncation
+# at the cap remains strictly guarded by [ "$NCHUNKS" -gt "$MAX_CHUNKS" ].
+CHUNK_TIERS_TSV="$WORKDIR/chunk_tiers.tsv"
+: > "$CHUNK_TIERS_TSV"
+if RANK="$(python3 "$SELF_DIR/rank_chunks.py" "$WORKDIR" "$NPLANNED" "$MAX_CHUNKS" "$MAX_FULLFILE_LINES" "$EFFORT_HOT_MIN" 2>>"$WORKDIR/rank.err")"; then
+  _tiers_raw="$(printf '%s\n' "$RANK" | sed -n '4p')"
+  if [ -n "$_tiers_raw" ]; then
+    printf '%s\n' "$_tiers_raw" | tr '|' '\n' | awk -F: 'NF==2{printf "%s\t%s\n", $1, $2}' > "$CHUNK_TIERS_TSV"
+  fi
+else
+  RANK=""
+fi
+if [ ! -s "$CHUNK_TIERS_TSV" ]; then
+  if [ "$ADAPTIVE_EFFORT_ON" = 1 ]; then
+    log "⚠️ classificação de risco (C2) indisponível — mantendo effort uniforme"
+  fi
+  i=0
+  while [ "$i" -lt "$NPLANNED" ]; do printf '%s\tNORMAL\n' "$i" >> "$CHUNK_TIERS_TSV"; i=$((i+1)); done
+fi
+
 if [ "$NCHUNKS" -gt "$MAX_CHUNKS" ]; then
   log "⚠️ $NCHUNKS chunks > cap $MAX_CHUNKS — PARTIAL COVERAGE."
   log "   If the file you care about most is dropped below, raise RC6_MAX_CHUNKS first; split the PR only if that is not enough."
-  # Heredoc inside a command substitution leaks its body to the shell (same
-  # trap already documented for parse_cands.py) — parser lives in its own file.
-  # Ranker is a versioned file, not a heredoc: it carries a regression corpus
-  # (tests/test-rank-chunks.sh) frozen on the dosiq#794 diff. A ranking without
-  # a test is a belief, not a behavior.
-  if RANK="$(python3 "$SELF_DIR/rank_chunks.py" "$WORKDIR" "$NPLANNED" "$MAX_CHUNKS" "$MAX_FULLFILE_LINES" 2>>"$WORKDIR/rank.err")"; then
+  if [ -n "$RANK" ]; then
     # NO `mapfile`: macOS ships bash 3.2 and the script runs under it.
-    read -r -a CHUNK_IDS <<< "$(printf '%s' "$RANK" | sed -n 1p)"
-    log "   ranking de risco: $(printf '%s' "$RANK" | sed -n 2p)"
+    read -r -a CHUNK_IDS <<< "$(printf '%s\n' "$RANK" | sed -n '1p')"
+    log "   ranking de risco: $(printf '%s\n' "$RANK" | sed -n '2p')"
     log "   mantidos: [${CHUNK_IDS[*]}] de 0..$((NPLANNED-1)) (score desc; composição dos chunks inalterada)"
-    DROPPED_FILES="$(printf '%s' "$RANK" | sed -n 3p)"
+    DROPPED_FILES="$(printf '%s\n' "$RANK" | sed -n '3p')"
   else
     # Fail-safe: a broken ranking that silently drops the hot chunk is WORSE
     # than the honest alphabetical order it replaced. Say so, then degrade.
@@ -759,13 +849,94 @@ if [ "$NCHUNKS" -gt "$MAX_CHUNKS" ]; then
     DROPPED_FILES=""
   fi
   NCHUNKS="$MAX_CHUNKS"
-  [ -n "$DROPPED_FILES" ] && log "   NÃO revisados: $(printf '%s' "$DROPPED_FILES" | tr '|' ' ')"
+  if [ -n "$DROPPED_FILES" ]; then
+    log "   NÃO revisados: $(printf '%s' "$DROPPED_FILES" | tr '|' ' ')"
+  fi
 fi
+
+chunk_tier() { # $1=chunk-index -> HOT|NORMAL|COLD
+  local t
+  t="$(awk -F'\t' -v id="$1" '$1 == id { print $2; exit }' "$CHUNK_TIERS_TSV" 2>/dev/null || true)"
+  printf '%s' "${t:-NORMAL}"
+}
+
+# ---- per-chunk DETAIL_FILES + select-rules.mjs (A1) -------------------------
+prepare_all_chunk_memories() {
+  [ "$CHUNK_SCOPE" = 1 ] || return 0
+  local _pre_unavail=0
+  [ "$SELECTOR_STATUS" = "unavailable" ] && _pre_unavail=1
+  SELECTOR_SCOPE="per_chunk"
+  : > "$WORKDIR/selector_all_ids.txt"
+  SELECTOR_STATUS=""
+  SELECTOR_COUNT=0
+  SELECTOR_REASON=""
+  SEL_CHUNKS_OK=0; SEL_CHUNKS_FAILED=0; SEL_CHUNKS_EMPTY=0
+  local i c_st c_cnt c_rsn c_ids c_sel_b c_det_b
+  for i in "${CHUNK_IDS[@]}"; do
+    build_detail_for_diff "$WORKDIR/chunk_${i}.diff" "$WORKDIR/detail_c${i}.txt" "$DETAIL_MAX"
+    run_selector_for_diff "$WORKDIR/chunk_${i}.diff" "$WORKDIR/detail_c${i}.txt" \
+      "$WORKDIR/selected_c${i}.txt" "$WORKDIR/selector_c${i}.meta" "$WORKDIR/selected_c${i}.err" \
+      "$WORKDIR/chunk_${i}.related"
+    c_st="$(sed -n '1p' "$WORKDIR/selector_c${i}.meta")"
+    c_cnt="$(sed -n '2p' "$WORKDIR/selector_c${i}.meta")"
+    c_rsn="$(sed -n '3p' "$WORKDIR/selector_c${i}.meta")"
+    c_ids="$(sed -n '4p' "$WORKDIR/selector_c${i}.meta")"
+    case "$c_st" in
+      ok)     SEL_CHUNKS_OK=$((SEL_CHUNKS_OK + 1)) ;;
+      failed)
+        SEL_CHUNKS_FAILED=$((SEL_CHUNKS_FAILED + 1))
+        if [ -z "$SELECTOR_REASON" ]; then
+          if [ "$NPLANNED" -gt 1 ]; then SELECTOR_REASON="chunk $((i+1)): $c_rsn"; else SELECTOR_REASON="$c_rsn"; fi
+        fi ;;
+      empty)  SEL_CHUNKS_EMPTY=$((SEL_CHUNKS_EMPTY + 1)) ;;
+    esac
+    [ -n "${c_ids:-}" ] && printf '%s\n' $c_ids >> "$WORKDIR/selector_all_ids.txt"
+    c_sel_b="$(wc -c < "$WORKDIR/selected_c${i}.txt" | tr -d ' ')"
+    c_det_b="$(wc -c < "$WORKDIR/detail_c${i}.txt" | tr -d ' ')"
+    if { [ "$SELECTOR" != 0 ] && [ "$c_st" != "unavailable" ]; } || [ "$c_det_b" -gt 0 ]; then
+      log "  chunk $((i+1))/$NPLANNED memory: selector=${c_st}(${c_cnt:-0}, ${c_sel_b}B) · detail=${c_det_b}B"
+    fi
+  done
+
+  if [ "$SELECTOR" = 0 ]; then
+    SELECTOR_STATUS="disabled"
+  elif [ ! -f "$SELECTOR_SCRIPT" ] || ! command -v node >/dev/null 2>&1; then
+    SELECTOR_STATUS="unavailable"
+    SELECTOR_REASON="script or node missing"
+    [ "$_pre_unavail" = 1 ] || log "selector: indisponível ($SELECTOR_SCRIPT ou node ausente) — preâmbulo sem o bloco"
+  else
+    SELECTOR_COUNT="$({ tr ' ' '\n' < "$WORKDIR/selector_all_ids.txt" | { grep -v '^$' || true; } | sort -u | wc -l | tr -d ' '; } || echo 0)"
+    SELECTOR_COUNT="${SELECTOR_COUNT:-0}"
+    if [ "$SEL_CHUNKS_FAILED" -gt 0 ]; then
+      SELECTOR_STATUS="failed"
+      log "⚠️ selector (per-chunk): ${SEL_CHUNKS_FAILED}/${#CHUNK_IDS[@]} falha(s) (${SEL_CHUNKS_OK} ok) — preâmbulo segue em fail-open; stderr: $SELECTOR_REASON"
+    elif [ "$SEL_CHUNKS_OK" -gt 0 ]; then
+      SELECTOR_STATUS="ok"
+      log "selector (per-chunk): ${SELECTOR_COUNT} memória(s) única(s) em ${SEL_CHUNKS_OK}/${#CHUNK_IDS[@]} chunk(s)"
+    else
+      SELECTOR_STATUS="empty"
+      [ -n "$SELECTOR_REASON" ] || SELECTOR_REASON="empty output"
+      log "selector (per-chunk): saída vazia — preâmbulo segue sem o bloco (fail-open)"
+    fi
+  fi
+}
+prepare_all_chunk_memories
 
 # builds one engine payload: preamble + diff + full files (target before reference
 # so Turn-1 tail truncation cannot clip the diff first)
 build_chunk_ctx() { # $1=chunk-index $2=outfile
   local i="$1" out="$2" f packs="" pre_file="$PREAMBLE" use_filter=0
+  local sel_f="$PREAMBLE_SELECTED" det_f="$PREAMBLE_DETAIL"
+  if [ "$CHUNK_SCOPE" = 1 ]; then
+    [ -f "$WORKDIR/selected_c${i}.txt" ] && sel_f="$WORKDIR/selected_c${i}.txt"
+    [ -f "$WORKDIR/detail_c${i}.txt" ] && det_f="$WORKDIR/detail_c${i}.txt"
+    pre_file="$WORKDIR/preamble_c${i}.txt"
+  fi
+  local sel_b det_b chunk_pre_unfiltered_b instr_b unfiltered final_b det_orig allowed_det det_new
+  sel_b="$(wc -c < "$sel_f" | tr -d ' ')"
+  det_b="$(wc -c < "$det_f" | tr -d ' ')"
+  chunk_pre_unfiltered_b=$(( HEAD_BYTES + sel_b + WIKI_BYTES + det_b ))
+
   # Body first: its size is what decides the auto mode, and it is identical
   # whether or not the catalog gets filtered.
   local body="$WORKDIR/body_${i}.txt"
@@ -778,13 +949,12 @@ build_chunk_ctx() { # $1=chunk-index $2=outfile
     done < "$WORKDIR/chunk_${i}.files"
   } > "$body"
 
+  instr_b="$(printf '%s' "${RC6_INSTRUCTION:-}" | wc -c | tr -d ' ')"
   case "$PACK_FILTER" in
     1) use_filter=1 ;;
     auto)
       # P4: engage ONLY where the alternative is a silently sampled payload.
-      local instr_b
-      instr_b="$(printf '%s' "${RC6_INSTRUCTION:-}" | wc -c | tr -d ' ')"
-      local unfiltered=$(( PRE_BYTES + $(wc -c < "$body") + instr_b ))
+      unfiltered=$(( chunk_pre_unfiltered_b + $(wc -c < "$body") + instr_b ))
       if [ "$unfiltered" -gt "$AUTO_FILTER_ABOVE" ]; then
         use_filter=1
         log "chunk $((i+1)) auto-filter ON: unfiltered payload ${unfiltered}B > ${AUTO_FILTER_ABOVE}B (agy samples in silence above this)"
@@ -796,15 +966,48 @@ build_chunk_ctx() { # $1=chunk-index $2=outfile
   if [ "$use_filter" = 1 ]; then
     packs="$(packs_for_files < "$WORKDIR/chunk_${i}.files")"
     pre_file="$WORKDIR/preamble_c${i}.txt"
-    emit_preamble "$packs" > "$pre_file"
+    emit_preamble "$packs" "$sel_f" "$det_f" > "$pre_file"
     # FR-007: audit trail — without it the degradation goes invisible again.
     if [ -z "$packs" ]; then
       log "chunk $((i+1)) pack-filter OFF (fail-safe: unmapped path) — full catalog, $(wc -c < "$pre_file")B"
     else
       local omitted; omitted="$(comm -23 <(printf '%s\n' $KNOWN_PACKS | sort) <(printf '%s\n' $packs | sort) | paste -sd' ' -)"
-      log "chunk $((i+1)) packs: [${packs}] omit: [${omitted:-<none>}] preamble $(wc -c < "$PREAMBLE")B→$(wc -c < "$pre_file")B"
+      log "chunk $((i+1)) packs: [${packs}] omit: [${omitted:-<none>}] preamble ${chunk_pre_unfiltered_b}B→$(wc -c < "$pre_file")B"
+    fi
+  elif [ "$CHUNK_SCOPE" = 1 ]; then
+    emit_preamble "" "$sel_f" "$det_f" > "$pre_file"
+  fi
+
+  # Safety valve post-assembly: trim chunk DETAIL_FILES if chunk still exceeds CTX_TOTAL_MAX
+  if [ "$CHUNK_SCOPE" = 1 ] && [ -s "$det_f" ]; then
+    final_b=$(( $(wc -c < "$pre_file" | tr -d ' ') + $(wc -c < "$body" | tr -d ' ') + instr_b ))
+    if [ "$final_b" -gt "$CTX_TOTAL_MAX" ]; then
+      det_orig="$(wc -c < "$det_f" | tr -d ' ')"
+      allowed_det=$(( det_orig - (final_b - CTX_TOTAL_MAX) ))
+      [ "$allowed_det" -lt 0 ] && allowed_det=0
+      build_detail_for_diff "$WORKDIR/chunk_${i}.diff" "$WORKDIR/detail_c${i}_trim.txt" "$allowed_det"
+      emit_preamble "$packs" "$sel_f" "$WORKDIR/detail_c${i}_trim.txt" > "$pre_file"
+      det_new="$(wc -c < "$WORKDIR/detail_c${i}_trim.txt" | tr -d ' ')"
+      log "chunk $((i+1)) detail trimmed (${det_orig}B→${det_new}B) para respeitar teto ${CTX_TOTAL_MAX}B"
     fi
   fi
+
+  # B2: surgical external callees (bounded by remaining headroom up to CALLEES_MAX_BYTES)
+  if [ "$CALLEES_ON" = 1 ] && [ "$CALLEES_MAX_BYTES" -gt 0 ] && [ -f "$SELF_DIR/rc6_graph_context.py" ]; then
+    local _cur_total _callees_cap
+    _cur_total=$(( $(wc -c < "$pre_file" | tr -d ' ') + $(wc -c < "$body" | tr -d ' ') + instr_b ))
+    _callees_cap=$(( CTX_TOTAL_MAX - _cur_total ))
+    [ "$_callees_cap" -gt "$CALLEES_MAX_BYTES" ] && _callees_cap="$CALLEES_MAX_BYTES"
+    if [ "$_callees_cap" -gt 256 ]; then
+      python3 "$SELF_DIR/rc6_graph_context.py" callees \
+        "$WORKDIR/chunk_${i}.diff" "$WORKDIR/chunk_${i}.files" "$REPO_ROOT" "$_callees_cap" \
+        > "$WORKDIR/callees_${i}.txt" 2>/dev/null || : > "$WORKDIR/callees_${i}.txt"
+      if [ -s "$WORKDIR/callees_${i}.txt" ]; then
+        { echo; cat "$WORKDIR/callees_${i}.txt"; } >> "$body"
+      fi
+    fi
+  fi
+
   cat "$pre_file" "$body" > "$out"
 }
 
@@ -961,7 +1164,54 @@ JSON
 
 # Engine argv (sem tools, sem slash commands, com schema quando o probe permitiu): @core 1.1.0.
 RC6_AGY_MODEL="${RC6_AGY_MODEL:-gemini-4-neon-medium}"
+BASE_AGY_MODEL="$RC6_AGY_MODEL"
+BASE_AGY_TIMEOUT="$AGY_TIMEOUT"
 build_engine_args "$SCHEMA"
+
+PASSA_ESCALATE_HOT=0
+if [ "$ADAPTIVE_EFFORT_ON" = 1 ]; then
+  if [ "$TIER" != 2 ] || [ "$HAVE_CLAUDE" = 1 ] || [ -z "$PASSB_AGY_MODEL" ]; then
+    PASSA_ESCALATE_HOT=1
+  fi
+fi
+if [ "$ADAPTIVE_EFFORT_ON" = 1 ]; then
+  _effort_list=""; _has_non_normal=0
+  for i in "${CHUNK_IDS[@]}"; do
+    _ct="$(chunk_tier "$i")"
+    if [ "$_ct" != "NORMAL" ]; then _has_non_normal=1; fi
+    _effort_list="${_effort_list:+$_effort_list }$((i+1)):$_ct"
+  done
+  if [ "$_has_non_normal" = 1 ]; then
+    _ph="off"
+    if [ "$PASSA_ESCALATE_HOT" = 1 ]; then _ph="on"; fi
+    log "effort routing (C2): [$_effort_list] (hot_min=$EFFORT_HOT_MIN hot=$HOT_AGY_MODEL passA_hot=$_ph)"
+  fi
+fi
+
+chunk_agy_target() { # $1=pass(A|AB|B) $2=chunk-index -> sets CHUNK_MODEL, CHUNK_TIMEOUT
+  local pass="$1" idx="$2" tier
+  tier="$(chunk_tier "$idx")"
+  if [ "$pass" = B ]; then
+    if [ -z "$PASSB_AGY_MODEL" ]; then
+      CHUNK_MODEL="$BASE_AGY_MODEL"
+      CHUNK_TIMEOUT="$PASSB_AGY_TIMEOUT"
+    elif [ "$ADAPTIVE_EFFORT_ON" = 1 ] && [ "$tier" = "COLD" ]; then
+      CHUNK_MODEL="$BASE_AGY_MODEL"
+      CHUNK_TIMEOUT="$BASE_AGY_TIMEOUT"
+    else
+      CHUNK_MODEL="$PASSB_AGY_MODEL"
+      CHUNK_TIMEOUT="$PASSB_AGY_TIMEOUT"
+    fi
+  else
+    if [ "$PASSA_ESCALATE_HOT" = 1 ] && [ "$tier" = "HOT" ]; then
+      CHUNK_MODEL="$HOT_AGY_MODEL"
+      CHUNK_TIMEOUT="$HOT_AGY_TIMEOUT"
+    else
+      CHUNK_MODEL="$BASE_AGY_MODEL"
+      CHUNK_TIMEOUT="$BASE_AGY_TIMEOUT"
+    fi
+  fi
+}
 
 
 
@@ -1041,49 +1291,82 @@ cov_mark() { # $1=pass $2=chunk-id $3=desfecho $4=classe
     "${ENGINE_LAST_ATTEMPTS:-0}" "${ENGINE_LAST_RETRIED:-0}" "${ENGINE_LAST_FALLBACK:-0}" "${ENGINE_LAST_TRUNCATED:-0}" >> "$COV_TSV"
 }
 
-# Um chunk no agy, com retry/fallback do @core. Falha recuperavel (transient, ou timeout que
-# ainda cabe no orcamento) vai para PASS_DEFER — a segunda rodada, no fim da fila, depois que o
-# tempo gasto nos outros chunks ja fez o papel de backoff. Os textos de log "ok" sao os de
-# antes da 003, byte a byte: tests/ai-review-paths.sh compara stderr.
-#   $1=pass $2=chunk-id $3=prompt $4=out $5=rotulo do log $6=rodada(1|2)
+# Um chunk no motor (agy default, ou claude fallback), com retry/fallback do @core. Falha recuperavel
+# (transient, ou timeout que ainda cabe no orcamento) vai para PASS_DEFER — a segunda rodada,
+# no fim da fila, depois que o tempo gasto nos outros chunks ja fez o papel de backoff. Os textos
+# de log "ok" sao os de antes da 003, byte a byte: tests/ai-review-paths.sh compara stderr.
+#   $1=pass $2=chunk-id $3=prompt $4=out $5=rotulo do log $6=rodada(1|2) [$7=engine]
 PASS_DEFER=(); PASS_DEFER_CLS=()
 review_chunk() {
-  local p="$1" i="$2" lbl="$5" cls via=""
+  local p="$1" i="$2" lbl="$5" cls via="" eng="${7:-agy}" allow_fb=1
+  local eff_lbl="$lbl"
+  local _rc_saved_m="$RC6_AGY_MODEL" _rc_saved_t="$AGY_TIMEOUT" _rc_rc=1
+  if [ "$eng" = agy ]; then
+    chunk_agy_target "$p" "$i"
+    if [ "$CHUNK_MODEL" != "$_rc_saved_m" ] || [ "$CHUNK_TIMEOUT" != "$_rc_saved_t" ]; then
+      RC6_AGY_MODEL="$CHUNK_MODEL"
+      AGY_TIMEOUT="$CHUNK_TIMEOUT"
+      build_engine_args "$SCHEMA"
+    fi
+    if [ "$p" = B ]; then
+      eff_lbl="agy fallback, $CHUNK_MODEL"
+    elif [ "$CHUNK_MODEL" != "$BASE_AGY_MODEL" ]; then
+      if [ "$lbl" = agy ]; then eff_lbl="agy, $CHUNK_MODEL"
+      else eff_lbl="agy, $CHUNK_MODEL, ${lbl#agy, }"; fi
+    fi
+  else
+    allow_fb=0
+  fi
+  if [ "$6" = 2 ]; then
+    eff_lbl="$eff_lbl, 2ª rodada"
+  fi
   RC6_STATUS_PASS="$p"; RC6_STATUS_CHUNK="$((i+1))/$NPLANNED"
-  if run_engine_resilient agy "$3" "$4" 1 "$p$i.r$6"; then
-    OUTS+=("$4"); ENGINES+=("agy"); cov_mark "$p" "$i" ok ok
+  if run_engine_resilient "$eng" "$3" "$4" "$allow_fb" "$p$i.r$6"; then
+    OUTS+=("$4"); ENGINES+=("$eng"); cov_mark "$p" "$i" ok ok
     # Marca a saida do modelo alternativo: o A/B do 056/PO-5 nao pode usa-la (E3).
     if [ "$ENGINE_LAST_FALLBACK" = 1 ]; then via=", modelo alternativo"; : > "$4.modelfb"; fi
     if [ "${ENGINE_LAST_TRUNCATED:-0}" = 1 ]; then via="${via}, ⚠️TRUNCATED"; fi
-    log "pass $p chunk $((i+1))/$NPLANNED ($lbl$via) ok"
-    return 0
-  fi
-  cls="$ENGINE_LAST_CLASS"
-  if [ "$6" = 1 ] && rc6_second_round_ok "$cls" agy; then
-    PASS_DEFER+=("$i"); PASS_DEFER_CLS+=("$cls"); cov_mark "$p" "$i" deferred "$cls"
-    rc6_status deferred "\"class\":\"$cls\""
-    log "pass $p chunk $((i+1))/$NPLANNED ($lbl) FAILED [$cls] — adiado p/ a segunda rodada — $(engine_err_hint agy)"
+    log "pass $p chunk $((i+1))/$NPLANNED ($eff_lbl$via) ok"
+    _rc_rc=0
   else
-    cov_mark "$p" "$i" failed "$cls"
-    rc6_status failed "\"class\":\"$cls\",\"attempts\":${ENGINE_LAST_ATTEMPTS:-0}"
-    log "pass $p chunk $((i+1))/$NPLANNED ($lbl) FAILED [$cls] — $(engine_err_hint agy)"
+    cls="$ENGINE_LAST_CLASS"
+    if [ "$6" = 1 ] && rc6_second_round_ok "$cls" "$eng"; then
+      PASS_DEFER+=("$i"); PASS_DEFER_CLS+=("$cls"); cov_mark "$p" "$i" deferred "$cls"
+      rc6_status deferred "\"class\":\"$cls\""
+      log "pass $p chunk $((i+1))/$NPLANNED ($eff_lbl) FAILED [$cls] — adiado p/ a segunda rodada — $(engine_err_hint "$eng")"
+    else
+      cov_mark "$p" "$i" failed "$cls"
+      rc6_status failed "\"class\":\"$cls\",\"attempts\":${ENGINE_LAST_ATTEMPTS:-0}"
+      log "pass $p chunk $((i+1))/$NPLANNED ($eff_lbl) FAILED [$cls] — $(engine_err_hint "$eng")"
+    fi
   fi
-  return 1
+  if [ "$eng" = agy ] && { [ "$RC6_AGY_MODEL" != "$_rc_saved_m" ] || [ "$AGY_TIMEOUT" != "$_rc_saved_t" ]; }; then
+    RC6_AGY_MODEL="$_rc_saved_m"
+    AGY_TIMEOUT="$_rc_saved_t"
+    build_engine_args "$SCHEMA"
+  fi
+  return "$_rc_rc"
 }
-# $1=pass $2=prefixo do prompt $3=prefixo da saida $4=rotulo. Uma rodada so, breaker zerado.
+# $1=pass $2=prefixo do prompt $3=prefixo da saida $4=rotulo [$5=engine]. Uma rodada so, breaker zerado.
 # shellcheck disable=SC2034  # BREAKER_* e lida pelo @core (run_engine_resilient)
 second_round() {
   [ "${#PASS_DEFER[@]}" -gt 0 ] || return 0
-  local ids=("${PASS_DEFER[@]}") clss=("${PASS_DEFER_CLS[@]}") i k=0
+  local ids=("${PASS_DEFER[@]}") clss=("${PASS_DEFER_CLS[@]}") i k=0 _sr_saved_t="$AGY_TIMEOUT" eng="${5:-agy}"
   PASS_DEFER=(); PASS_DEFER_CLS=(); BREAKER_OPEN=0; BREAKER_STREAK=0
   log "segunda rodada, pass $1: chunk(s) [$(for i in "${ids[@]}"; do printf ' %s' $((i+1)); done) ] · orçamento $(rc6_budget_left)s"
   # O orcamento e re-checado ANTES de cada chunk, e toda chamada daqui conta como tempo extra
   # (RC6_IN_ROUND2). Checar so no adiamento deixava N timeouts adiados rodarem todos (RC5).
   RC6_IN_ROUND2=1
   for i in "${ids[@]}"; do
-    if rc6_second_round_ok "${clss[$k]}" agy; then
-      review_chunk "$1" "$i" "$2_$i.txt" "$3_$i.json" "$4, 2ª rodada" 2 || true
+    if [ "$eng" = agy ]; then
+      chunk_agy_target "$1" "$i"
+      AGY_TIMEOUT="$CHUNK_TIMEOUT"
+    fi
+    if rc6_second_round_ok "${clss[$k]}" "$eng"; then
+      AGY_TIMEOUT="$_sr_saved_t"
+      review_chunk "$1" "$i" "$2_$i.txt" "$3_$i.json" "$4" 2 "$eng" || true
     else
+      AGY_TIMEOUT="$_sr_saved_t"
       RC6_STATUS_PASS="$1"; RC6_STATUS_CHUNK="$((i+1))/$NPLANNED"
       ENGINE_LAST_ATTEMPTS=0; ENGINE_LAST_RETRIED=0; ENGINE_LAST_FALLBACK=0; ENGINE_LAST_TRUNCATED=0
       cov_mark "$1" "$i" failed "${clss[$k]}"
@@ -1092,6 +1375,7 @@ second_round() {
     fi
     k=$((k+1))
   done
+  AGY_TIMEOUT="$_sr_saved_t"
   RC6_IN_ROUND2=0
   return 0
 }
@@ -1151,7 +1435,13 @@ if [ "$AB_MODE" != 0 ]; then
         [ -n "$f" ] && grep -qxF "$f" "$WORKDIR/fullfiles.txt" 2>/dev/null && [ -f "$REPO_ROOT/$f" ] \
           && b=$(( b + $(wc -c < "$REPO_ROOT/$f") ))
       done < "$WORKDIR/chunk_${i}.files"
-      b=$(( b + PRE_BYTES + AB_INSTR_B ))
+      if [ "$CHUNK_SCOPE" = 1 ]; then
+        _sel_cb=0; [ -f "$WORKDIR/selected_c${i}.txt" ] && _sel_cb="$(wc -c < "$WORKDIR/selected_c${i}.txt" | tr -d ' ')"
+        _det_cb=0; [ -f "$WORKDIR/detail_c${i}.txt" ] && _det_cb="$(wc -c < "$WORKDIR/detail_c${i}.txt" | tr -d ' ')"
+        b=$(( b + HEAD_BYTES + WIKI_BYTES + _sel_cb + _det_cb + AB_INSTR_B ))
+      else
+        b=$(( b + PRE_BYTES + AB_INSTR_B ))
+      fi
       [ "$b" -gt "$ab_worst" ] && ab_worst="$b"
     done
     AB_PACKS="$(printf '%s\n' "${CHANGED[@]:-}" | packs_for_files)"
@@ -1192,12 +1482,18 @@ for i in "${CHUNK_IDS[@]}"; do
     log "⚠️ chunk $((i+1))/$NPLANNED payload ${PAYLOAD_BYTES}B > ${CTX_TOTAL_MAX}B — result is ADVISORY (oversized single file)"
   fi
   if [ "$HAVE_AGY" = 1 ]; then
-    review_chunk A "$i" "$WORKDIR/promptA_$i.txt" "$WORKDIR/outA_$i.json" "agy, ${PAYLOAD_BYTES}B" 1 || true
+    review_chunk A "$i" "$WORKDIR/promptA_$i.txt" "$WORKDIR/outA_$i.json" "agy, ${PAYLOAD_BYTES}B" 1 agy || true
+  elif [ "$HAVE_CLAUDE" = 1 ]; then
+    review_chunk A "$i" "$WORKDIR/promptA_$i.txt" "$WORKDIR/outA_$i.json" "claude fallback, ${PAYLOAD_BYTES}B" 1 claude || true
   else
     log "pass A chunk $((i+1))/$NPLANNED skipped — agy indisponível (ausente do PATH ou reprovado no probe)"
   fi
 done
-second_round A "$WORKDIR/promptA" "$WORKDIR/outA" agy
+if [ "$HAVE_AGY" = 1 ]; then
+  second_round A "$WORKDIR/promptA" "$WORKDIR/outA" agy agy
+elif [ "$HAVE_CLAUDE" = 1 ]; then
+  second_round A "$WORKDIR/promptA" "$WORKDIR/outA" "claude fallback" claude
+fi
 
 # ---- A/B: the paired filtered run (only when the baseline found something) --
 # Ordered on purpose: the decision to spend the second run is made AFTER the
@@ -1226,12 +1522,22 @@ if [ "$AB_ARMED" = 1 ]; then
       [ "$NPLANNED" -gt 1 ] && EXTRA=$'\n'"NOTE: this payload carries part $((i+1))/$NPLANNED of the PR's diff (split by file to fit the engine context budget). Audit ONLY the files present here; other parts are reviewed separately."
       build_prompt "$EXTRA" "$WORKDIR/ctxAB_$i.txt" "$WORKDIR/promptAB_$i.txt"
       # Retry no MESMO modelo sim (dos dois lados); modelo alternativo nunca ($4=0, E3).
+      _ab_saved_m="$RC6_AGY_MODEL"; _ab_saved_t="$AGY_TIMEOUT"
+      chunk_agy_target A "$i"
+      if [ "$CHUNK_MODEL" != "$_ab_saved_m" ] || [ "$CHUNK_TIMEOUT" != "$_ab_saved_t" ]; then
+        RC6_AGY_MODEL="$CHUNK_MODEL"; AGY_TIMEOUT="$CHUNK_TIMEOUT"
+        build_engine_args "$SCHEMA"
+      fi
       RC6_STATUS_PASS=AB; RC6_STATUS_CHUNK="$((i+1))/$NPLANNED"
       if run_engine_resilient agy "$WORKDIR/promptAB_$i.txt" "$WORKDIR/outAB_$i.json" 0 "AB$i"; then
         AB_ON_OUTS+=("$WORKDIR/outAB_$i.json")
         log "A/B chunk $((i+1))/$NPLANNED (filtrado, $(wc -c < "$WORKDIR/promptAB_$i.txt")B) ok"
       else
         log "A/B chunk $((i+1))/$NPLANNED (filtrado) FAILED — $(engine_err_hint agy)"
+      fi
+      if [ "$RC6_AGY_MODEL" != "$_ab_saved_m" ] || [ "$AGY_TIMEOUT" != "$_ab_saved_t" ]; then
+        RC6_AGY_MODEL="$_ab_saved_m"; AGY_TIMEOUT="$_ab_saved_t"
+        build_engine_args "$SCHEMA"
       fi
     done
     PACK_FILTER=0
@@ -1301,20 +1607,15 @@ if [ "$TIER" = 2 ]; then
     # o fallback silencioso faz o run inteiro parecer "agy-only por escolha".
     # `|| true`: sob `set -e` um `[ ] && log` com condição falsa derruba o script inteiro.
     { [ "$HAVE_CLAUDE" = 1 ] && log "pass B (claude) FAILED — $(engine_err_hint claude); caindo p/ agy chunked"; } || true
-    _saved_agy_model="$RC6_AGY_MODEL"
-    _saved_agy_timeout="$AGY_TIMEOUT"
-    if [ -n "$PASSB_AGY_MODEL" ]; then RC6_AGY_MODEL="$PASSB_AGY_MODEL"; fi
-    AGY_TIMEOUT="$PASSB_AGY_TIMEOUT"
-    build_engine_args "$SCHEMA"
-    log "pass B (agy): model=$RC6_AGY_MODEL timeout=$AGY_TIMEOUT"
+    _pb_default_m="${PASSB_AGY_MODEL:-$BASE_AGY_MODEL}"
+    _pb_mode=""
+    if [ "$ADAPTIVE_EFFORT_ON" = 1 ] && [ -n "$PASSB_AGY_MODEL" ]; then _pb_mode=" (C2 adaptive: COLD->$BASE_AGY_MODEL)"; fi
+    log "pass B (agy): model=$_pb_default_m timeout=$PASSB_AGY_TIMEOUT$_pb_mode"
     for i in "${CHUNK_IDS[@]}"; do
       build_prompt "$PASSB_FOCUS" "$WORKDIR/ctxA_$i.txt" "$WORKDIR/promptB_$i.txt"
-      review_chunk B "$i" "$WORKDIR/promptB_$i.txt" "$WORKDIR/outB_$i.json" "agy fallback, $RC6_AGY_MODEL" 1 || true
+      review_chunk B "$i" "$WORKDIR/promptB_$i.txt" "$WORKDIR/outB_$i.json" "agy fallback, $_pb_default_m" 1 || true
     done
-    second_round B "$WORKDIR/promptB" "$WORKDIR/outB" "agy fallback, $RC6_AGY_MODEL"
-    RC6_AGY_MODEL="$_saved_agy_model"
-    AGY_TIMEOUT="$_saved_agy_timeout"
-    build_engine_args "$SCHEMA"
+    second_round B "$WORKDIR/promptB" "$WORKDIR/outB" "agy fallback, $_pb_default_m"
   elif [ "$HAVE_CLAUDE" = 1 ]; then
     ENGINE_LAST_ATTEMPTS=0; ENGINE_LAST_RETRIED=0; ENGINE_LAST_FALLBACK=0; ENGINE_LAST_TRUNCATED=0
     for i in "${CHUNK_IDS[@]}"; do cov_mark B "$i" failed "${ENGINE_LAST_CLASS:-fatal}"; done
@@ -1367,8 +1668,14 @@ fi
 ENGINE_LABEL="$(printf '%s\n' "${ENGINES[@]}" | sort -u | paste -sd+ -)"
 [ "$NCHUNKS" -gt 1 ] && ENGINE_LABEL="${ENGINE_LABEL} (${NCHUNKS} chunks)"
 MERGED="$WORKDIR/merged.json"
+EFFORT_MODE_LABEL="fixed"
+[ "$ADAPTIVE_EFFORT_ON" = 1 ] && EFFORT_MODE_LABEL="adaptive"
 RC6_COV_TSV="$COV_TSV" RC6_CHUNK_IDS="${CHUNK_IDS[*]}" RC6_WORKDIR="$WORKDIR" \
 RC6_SELECTOR_STATUS="$SELECTOR_STATUS" RC6_SELECTOR_COUNT="$SELECTOR_COUNT" RC6_SELECTOR_REASON="$SELECTOR_REASON" \
+RC6_SELECTOR_SCOPE="$SELECTOR_SCOPE" RC6_SELECTOR_CHUNKS_OK="$SEL_CHUNKS_OK" \
+RC6_SELECTOR_CHUNKS_FAILED="$SEL_CHUNKS_FAILED" RC6_SELECTOR_CHUNKS_EMPTY="$SEL_CHUNKS_EMPTY" \
+RC6_EFFORT_MODE="$EFFORT_MODE_LABEL" RC6_CHUNK_TIERS_TSV="$CHUNK_TIERS_TSV" \
+RC6_EFFORT_PASSA_HOT="$PASSA_ESCALATE_HOT" \
 python3 - "$MERGED" "$ENGINE_LABEL" "$NCHUNKS" "$NPLANNED" "$DROPPED_FILES" "${OUTS[@]}" <<'PY'
 import sys, json, re
 out_path, engine_label = sys.argv[1], sys.argv[2]
@@ -1495,10 +1802,35 @@ if per_pass:
 sel_status = _os2.environ.get("RC6_SELECTOR_STATUS", "")
 if sel_status:
     sel_obj = {"status": sel_status, "count": int(_os2.environ.get("RC6_SELECTOR_COUNT") or 0)}
+    sel_scope = _os2.environ.get("RC6_SELECTOR_SCOPE", "")
+    if sel_scope:
+        sel_obj["scope"] = sel_scope
+        if sel_scope == "per_chunk":
+            sel_obj["chunks_ok"] = int(_os2.environ.get("RC6_SELECTOR_CHUNKS_OK") or 0)
+            sel_obj["chunks_failed"] = int(_os2.environ.get("RC6_SELECTOR_CHUNKS_FAILED") or 0)
+            sel_obj["chunks_empty"] = int(_os2.environ.get("RC6_SELECTOR_CHUNKS_EMPTY") or 0)
     sel_reason = _os2.environ.get("RC6_SELECTOR_REASON", "")
     if sel_reason:
         sel_obj["reason"] = sel_reason
     coverage["selector"] = sel_obj
+eff_mode = _os2.environ.get("RC6_EFFORT_MODE", "")
+tiers_tsv = _os2.environ.get("RC6_CHUNK_TIERS_TSV", "")
+if eff_mode and chunk_ids:
+    tier_map = {}
+    if tiers_tsv and _os2.path.exists(tiers_tsv):
+        for _ln in open(tiers_tsv):
+            _parts = _ln.rstrip("\n").split("\t")
+            if len(_parts) == 2:
+                tier_map[_parts[0]] = _parts[1]
+    chunk_tiers = {str(int(c) + 1): tier_map.get(c, "NORMAL") for c in chunk_ids}
+    coverage["effort"] = {
+        "mode": eff_mode,
+        "pass_a_escalate_hot": bool(int(_os2.environ.get("RC6_EFFORT_PASSA_HOT") or 0)),
+        "hot": sum(1 for v in chunk_tiers.values() if v == "HOT"),
+        "normal": sum(1 for v in chunk_tiers.values() if v == "NORMAL"),
+        "cold": sum(1 for v in chunk_tiers.values() if v == "COLD"),
+        "tiers": chunk_tiers,
+    }
 result = {
     "engine": engine_label,
     "coverage": coverage,
@@ -1699,7 +2031,32 @@ def is_rate_limited(err):
 #  - rate limit (403 secondary): the request itself was refused. Dropping comments is WRONG —
 #    the old loop stripped every finding one-by-one while hammering a limited endpoint, then
 #    exited 1 with the whole review lost. Back off, then persist the JSON so nothing is thrown away.
+#  - 422 with NO inline comment left (body-only review): there is no "bad line" to drop, so the old
+#    code exited 1 on the FIRST failure, with the verdict unpublished and the reason invisible
+#    (dosiq#974: `gh: Unprocessable Entity (HTTP 422)`, not reproducible minutes later). Now: show
+#    the real reason, retry with backoff (RC6_POST_RETRIES/RC6_POST_BACKOFF), then fall back to a
+#    plain PR comment with the same body; only if that fails too, preserve the verdict and exit 1.
 attempts = 0
+post_retries = 0
+POST_RETRIES = int(os.environ.get("RC6_POST_RETRIES", "2"))
+POST_BACKOFF = int(os.environ.get("RC6_POST_BACKOFF", "5"))
+
+def gh_error_detail(p):
+    """`gh api` prints the short line on stderr but the REAL reason (message + validation
+    errors) as a JSON body on STDOUT. Logging only stderr hid the cause of dosiq#974."""
+    parts = [(p.stderr or "").strip()]
+    out = (p.stdout or "").strip()
+    if out:
+        try:
+            j = json.loads(out)
+            msg = str(j.get("message", ""))
+            errs = j.get("errors")
+            if errs: msg += " | errors: " + json.dumps(errs, ensure_ascii=False)
+            parts.append(msg or out)
+        except (ValueError, AttributeError):
+            parts.append(out)
+    return " || ".join(x for x in parts if x)[:600]
+
 while True:
     p = subprocess.run(["gh","api","repos/:owner/:repo/pulls/%s/reviews"%pr,
                         "--input","-"], input=json.dumps(payload), text=True,
@@ -1707,7 +2064,7 @@ while True:
     if p.returncode == 0:
         print("posted RC6 review to PR #%s (%d inline, %d orphan)" % (pr, len(payload["comments"]), len(orphan)))
         break
-    err = p.stderr
+    err = (p.stderr or "") + " " + (p.stdout or "")
     if is_rate_limited(err):
         attempts += 1
         if attempts <= 3:
@@ -1725,7 +2082,27 @@ while True:
     if payload["comments"]:
         payload["comments"] = payload["comments"][:-1]
         continue
-    print("gh api failed:", err, file=sys.stderr); sys.exit(1)
+    detail = gh_error_detail(p)
+    if post_retries < POST_RETRIES:
+        post_retries += 1
+        wait = POST_BACKOFF * post_retries
+        print("gh api failed (%s) — retry %d/%d in %ds" % (detail, post_retries, POST_RETRIES, wait),
+              file=sys.stderr)
+        time.sleep(wait); continue
+    # Last resort: the verdict must reach the PR even when the review endpoint refuses it.
+    q = subprocess.run(["gh","pr","comment",pr,"--body-file","-"], input=payload["body"],
+                       text=True, capture_output=True)
+    if q.returncode == 0:
+        print("posted RC6 verdict as a plain PR comment (fallback: review endpoint kept failing: %s)" % detail,
+              file=sys.stderr)
+        print("posted RC6 verdict to PR #%s as comment (fallback, %d orphan)" % (pr, len(orphan)))
+        break
+    dump = os.path.join(os.environ.get("TMPDIR","/tmp"), "rc6_review_pr%s.json" % pr)
+    json.dump(merged, open(dump,"w"), ensure_ascii=False, indent=2)
+    print("gh api failed: %s\n   fallback `gh pr comment` also failed: %s\n"
+          "   Veredito preservado em %s — publique manualmente (NÃO re-rode o review: 034-D.1)."
+          % (detail, gh_error_detail(q), dump), file=sys.stderr)
+    sys.exit(1)
 PY
 
 # persist ai_review_complete -> events.jsonl + journal entry (both append-only;

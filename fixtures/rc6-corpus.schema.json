@@ -1,0 +1,342 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://devflow.local/schemas/rc6-corpus.schema.json",
+  "title": "RC6 Offline Evaluation Corpus Manifest",
+  "description": "Project-agnostic schema for offline evaluation manifests and cases used to benchmark RC6 rule selection, chunk payload assembly, and external reviewer output quality.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "created_at",
+    "source_repo",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/case"
+      }
+    }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "pr",
+        "repo",
+        "base_sha",
+        "head_sha",
+        "tier",
+        "date",
+        "category",
+        "artifacts",
+        "ground_truth",
+        "c3_audit",
+        "baseline"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9._-]+$"
+        },
+        "pr": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "repo": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$"
+        },
+        "head_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$"
+        },
+        "tier": {
+          "type": "integer",
+          "enum": [1, 2]
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["recent_findings", "classic_benchmark"]
+        },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "diff_file",
+            "fullfiles_dir"
+          ],
+          "properties": {
+            "diff_file": {
+              "type": "string",
+              "minLength": 1
+            },
+            "fullfiles_dir": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pass_a_output_file": {
+              "type": ["string", "null"]
+            },
+            "pass_b_output_file": {
+              "type": ["string", "null"]
+            },
+            "merged_output_file": {
+              "type": ["string", "null"]
+            }
+          }
+        },
+        "ground_truth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "expected_rules",
+            "real_bugs",
+            "known_fps"
+          ],
+          "properties": {
+            "expected_rules": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/expected_rule"
+              }
+            },
+            "real_bugs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/real_bug"
+              }
+            },
+            "known_fps": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/known_fp"
+              }
+            }
+          }
+        },
+        "c3_audit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "duplicate_pairs_across_passes",
+            "line_drift_duplicates",
+            "wording_duplicates",
+            "orphan_findings"
+          ],
+          "properties": {
+            "duplicate_pairs_across_passes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "line_drift_duplicates": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "wording_duplicates": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "orphan_findings": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "notes": {
+              "type": "string"
+            }
+          }
+        },
+        "baseline": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pre_bytes": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "chunk_budget": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "chunks_planned": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "selector_recall_at_5": {
+              "type": ["number", "null"],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "selector_recall_at_20": {
+              "type": ["number", "null"],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "selector_recall_at_60": {
+              "type": ["number", "null"],
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "expected_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "file",
+        "severity",
+        "source"
+      ],
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "pattern": "^(R|AP|CON|ADR)-[0-9]+$"
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"]
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "real_bug": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "file",
+        "line",
+        "snippet",
+        "severity",
+        "rule",
+        "summary",
+        "detected_by"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "snippet": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"]
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "detected_by": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "known_fp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "file",
+        "line",
+        "snippet",
+        "severity",
+        "rule",
+        "reason",
+        "refutable_by"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "snippet": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"]
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "refutable_by": {
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}
