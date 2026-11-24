@@ -15,10 +15,11 @@ build/
 *.swo
 sessions/
 .claude/
+.agent/state.json
+.agent/evolution/
+__pycache__/
+*.py[cod]
 
 # Offline RC6 evaluation corpus (C7): contains external-repo diffs/fullfiles; kept separate from versioned fixtures/rc6/
 fixtures/rc6-corpus/
 .graftroom/
-
-# graftroom local cache
-/.graftroom/
