@@ -13,6 +13,7 @@ import os
 import re
 import sys
 from collections import defaultdict
+from pathlib import Path
 
 JS_EXTS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 JS_KEYWORDS = frozenset({
@@ -821,9 +822,171 @@ def cmd_callees(chunk_diff: str, chunk_files_path: str, repo_root: str, max_byte
         sys.stdout.write(header + "".join(out_parts))
 
 
+# ---------------------------------------------------------------------------
+# B3: Explicit RIGHT-side line numbers on unified diffs
+# ---------------------------------------------------------------------------
+
+def annotate_diff_text(diff_text: str) -> str:
+    """Prefix +/context lines with HEAD RIGHT line numbers without breaking ---/+++/@@ headers."""
+    out: list[str] = []
+    rline = 0
+    for raw in diff_text.splitlines(keepends=True):
+        if raw.startswith(("diff --git ", "index ", "--- ", "+++ ", "\\ ")):
+            out.append(raw)
+        elif raw.startswith("@@"):
+            m = re.search(r"\+(\d+)", raw)
+            rline = int(m.group(1)) if m else 0
+            out.append(raw)
+        elif raw.startswith("+"):
+            eol = "\n" if raw.endswith("\n") else ""
+            body = raw[1:-1] if eol else raw[1:]
+            out.append(f"+{rline:4d} | {body}{eol}")
+            rline += 1
+        elif raw.startswith("-"):
+            eol = "\n" if raw.endswith("\n") else ""
+            body = raw[1:-1] if eol else raw[1:]
+            out.append(f"-     | {body}{eol}")
+        elif raw.startswith(" "):
+            eol = "\n" if raw.endswith("\n") else ""
+            body = raw[1:-1] if eol else raw[1:]
+            out.append(f" {rline:4d} | {body}{eol}")
+            rline += 1
+        else:
+            out.append(raw)
+    return "".join(out)
+
+
+def cmd_annotate_diff(diff_path: str) -> None:
+    try:
+        text = Path(diff_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    sys.stdout.write(annotate_diff_text(text))
+
+
+# ---------------------------------------------------------------------------
+# B4: Selective CON-NNN / ADR-NNN injection per chunk
+# ---------------------------------------------------------------------------
+
+_CON_ADR_ENTRY_RE = re.compile(r"^- \*\*\[((?:CON|ADR)-\d+)\]\*\*\s*(.+)$")
+_BACKTICK_RE = re.compile(r"`([^`\n]{4,80})`")
+_STOP_SYMBOLS = {
+    "string", "number", "boolean", "object", "record", "undefined", "null", "true", "false",
+    "select", "insert", "update", "delete", "default", "status", "active", "public", "private",
+    "mobile", "server", "return", "import", "export", "create", "remove", "pending", "accepted",
+    "proposed", "authenticated", "service_role", "window", "source", "detail", "reason",
+    "platform", "action", "events", "result", "client", "schema", "config", "user_id", "created_at",
+    "updated_at", "archived_at", "start_date", "app_version", "anon", "postgres", "extensions",
+}
+
+
+def cmd_contracts(diff_path: str, files_path: str, repo_root: str, max_bytes: int) -> None:
+    if max_bytes <= 0:
+        return
+    mem_dir = Path(repo_root) / ".agent/memory"
+    index_files = [
+        (0, mem_dir / "CONTRACTS_INDEX.md"),
+        (1, mem_dir / "DECISIONS_INDEX.md"),
+    ]
+    if not any(p.is_file() for _, p in index_files):
+        return
+
+    try:
+        diff_text = Path(diff_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        diff_text = ""
+    try:
+        changed_files = [l.strip() for l in Path(files_path).read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+    except OSError:
+        changed_files = []
+
+    if not diff_text and not changed_files:
+        return
+
+    basenames = {os.path.basename(f) for f in changed_files}
+    basenames_no_ext = {os.path.splitext(b)[0] for b in basenames if len(os.path.splitext(b)[0]) >= 5}
+
+    scored: list[tuple[int, int, str, str, list[str]]] = []
+    seen_ids: set[str] = set()
+
+    for kind_order, idx_path in index_files:
+        if not idx_path.is_file():
+            continue
+        for raw_line in idx_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = _CON_ADR_ENTRY_RE.match(raw_line.strip())
+            if not m:
+                continue
+            eid, rest = m.group(1), m.group(2)
+            if eid in seen_ids:
+                continue
+            head_prefix = rest[:90].lower()
+            if any(w in head_prefix for w in ("retired", "retirado", "superseded", "⚰️")):
+                continue
+            seen_ids.add(eid)
+
+            score = 0
+            matched: list[str] = []
+
+            if re.search(rf"\b{re.escape(eid)}\b", diff_text):
+                score += 100
+                matched.append(eid)
+
+            # Extract distinctive backticked identifiers/paths
+            sym_hits = 0
+            seen_toks: set[str] = set()
+            for raw_bt in _BACKTICK_RE.findall(rest):
+                # Split signatures like foo(a, b) or table.col into identifier tokens
+                for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_.-]{4,}", raw_bt):
+                    base_tok = os.path.basename(tok.rstrip("()"))
+                    key = base_tok.lower()
+                    if len(base_tok) < 6 or key in _STOP_SYMBOLS or base_tok in seen_toks:
+                        continue
+                    seen_toks.add(base_tok)
+                    if base_tok in basenames or os.path.splitext(base_tok)[0] in basenames_no_ext:
+                        score += 18
+                        matched.append(base_tok)
+                    elif sym_hits < 4 and re.search(rf"\b{re.escape(base_tok)}\b", diff_text):
+                        score += 12
+                        sym_hits += 1
+                        matched.append(base_tok)
+
+            if score <= 0:
+                continue
+
+            # Strip trailing markdown link `-> [...]` to keep summary compact
+            clean = re.sub(r"\s*(?:->|→)\s*\[[^\]]+\]\([^)]+\)\s*$", "", rest).strip()
+            if len(clean) > 860:
+                clean = clean[:857].rstrip() + "..."
+            scored.append((score, kind_order, eid, clean, matched[:4]))
+
+    if not scored:
+        return
+
+    scored.sort(key=lambda x: (-x[0], x[1], x[2]))
+    header = "===== CONTRACTS & DECISIONS (CON/ADR touched by this chunk) =====\n"
+    used_bytes = len(header.encode("utf-8"))
+    out_lines: list[str] = []
+
+    for _, _, eid, clean, matched in scored[:5]:
+        why = f" *(matched: {', '.join(matched)})*" if matched else ""
+        line = f"- [{eid}] {clean}{why}\n"
+        lb = len(line.encode("utf-8"))
+        if used_bytes + lb > max_bytes:
+            if not out_lines and max_bytes - used_bytes > 160:
+                avail = max_bytes - used_bytes - 20
+                trunc = line.encode("utf-8")[:avail].decode("utf-8", errors="ignore").rstrip() + "...\n"
+                out_lines.append(trunc)
+            break
+        out_lines.append(line)
+        used_bytes += lb
+
+    if out_lines:
+        sys.stdout.write(header + "".join(out_lines))
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        sys.stderr.write("usage: rc6_graph_context.py <chunk|callees> ...\n")
+        sys.stderr.write("usage: rc6_graph_context.py <chunk|callees|annotate-diff|contracts> ...\n")
         return 2
     cmd = argv[1]
     if cmd == "chunk":
@@ -837,6 +1000,16 @@ def main(argv: list[str]) -> int:
         if len(argv) < 6:
             return 2
         cmd_callees(argv[2], argv[3], argv[4], int(argv[5]))
+        return 0
+    if cmd == "annotate-diff":
+        if len(argv) < 3:
+            return 2
+        cmd_annotate_diff(argv[2])
+        return 0
+    if cmd == "contracts":
+        if len(argv) < 6:
+            return 2
+        cmd_contracts(argv[2], argv[3], argv[4], int(argv[5]))
         return 0
     sys.stderr.write(f"unknown subcommand: {cmd}\n")
     return 2

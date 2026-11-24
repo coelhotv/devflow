@@ -492,6 +492,9 @@ SELECTOR_SCRIPT="${RC6_SELECTOR_SCRIPT:-$REPO_ROOT/scripts/select-rules.mjs}"
 GRAPH_CHUNK="${RC6_GRAPH_CHUNK:-1}"
 CALLEES_ON="${RC6_CALLEES:-1}"
 CALLEES_MAX_BYTES="$(rc6_num "${RC6_CALLEES_MAX_BYTES:-}" 12000)"
+DIFF_LINE_NUMS="${RC6_DIFF_LINE_NUMS:-1}"
+CONTRACTS_ON="${RC6_CONTRACTS:-1}"
+CONTRACTS_MAX_BYTES="$(rc6_num "${RC6_CONTRACTS_MAX_BYTES:-}" 6000)"
 PREAMBLE_SELECTED="$WORKDIR/preamble_selected.txt"
 : > "$PREAMBLE_SELECTED"
 SELECTOR_STATUS="disabled"
@@ -941,7 +944,12 @@ build_chunk_ctx() { # $1=chunk-index $2=outfile
   # whether or not the catalog gets filtered.
   local body="$WORKDIR/body_${i}.txt"
   {
-    echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="; cat "$WORKDIR/chunk_${i}.diff"
+    echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="
+    if [ "$DIFF_LINE_NUMS" = 1 ] && [ -f "$SELF_DIR/rc6_graph_context.py" ]; then
+      python3 "$SELF_DIR/rc6_graph_context.py" annotate-diff "$WORKDIR/chunk_${i}.diff" 2>/dev/null || cat "$WORKDIR/chunk_${i}.diff"
+    else
+      cat "$WORKDIR/chunk_${i}.diff"
+    fi
     echo; echo "===== FULL FILES (post-change content — audit unchanged lines too) ====="
     while IFS= read -r f; do
       [ -n "$f" ] && grep -qxF "$f" "$WORKDIR/fullfiles.txt" && [ -f "$REPO_ROOT/$f" ] \
@@ -1008,10 +1016,27 @@ build_chunk_ctx() { # $1=chunk-index $2=outfile
     fi
   fi
 
+  # B4: selective CON-NNN / ADR-NNN touched by this chunk (bounded by remaining headroom)
+  if [ "$CONTRACTS_ON" = 1 ] && [ "$CONTRACTS_MAX_BYTES" -gt 0 ] && [ -f "$SELF_DIR/rc6_graph_context.py" ]; then
+    local _cur_con _con_cap
+    _cur_con=$(( $(wc -c < "$pre_file" | tr -d ' ') + $(wc -c < "$body" | tr -d ' ') + instr_b ))
+    _con_cap=$(( CTX_TOTAL_MAX - _cur_con ))
+    [ "$_con_cap" -gt "$CONTRACTS_MAX_BYTES" ] && _con_cap="$CONTRACTS_MAX_BYTES"
+    if [ "$_con_cap" -gt 256 ]; then
+      python3 "$SELF_DIR/rc6_graph_context.py" contracts \
+        "$WORKDIR/chunk_${i}.diff" "$WORKDIR/chunk_${i}.files" "$REPO_ROOT" "$_con_cap" \
+        > "$WORKDIR/contracts_${i}.txt" 2>/dev/null || : > "$WORKDIR/contracts_${i}.txt"
+      if [ -s "$WORKDIR/contracts_${i}.txt" ]; then
+        { echo; cat "$WORKDIR/contracts_${i}.txt"; } >> "$body"
+      fi
+    fi
+  fi
+
   cat "$pre_file" "$body" > "$out"
 }
 
 # ---- reviewer instruction (mirrors SKILL.md §1533) --------------------------
+RC6_LANG="${RC6_LANG:-pt-BR}"
 read -r -d '' RC6_INSTRUCTION <<'PROMPT' || true
 You are an INDEPENDENT code auditor. You did NOT write this code and have NO
 context beyond the diff + full files + rule catalogs provided. Do not invent
@@ -1106,12 +1131,16 @@ OUTPUT: strict JSON only, no prose, no markdown fence. Schema:
 "causation":"mechanism + the exact line/def that proves it",
 "issue":"what is wrong","fix":"concrete fix"}]}
 "snippet" is MANDATORY and must be copied VERBATIM from an ADDED (`+`) or context
-line of the diff — strip the leading `+`/` ` marker, keep the code exactly as-is,
-one line, no reformatting. It is what anchors the comment to the right place when
-your line number drifts. If you cannot quote the line from the diff, the finding
-is about code you cannot see: drop it.
+line of the diff — strip the leading `+`/` ` marker AND any line-number prefix
+(`142 | `), keep the code exactly as-is, one line, no reformatting. It is what anchors
+the comment to the right place when your line number drifts. If you cannot quote the
+line from the diff, the finding is about code you cannot see: drop it.
 If clean, return findings: [].
 PROMPT
+
+if [ -n "$RC6_LANG" ]; then
+  RC6_INSTRUCTION="${RC6_INSTRUCTION}"$'\n'"LANGUAGE: write \"summary\", \"issue\", \"causation\", and \"fix\" in ${RC6_LANG} (keep code identifiers, file paths, types, and rule IDs verbatim). NEVER translate JSON keys, \"severity\" enum values, \"file\", or \"snippet\"."
+fi
 
 # Pass B leans on domain/migration extensions with full-file context.
 PASSB_FOCUS=$'\nFOCUS FOR THIS PASS: Extensions #7 (Domain Rule Conformance) and #8 (Migration/Refactor Audit). Use the FULL FILES to reason about unchanged lines around each change. Weight timezone/date-math and dropped-argument regressions highest.'
@@ -1589,7 +1618,12 @@ if [ "$TIER" = 2 ]; then
   fi
   {
     cat "$PREB"
-    echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="; cat "$WORKDIR/diff.txt"
+    echo; echo "===== DIFF (code files vs $MAIN_BRANCH) ====="
+    if [ "$DIFF_LINE_NUMS" = 1 ] && [ -f "$SELF_DIR/rc6_graph_context.py" ]; then
+      python3 "$SELF_DIR/rc6_graph_context.py" annotate-diff "$WORKDIR/diff.txt" 2>/dev/null || cat "$WORKDIR/diff.txt"
+    else
+      cat "$WORKDIR/diff.txt"
+    fi
     echo; echo "===== FULL FILES (post-change content — audit unchanged lines too) ====="
     for f in "${FULLFILES[@]:-}"; do
       [ -n "${f:-}" ] && [ -f "$REPO_ROOT/$f" ] && { echo; echo "----- FILE $f -----"; cat "$REPO_ROOT/$f"; }
@@ -1855,7 +1889,7 @@ PY
 # qualquer erro dele preserva o $MERGED original e o review segue como antes.
 REFLECT_GATE="${RC6_REFLECT_GATE:-$SELF_DIR/reflect-gate.sh}"
 if [ "${RC6_REFLECT:-annotate}" != "0" ] && [ -x "$REFLECT_GATE" ]; then
-  if "$REFLECT_GATE" < "$MERGED" > "$MERGED.reflected" 2>>"$WORKDIR/reflect.log"; then
+  if RC6_DIFF_FILE="$WORKDIR/diff.txt" RC6_REPO_ROOT="$REPO_ROOT" "$REFLECT_GATE" < "$MERGED" > "$MERGED.reflected" 2>>"$WORKDIR/reflect.log"; then
     if python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$MERGED.reflected" 2>/dev/null; then
       mv "$MERGED.reflected" "$MERGED"
       # T009: refutado não conta como sinal de STOP. `introduced_critical`/`introduced_high`
@@ -1946,6 +1980,7 @@ LINE_IDX = build_line_index(diff_path)
 def anchor(f):
     """Return a line number backed by the diff, or None if it can't be anchored."""
     snip = (f.get("snippet") or "").strip()
+    snip = re.sub(r"^[+\-\s]*\d+\s*\|\s?", "", snip).strip()
     cands = LINE_IDX.get(f.get("file")) or []
     if not cands: return None
     claimed = f.get("line")

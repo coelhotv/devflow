@@ -173,6 +173,11 @@ verify_compile() {
     while IFS=$'\t' read -r idx file fprog; do
       [ "$fprog" = "$prog" ] || continue
       if grep -qE "^$(printf '%s' "$file" | sed 's/[].[^$*\/]/\\&/g')\(.*: error TS" "$out"; then
+        grep -E "^$(printf '%s' "$file" | sed 's/[].[^$*\/]/\\&/g')\([0-9]+,[0-9]+\): error TS" "$out" \
+          | sed -E 's/^.*\(([0-9]+),[0-9]+\): error TS.*/\1/' \
+          | while IFS= read -r dline; do
+              [ -n "$dline" ] && printf '%s\t%s\t%s\n' "$idx" "$file" "$dline" >> "$WORK/tsc_hits.tsv"
+            done
         printf '%s\tINCONCLUSIVE\ttsc -p %s reporta diagnóstico em %s; o finding pode estar certo\n' "$idx" "$prog" "$file"
       else
         printf '%s\tREFUTED\ttsc -p %s --noEmit: nenhum diagnóstico em %s (%s linhas de erro no programa, nenhuma neste arquivo)\n' \
@@ -272,9 +277,10 @@ for cls in compile schema; do
   fi
 done
 
-# ---- T004 — núcleo assimétrico + T007 refutação citável ----------------------
+# ---- T004 — núcleo assimétrico + T007 refutação citável + C4 determinístico ----
+RC6_REPO_ROOT="$REPO_ROOT" RC6_TSC_HITS="$WORK/tsc_hits.tsv" \
 python3 - "$WORK/in.json" "$WORK/classes.tsv" "$WORK/verdicts.tsv" "$REFLECT_MODE" <<'PY'
-import json, sys
+import json, os, re, sys, unicodedata
 
 src, classes_f, verdicts_f, mode = sys.argv[1:5]
 data = json.load(open(src, encoding='utf-8'))
@@ -296,10 +302,107 @@ for line in open(verdicts_f, encoding='utf-8'):
     try: verdict[int(i)] = (outcome, evidence)
     except ValueError: continue
 
+# C4.1: diff line index for comment-only check
+diff_file = os.environ.get('RC6_DIFF_FILE', '')
+line_idx = {}
+if diff_file and os.path.isfile(diff_file):
+    cur, rline = None, 0
+    for raw in open(diff_file, encoding='utf-8', errors='replace'):
+        if raw.startswith('+++ b/'):
+            cur = raw[6:].rstrip('\n'); line_idx.setdefault(cur, []); continue
+        if raw.startswith('@@'):
+            m = re.search(r'\+(\d+)', raw)
+            rline = int(m.group(1)) if m else 0; continue
+        if cur is None or raw.startswith(('---', 'diff --git', 'index ', '\\')): continue
+        if raw.startswith('+'):
+            line_idx[cur].append((rline, raw[1:].rstrip('\n'))); rline += 1
+        elif raw.startswith('-'):
+            pass
+        elif raw.startswith(' '):
+            line_idx[cur].append((rline, raw[1:].rstrip('\n'))); rline += 1
+
+def is_pure_comment(fpath, text):
+    st = (text or '').strip()
+    if not st:
+        return False
+    if st.startswith('//') or st.startswith('/*') or st == '*' or st.startswith('* ') or st.startswith('*/'):
+        return True
+    ext = os.path.splitext(fpath or '')[1].lower()
+    if ext in ('.sh', '.bash', '.zsh', '.py', '.yml', '.yaml', '.toml') and st.startswith('#') and not st.startswith('#!'):
+        return True
+    return False
+
+def norm_text(s):
+    s = unicodedata.normalize('NFD', s or '')
+    return ''.join(c for c in s if unicodedata.category(c) != 'Mn').lower()
+
+# C4.2: known R-NNN / AP-NNN IDs in .agent/memory
+repo_root = os.environ.get('RC6_REPO_ROOT', '')
+known_rule_ids = set()
+mem_dir = os.path.join(repo_root, '.agent', 'memory') if repo_root else ''
+if mem_dir and os.path.isdir(mem_dir):
+    for idx_name in ('RULES_INDEX.md', 'ANTI_PATTERNS_INDEX.md'):
+        ip = os.path.join(mem_dir, idx_name)
+        if os.path.isfile(ip):
+            known_rule_ids.update(re.findall(r'\b(?:R|AP)-\d{3}\b', open(ip, encoding='utf-8', errors='replace').read()))
+    for sub in ('rules', 'anti-patterns'):
+        sp = os.path.join(mem_dir, sub)
+        if os.path.isdir(sp):
+            for _r, _d, _fs in os.walk(sp):
+                for fn in _fs:
+                    m = re.match(r'^((?:R|AP)-\d{3})\.md$', fn)
+                    if m:
+                        known_rule_ids.add(m.group(1))
+
+# C4.3: static tool corroboration (tsc + optional eslint JSON)
+tsc_hits = {}
+tsc_path = os.environ.get('RC6_TSC_HITS', '')
+if tsc_path and os.path.isfile(tsc_path):
+    for ln in open(tsc_path, encoding='utf-8'):
+        ps = ln.rstrip('\n').split('\t')
+        if len(ps) >= 3 and ps[0].isdigit() and ps[2].isdigit():
+            tsc_hits.setdefault(int(ps[0]), []).append(int(ps[2]))
+
+eslint_hits = {}
+eslint_path = os.environ.get('RC6_ESLINT_JSON', '')
+if eslint_path and os.path.isfile(eslint_path):
+    try:
+        ej = json.load(open(eslint_path, encoding='utf-8'))
+        if isinstance(ej, list):
+            for fobj in ej:
+                fp = (fobj.get('filePath') or '').replace('\\', '/')
+                for msg in (fobj.get('messages') or []):
+                    ln = msg.get('line')
+                    if fp and isinstance(ln, int):
+                        eslint_hits.setdefault(fp, []).append((ln, msg.get('ruleId') or 'eslint'))
+    except Exception:
+        pass
+
 kept = []
 for i, f in enumerate(findings):
     c = cls.get(i, '')
     outcome, evidence = verdict.get(i, ('NOT_RUN', ''))
+
+    # C4.1: comment-only deterministic refutation (only when not already refuted)
+    if outcome != 'REFUTED' and line_idx:
+        fpath = f.get('file') or ''
+        cands = line_idx.get(fpath) or []
+        snip = re.sub(r'^[+\-\s]*\d+\s*\|\s?', '', (f.get('snippet') or '').strip()).strip()
+        if cands and snip:
+            hits = [(n, t) for n, t in cands if t.strip() == snip]
+            if not hits:
+                hits = [(n, t) for n, t in cands if snip in t.strip()]
+            if hits:
+                claimed = f.get('line')
+                if claimed and str(claimed).isdigit():
+                    ml, mt = min(hits, key=lambda p: abs(p[0] - int(claimed)))
+                else:
+                    ml, mt = hits[0]
+                claim_txt = norm_text((f.get('issue') or '') + ' ' + (f.get('causation') or ''))
+                if is_pure_comment(fpath, mt) and not re.search(r'prompt injection|review manipulation|manipulacao|ignore previous', claim_txt):
+                    outcome = 'REFUTED'
+                    evidence = 'diff %s:%d é puramente comentário/JSDoc (%s); SCOPE DISCIPLINE proíbe findings sobre comentários' % (fpath, ml, mt.strip()[:100])
+                    c = 'comment_only'
 
     # 🔴 O invariante. Só REFUTED com evidência citável refuta. Refutação sem evidência
     # trocaria a alucinação do revisor pela do gate (T007/SC-003), então é tratada como
@@ -322,6 +425,33 @@ for i, f in enumerate(findings):
     sys.stderr.write('reflect: finding[%d] %s classe=%s verificador=%s desfecho=%s -> %s\n' % (
         i, f.get('file', '?'), c or '-', c or '-', outcome,
         'REFUTADO' if refuted else 'passa (%s)' % (why or outcome)))
+
+    # C4.2: validate cited R-NNN / AP-NNN IDs (warning metadata only, never refutes)
+    if known_rule_ids:
+        cited = re.findall(r'\b(?:R|AP)-\d{3}\b', f.get('rule') or '')
+        missing = [rid for rid in cited if rid not in known_rule_ids]
+        if missing:
+            f['rule_id_warning'] = 'ID(s) não encontrado(s) em .agent/memory: %s' % ', '.join(missing)
+            sys.stderr.write('reflect: finding[%d] rule_id_warning=%s\n' % (i, ','.join(missing)))
+
+    # C4.3: static corroboration (tsc / eslint) when not refuted
+    if not refuted:
+        fpath = (f.get('file') or '').replace('\\', '/')
+        fline = f.get('line')
+        fline_i = int(fline) if fline is not None and str(fline).isdigit() else None
+        corrob = []
+        if i in tsc_hits:
+            if fline_i is None or any(abs(dl - fline_i) <= 2 for dl in tsc_hits[i]):
+                corrob.append('tsc')
+        if fpath and eslint_hits and fline_i is not None:
+            for efp, msgs in eslint_hits.items():
+                if efp == fpath or efp.endswith('/' + fpath):
+                    for mln, mrule in msgs:
+                        if abs(mln - fline_i) <= 1:
+                            corrob.append('eslint:%s' % mrule)
+                            break
+        if corrob:
+            f['corroborated_by_tool'] = ', '.join(dict.fromkeys(corrob))
 
     if refuted:
         f['refuted'] = True

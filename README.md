@@ -132,6 +132,8 @@ devflow/
     setup.sh                       ← consumer-project installer (idempotent, v3.0)
     ai-review.sh                   ← RC6 independent review (agy/claude, chunked)
     second-opinion.sh              ← cold second opinion on spec/plan/analysis
+    rc6_graph_context.py           ← B1 graph packing, B2 callees, B3 line nums, B4 CON/ADR
+    eval-rc6-corpus.py             ← offline C7 corpus evaluator
     skill-comply.sh                ← measures whether a skill step is followed
     mode-gate.sh / reflect-gate.sh ← mechanical gates (no LLM)
     lib/engine-core.sh             ← shared engine layer (@core, versioned contract)
@@ -207,6 +209,9 @@ Since `@core` 1.2.0 (spec 003, after dosiq#835 reported full coverage while 3 of
 - **Coverage is what was reviewed, not what was planned.** `coverage.chunks_reviewed` counts chunks reviewed by every active pass; `per_pass.{A,B}` and `independent_reviewers.{min,max}` say how many reviewers each chunk actually had.
 - **Transient engine errors are retried, others are not.** Errors are classified `transient | timeout | quota | fatal` from each attempt's error text (including a failure envelope returned with exit 0). Only `transient` is retried (backoff, then a fallback model, then one re-queue at the end), all under one time budget per run.
 - **Turn-1 truncation guard & Pass B hardening (`@core` 1.3.0):** `unwrap_structured` logs `thinking=` / `turns=` and flags Turn-1 `agy` context saturation (`~79.6K` tokens) without false-positiving on multi-turn `high` effort (`cache_read` check when `num_turns >= 2`), marking `coverage.truncated_chunks` + `partial: true`. `ai-review.sh` places `DIFF` before `FULL FILES`, defaults `RC6_MAX_CHUNKS=8`, escalates Pass B `agy` fallback to `gemini-4-neon-high` (`10m`), and exposes `coverage.selector` / `selector=FAILED` on selector errors or fail-safe degradation.
+- **Per-chunk context & graph assembly (`A1/A2/A5`, `B1–B4`):** `select-rules.mjs` and `DETAIL_FILES` run per chunk (`RC6_CHUNK_SCOPE=1`, `--related-paths`, `--format card`), `rc6_graph_context.py` packs coupled files by import graph (`B1`), slices unchanged external callees (`B2`), annotates `RIGHT`-side diff line numbers (`B3`), and injects touched `CON-NNN`/`ADR-NNN` entries (`B4`), all bounded under `RC6_CTX_TOTAL_MAX` (`150 KB`).
+- **Adaptive effort, symmetric quota fallback & standardized language (`C2`, `RC6_ENGINE_AGY=0`, `RC6_LANG`):** `rank_chunks.py` routes `HOT` chunks to `gemini-4-neon-high` (`10m`) and `COLD` Pass B fallback chunks to `neon-medium`. `RC6_ENGINE_AGY=0` runs Pass A (Tier 1 & 2) on `claude` (`RC6_CLAUDE_MODEL`, default `sonnet`). `RC6_LANG` (default `pt-BR`) standardizes output prose while keeping JSON keys, `severity`, `file`, and `snippet` verbatim.
+- **Deterministic reflection & cold second opinion (`C4`, `C6`):** `reflect-gate.sh` adds diff-backed `comment_only` refutation (preserving prompt-injection exceptions), non-refuting `rule_id_warning`, and `corroborated_by_tool` (`tsc`/`eslint`). `second-opinion.sh` adds bounded `CLAUDE.md` + cited `CON/ADR` grounding (`<=150 KB`), `--tier2` (`gemini-4-neon-high`, `10m`), `"truncated"` telemetry, and `RC6_LANG`.
 - **The last stderr line is the verdict:** `[rc6] VERDICT coverage=partial A=1/4 B=4/4 reviewers_min=1 …`, matching the JSON (appending `truncated=<N>` and `selector=FAILED` when triggered). `partial` is recorded in the PR, not a reason to run RC6 again. A JSONL status feed (`[rc6] status: <path>`) lets a background caller follow progress.
 
 | Env var | Default | Effect |
@@ -223,6 +228,18 @@ Since `@core` 1.2.0 (spec 003, after dosiq#835 reported full coverage while 3 of
 | `RC6_AGY_MODEL_FALLBACK` | `gemini-4-hydrogen-medium` | Fallback model for agy; empty disables. Never used by the A/B measurement. |
 | `RC6_STATUS_FILE` | `$TMPDIR/rc6-status-<pid>.jsonl` | Where status events go. |
 | `RC6_ENGINE_CLAUDE` | `1` | `0` keeps RC6 off claude (quota guard). |
+| `RC6_ENGINE_AGY` | `1` | `0` disables `agy` and runs Pass A (Tier 1 & 2) on `claude` (quota guard). |
+| `RC6_CLAUDE_MODEL` | `sonnet` | Overrides `--model` on `claude` calls (`sonnet`, `opus`, etc.). |
+| `RC6_LANG` | `pt-BR` | Standardizes prose fields (`summary`, `issue`, `causation`/`suggestion`, `fix`) while preserving keys, `file`, and `snippet`/`quote`. |
+| `RC6_CHUNK_SCOPE` | `1` | `1` (`A1`) runs `select-rules.mjs` and `DETAIL_FILES` per chunk with local dedupe; `0` restores global scope. |
+| `RC6_SELECTOR_FORMAT` | `""` | Empty sends full rule text; `card` passes `--format card` (`Review Cards <=450 B`) when available. |
+| `RC6_SELECTOR_RELATED` | `1` | Passes 1-hop `chunk_i.related` neighbors via `--related-paths` to `select-rules.mjs` (`A5`). |
+| `RC6_GRAPH_CHUNK` | `1` | `1` (`B1`) packs chunks by import graph cohesion (`.graftroom/` + regex/`tsconfig`/barrels); `0` restores alphabetical split. |
+| `RC6_CALLEES` / `RC6_CALLEES_MAX_BYTES` | `1` / `12000` | `B2` surgical slicing of external callees referenced in diff hunks. |
+| `RC6_DIFF_LINE_NUMS` | `1` | `B3` annotates diff `+`/context lines with `HEAD` `RIGHT` line numbers (`+   N | ...`). |
+| `RC6_CONTRACTS` / `RC6_CONTRACTS_MAX_BYTES` | `1` / `6000` | `B4` injects active `CON-NNN`/`ADR-NNN` entries touched by each chunk. |
+| `RC6_ADAPTIVE_EFFORT` | `auto` | `C2` routes `HOT` chunks to `neon-high` (`10m`) and `COLD` Pass B fallback chunks to `neon-medium`. |
+| `RC6_SO_GROUNDING` | `1` | Enables bounded `CLAUDE.md` + cited `CON/ADR` grounding (`<=150 KB`) in `second-opinion.sh` (`C6`). |
 
 ---
 

@@ -35,10 +35,18 @@ ISOPATH="$BIN:/usr/bin:/bin"
 cat > "$T/fake-agy" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = --help ]; then echo "usage: agy [--json-schema] [--output-format] [--disable-slash-commands]"; exit 0; fi
-prev=""; for a in "$@"; do [ "$prev" = -p ] && printf '%s' "$a" > "$FAKE_DIR/prompt.txt"; prev="$a"; done
+prev=""; model=""; timeout=""
+for a in "$@"; do
+  [ "$prev" = -p ] && printf '%s' "$a" > "$FAKE_DIR/prompt.txt"
+  [ "$prev" = --model ] && model="$a"
+  [ "$prev" = --print-timeout ] && timeout="$a"
+  prev="$a"
+done
+echo "model=$model timeout=$timeout" >> "$FAKE_DIR/agy.argv"
 echo call >> "$FAKE_DIR/agy.calls"
 case "${FAKE_AGY_MODE:-ok}" in
   ok)      printf '{"status":"SUCCESS","structured_output":{"summary":"fake","findings":[{"section":"Plan","quote":"T060","severity":"medium","kind":"gap","issue":"x","suggestion":"y"}]}}\n' ;;
+  trunc)   printf '{"status":"SUCCESS","num_turns":1,"usage":{"input_tokens":79636,"output_tokens":500},"structured_output":{"summary":"fake","findings":[]}}\n' ;;
   offschema) printf '{"status":"SUCCESS","structured_output":{"summary":"fake","findings":[{"section":"Plan","severity":"urgent"}]}}\n' ;;
   fail)    echo "quota exhausted" >&2; exit 1 ;;
 esac
@@ -61,7 +69,7 @@ run() { # env via chamador; stdout -> $T/out.json, stderr -> $T/err.txt, exit ->
   RC=0
   PATH="$ISOPATH" FAKE_DIR="$T" "$@" > "$T/out.json" 2> "$T/err.txt" || RC=$?
 }
-reset() { rm -f "$T/agy.calls" "$T/gh.calls" "$T/prompt.txt" "$BIN/agy"; }
+reset() { rm -f "$T/agy.calls" "$T/agy.argv" "$T/gh.calls" "$T/prompt.txt" "$BIN/agy"; }
 jq_py() { python3 -c "import json,sys; d=json.load(open('$T/out.json')); print($1)"; }
 
 if [ "$WANT_ALL" = 1 ]; then
@@ -126,6 +134,40 @@ if [ "$WANT_ALL" = 1 ] || [ "$WANT_FAILOPEN" = 1 ]; then
   grep -q 'quota exhausted' "$T/err.txt" && ok "log diz POR QUE caiu (engine_err_hint)" || bad "motivo da queda sumiu do log"
   if grep -qE "echo '\{\"summary\"" "$SO"; then bad "second-opinion.sh tem COPIA LOCAL do JSON de fail-open"
   else ok "nenhuma copia local do fail-open"; fi
+fi
+
+if [ "$WANT_ALL" = 1 ]; then
+  echo "== C6: grounding (CLAUDE.md + CON/ADR citados), truncated, --tier2, RC6_LANG"
+  RC6R="$T/repo_c6"; SDC="$RC6R/plans/specs/888-c6"; mkdir -p "$SDC" "$RC6R/.agent/memory"
+  printf '# CLAUDE\n\n## Regras Críticas\n- R-295: cite verified lines.\n\n## Outras\n- Ignore this section.\n' > "$RC6R/CLAUDE.md"
+  printf '# Contracts\n- **[CON-048]** *(accepted)* Sidecar `cmedStrengths` aligned -> [`CON-048.md`](./CON-048.md)\n- **[CON-099]** *(accepted)* Unrelated billing -> [`CON-099.md`](./CON-099.md)\n' > "$RC6R/.agent/memory/CONTRACTS_INDEX.md"
+  printf '# Decisions\n- **[ADR-130]** *(accepted)* Manual registration window -> [`ADR-130.md`](./ADR-130.md)\n' > "$RC6R/.agent/memory/DECISIONS_INDEX.md"
+  printf '# 888\nUsa CON-048 e ADR-130.\n' > "$SDC/spec.md"
+
+  reset; ln -s "$T/fake-agy" "$BIN/agy"
+  run bash "$SO" --artifact spec --spec-dir "$SDC" --measure
+  [ "$RC" = 0 ] && [ "$(jq_py 'd["grounding_bytes"] > 0')" = True ] && ok "measure: reporta grounding_bytes > 0" \
+    || bad "measure grounding_bytes=$(cat "$T/out.json")"
+
+  reset; ln -s "$T/fake-agy" "$BIN/agy"
+  run bash "$SO" --artifact spec --spec-dir "$SDC" --tier2
+  grep -q 'PROJECT GROUNDING' "$T/prompt.txt" && grep -q 'R-295: cite verified lines' "$T/prompt.txt" \
+    && grep -q '\[CON-048\]' "$T/prompt.txt" && grep -q '\[ADR-130\]' "$T/prompt.txt" \
+    && ! grep -q '\[CON-099\]' "$T/prompt.txt" && ! grep -q 'Ignore this section' "$T/prompt.txt" \
+    && ok "grounding: injeta Regras Críticas + CON-048 + ADR-130 e omite CON-099" \
+    || bad "grounding incorreto em prompt.txt"
+  grep -q 'write "summary", "issue", and "suggestion" in pt-BR' "$T/prompt.txt" \
+    && ok "RC6_LANG: diretiva pt-BR presente por default" || bad "RC6_LANG ausente"
+  grep -q 'model=gemini-4-neon-high timeout=10m' "$T/agy.argv" \
+    && ok "--tier2: usa gemini-4-neon-high e timeout=10m" || bad "--tier2 argv=$(cat "$T/agy.argv")"
+  [ "$(jq_py 'd["truncated"]')" = False ] && ok "truncated=false em run normal" || bad "truncated=$(jq_py 'd.get("truncated")')"
+
+  reset; ln -s "$T/fake-agy" "$BIN/agy"
+  RC6_AGY_MODEL=gemini-4-neon-medium FAKE_AGY_MODE=trunc run bash "$SO" --artifact spec --spec-dir "$SDC" --tier2
+  grep -q 'model=gemini-4-neon-medium' "$T/agy.argv" && ok "RC6_AGY_MODEL explicito sobrescreve --tier2" \
+    || bad "override --tier2 falhou: $(cat "$T/agy.argv")"
+  [ "$(jq_py 'd["truncated"]')" = True ] && ok "truncated=true propagado de ENGINE_LAST_TRUNCATED" \
+    || bad "truncated nao propagado: $(cat "$T/out.json")"
 fi
 
 echo

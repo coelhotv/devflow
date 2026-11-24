@@ -945,32 +945,31 @@ If there are ASK items → STOP and await operator decision. (Do not proceed to 
 **Independence is the whole point — enforce it by construction:**
 - Run in a **fresh headless process**, NOT in the coding agent's session. Do **not** pass the coder's chat history, reasoning, or "what I intended" — only the diff + the rule catalogs. Cold-start is the feature, not a cost.
 - Engine (OAuth quota, **$0 marginal** — no metered API):
-  - **Primary: `agy -p` (`gemini-4-neon-medium` no Pass A; fallback `gemini-4-hydrogen-medium`)** — larger weekly quota, absorbs routine volume. Notas empíricas de CLI (`agy 1.5.13`): `--mode plan` é no-op com `--disable-slash-commands`; `--effort` conflita com nomes de modelo sufixados (o esforço vai no próprio sufixo do modelo); teto real de ~`79.6K` `input_tokens` no Turn 1 mesmo via `--input-format stream-json`.
-  - **Pass B (`tier2` / migration / architectural): `claude -p` (Opus/Sonnet)** — stronger reasoning; se `RC6_ENGINE_CLAUDE=0` ou `claude` falhar, faz fallback chunked para `agy -p` escalado via `RC6_AGY_PASSB_MODEL` (default `gemini-4-neon-high`, `RC6_AGY_PASSB_TIMEOUT` default `10m` quando `RC6_AGY_TIMEOUT` não está definido).
+  - **Primary: `agy -p` (`gemini-4-neon-medium` base, escalando chunks `HOT` para `gemini-4-neon-high` via `C2`; fallback `gemini-4-hydrogen-medium`)** — larger weekly quota, absorbs routine volume. Notas empíricas de CLI (`agy 1.5.13`): `--mode plan` é no-op com `--disable-slash-commands`; `--effort` conflita com nomes de modelo sufixados (o esforço vai no próprio sufixo do modelo); teto real de ~`79.6K` `input_tokens` no Turn 1 mesmo via `--input-format stream-json`. Se a cota do `agy` estiver curta, `RC6_ENGINE_AGY=0` desliga o `agy` e executa o Pass A (Tier 1 e Tier 2) no `claude`.
+  - **Pass B (`tier2` / migration / architectural): `claude -p` (`RC6_CLAUDE_MODEL`, default `sonnet`)** — stronger reasoning; se `RC6_ENGINE_CLAUDE=0` ou `claude` falhar, faz fallback chunked para `agy -p` escalado via `RC6_AGY_PASSB_MODEL` (default `gemini-4-neon-high`, `RC6_AGY_PASSB_TIMEOUT` default `10m` quando `RC6_AGY_TIMEOUT` não está definido, rebaixando chunks `COLD` para `neon-medium`).
 
 **Execution:**
 ```
 1. Diff:    git diff $(git merge-base HEAD main)...HEAD, filtered to code files (.js/.jsx/.mjs/.cjs/.ts/.tsx);
             risk files outside those globs are listed as NOT reviewed (see "Saída e cobertura").
+            Chunks are packed by import-graph cohesion (B1, rc6_graph_context.py) and capped by rank_chunks.py.
 2. Context: attach, in this order:
               a. CLAUDE.md — HOIST its "Regras Críticas" section to the TOP; the per-hunk rule mapping
                  in the Extensions (step 3) depends on the reviewer seeing these rules first.
-              b. RULES_INDEX.md + ANTI_PATTERNS_INDEX.md + SELECTED MEMORIES (select-rules.mjs) + detail files
-                 whose scope matches the changed files (e.g. AP-216 when Supabase auth / `{data,error}` is touched).
-              c. DIFF vs base — placed BEFORE full files so any silent tail truncation at the ~79.6K Turn-1
-                 limit cannot clip the target diff before the surrounding reference context.
-              d. FULL file content (NOT just the diff hunk) for every file whose diff changes control flow,
-                 arithmetic, date/time handling, or exceeds ~20 changed lines. Diff-only context is RC6's
-                 #1 blind spot — latent bugs routinely live in the unchanged lines next to a change
-                 (RC6 field note 2026-07: the HeroDoseCard timezone bug was missed for exactly this reason).
+              b. RULES_INDEX.md + ANTI_PATTERNS_INDEX.md + per-chunk SELECTED MEMORIES (select-rules.mjs
+                 with --related-paths / --format card) + per-chunk DETAIL files (A1/A5).
+              c. DIFF vs base (annotated with RIGHT-side HEAD line numbers when RC6_DIFF_LINE_NUMS=1, B3) —
+                 placed BEFORE full files so any silent tail truncation at the ~79.6K Turn-1 limit cannot
+                 clip the target diff before the surrounding reference context.
+              d. FULL file content (NOT just the diff hunk) + surgical EXTERNAL CALLEES (B2) + touched
+                 CONTRACTS & DECISIONS (CON-NNN/ADR-NNN, B4), all bounded under RC6_CTX_TOTAL_MAX (150KB).
               <=150KB total per chunk (~58K prompt tokens + ~21.5K CLI/tool base < ~79.6K Turn-1 ceiling).
               Above that limit, `agy` truncates the tail silently; `@core` 1.3.0 flags it via `truncated=N`.
 3. Prompt:  REUSE the RC5 "Pass 1 — CRITICAL Checklist" + "Verification of Claims (Anti-Rationalization)"
-            + "Suppressions" verbatim, THEN append the "RC6 Reviewer Extensions" below. Add: "You are an
-            INDEPENDENT auditor. You did NOT write this code and have no context beyond the diff + files +
-            catalogs below. Audit against the CRITICAL checklist + the RC6 Extensions + the listed
-            R-NNN / AP-NNN. Do not invent rules. Output strict JSON per the schema below."
-4. Spawn:   TIER-SCALED (see "RC6 Passes" below) — not always a single pass. Parse JSON → merge/dedupe.
+            + "Suppressions" verbatim, THEN append the "RC6 Reviewer Extensions" below. Enforce `RC6_LANG`
+            (default `pt-BR`) on prose fields while keeping JSON keys, `file`, and `snippet` verbatim.
+4. Spawn:   TIER-SCALED (see "RC6 Passes" below) — not always a single pass. Parse JSON → merge/dedupe →
+            deterministic `reflect-gate.sh` (`compile`, `schema`, `comment_only`, `rule_id_warning`, `corroborated_by_tool`).
 5. Publish: post inline comments on the PR via `gh api` (reuse the gemini-review.yml ingestion pipeline
             with GEMINI_BOT_LOGIN swapped). Severity tags as Gemini did (critical/high/medium/low).
 ```
