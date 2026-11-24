@@ -232,7 +232,7 @@ Since `@core` 1.2.0 (spec 003, after dosiq#835 reported full coverage while 3 of
 | `RC6_CLAUDE_MODEL` | `sonnet` | Overrides `--model` on `claude` calls (`sonnet`, `opus`, etc.). |
 | `RC6_LANG` | `pt-BR` | Standardizes prose fields (`summary`, `issue`, `causation`/`suggestion`, `fix`) while preserving keys, `file`, and `snippet`/`quote`. |
 | `RC6_CHUNK_SCOPE` | `1` | `1` (`A1`) runs `select-rules.mjs` and `DETAIL_FILES` per chunk with local dedupe; `0` restores global scope. |
-| `RC6_SELECTOR_FORMAT` | `""` | Empty sends full rule text; `card` passes `--format card` (`Review Cards <=450 B`) when available. |
+| `RC6_SELECTOR_FORMAT` | `card` | Emits `--format card` (`Review Cards <=450 B`, automatic fallback to full `.md`); set `full` for full text. |
 | `RC6_SELECTOR_RELATED` | `1` | Passes 1-hop `chunk_i.related` neighbors via `--related-paths` to `select-rules.mjs` (`A5`). |
 | `RC6_GRAPH_CHUNK` | `1` | `1` (`B1`) packs chunks by import graph cohesion (`.graftroom/` + regex/`tsconfig`/barrels); `0` restores alphabetical split. |
 | `RC6_CALLEES` / `RC6_CALLEES_MAX_BYTES` | `1` / `12000` | `B2` surgical slicing of external callees referenced in diff hunks. |
