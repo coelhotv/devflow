@@ -57,6 +57,12 @@ Verify before writing any code (do not skip):
       `git push` (lint clash, merge conflict). Cost: 15+ min reset hard per
       incident. Detected in retro Fase 2 (D7); documented as AP-169 in dosiq.
   [ ] RULES_INDEX.md loaded and relevant rules identified
+  [ ] REVIEW CARDS QUICK-REF (when `scripts/select-rules.mjs` exists in repo):
+      After resolving Target Files below, run:
+      `node scripts/select-rules.mjs --paths <target_files...> --format card --limit 15`
+      Use the compact `when | inv | bad -> fix` cards (~4–5 KB) as your active
+      do/don't checklist during coding rounds instead of scanning full indexes;
+      fall back to RULES_INDEX.md / ANTI_PATTERNS_INDEX.md when absent.
   [ ] R-221 SQP loaded for any code-changing work
       Extract and record before implementation:
         - affected platform(s): Web/PWA, Mobile, Shared/Core, Backend/Infra
@@ -786,6 +792,7 @@ Only after every IN-SCOPE PO is demonstrated (not merely claimed) proceed to Pas
 > are NOT an allowlist of what to look for. Concrete, project-specific instances come from
 > item 6 (Domain Rule Conformance), which materializes them from the PROJECT's own catalogs
 > loaded in R1. Do not hardcode any single project's stack here.
+> Quando o projeto possuir `scripts/select-rules.mjs`, rode `node scripts/select-rules.mjs --diff-file <diff> --format card --limit 10` como checklist rápido de `bad -> fix` sobre os hunks do diff durante o RC5.
 
 **1. SQL & Data Safety:**
 - String interpolation in SQL (even if values look numeric — use parameterized queries)
@@ -987,6 +994,7 @@ If there are ASK items → STOP and await operator decision. (Do not proceed to 
 - **Teto de chunks:** `RC6_MAX_CHUNKS` (default 8). Passou do teto, ficam os chunks de maior risco. Se
   o arquivo que mais importa caiu, **suba o teto antes de fatiar o PR** (dosiq 069 A2 / #971: teto 8 ⇒
   cobertura full).
+- **Resumo executivo & alerta de testes (v3.5.0):** o JSON pode incluir `executive_summary` (`user_impact`, `product_risk`, `risk_reason`, `verdict`, `manual_qa`, priorizando o Pass B em Tier 2), renderizado no topo do comentário do PR (`--post`). Quando arquivos críticos (`core/`, `services/`, `schemas/`, `shared-data/`, `storage/`, `api/`, `server/`) mudam sem nenhum arquivo de teste no PR, o merge emite `test_coverage_alert` (0 LLM) e exibe aviso no PR.
 
 #### RC6 Reviewer Extensions (append to the reused RC5 checklist)
 
@@ -1020,6 +1028,8 @@ misses because they are project contracts, not language errors:
   is preserved. (`a - b` vs `a.getTime() - b.getTime()` IS preserved; a *dropped argument* is preserved
   ONLY if the callee provably ignores it — verify by reading the callee, do not assume.)
 
+**9. Test Quality Audit (v3.5.0)** — when production logic changes alongside tests (or without tests), flag concrete gaps that let real bugs slip past (branches críticos sem teste, mocks tautológicos que substituem a própria regra testada, assertions frouxas em cálculos críticos ou testes afrouxados para acomodar mudança de comportamento), mantendo `SCOPE DISCIPLINE` (nunca nits de estilo).
+
 **Causation discipline (RC6's edge over a hunk-only reviewer):**
 Before asserting "change X causes bug Y", OPEN and read the definition of every symbol in the changed
 expression and cite the exact line proving the mechanism. If the callee ignores the changed argument, say
@@ -1027,10 +1037,17 @@ so and reclassify the finding as **pre-existing** (present with OR without the d
 mis-attributes latent bugs to the PR and proposes fixes that don't actually work (Gemini on PR #721 did
 both on DoseListItem) — RC6 must not. Every finding MUST set `"introduced"` and `"causation"`.
 
-**Output schema (strict JSON):**
+**Output schema (strict JSON; `executive_summary` optional):**
 ```json
 {
   "summary": "one paragraph",
+  "executive_summary": {
+    "user_impact": "1-2 sentences for a product owner",
+    "product_risk": "low|medium|high",
+    "risk_reason": "why",
+    "verdict": "approve|approve_with_qa|block",
+    "manual_qa": ["concrete user-flow check"]
+  },
   "findings": [{
     "file": "path", "line": 123, "severity": "critical|high|medium|low",
     "introduced": true,
@@ -1047,7 +1064,7 @@ Cost is $0 (OAuth), so extra passes are cheap — scale by risk:
 - **Tier 1** (small diff, no logic/migration): single pass — `agy` generalist vs CRITICAL + Extensions.
 - **Tier 2 / migration / logic-preserving PR:** TWO passes, UNION the findings:
     - **Pass A** — `agy` generalist (`gemini-4-neon-medium`) vs CRITICAL checklist + Extension #6 (footguns).
-    - **Pass B** — domain-rule specialist vs Extensions #7/#8, with FULL-file context. Run on `claude -p`
+    - **Pass B** — domain-rule specialist vs Extensions #7/#8/#9 (incluindo qualidade de testes com código+teste juntos e `executive_summary` global), with FULL-file context + `RC6_SPEC_FILE` opcional (ou autodetecção de `plans/specs/*/spec.md` único alterado no PR, cap `3000B`). Run on `claude -p`
       (Opus/Sonnet, stronger reasoning) for migration/architectural PRs; quando `claude` estiver indisponível
       ou `RC6_ENGINE_CLAUDE=0`, o fallback em `agy` usa `RC6_AGY_PASSB_MODEL` (`gemini-4-neon-high`, `10m`).
     - Merge + dedupe by (file, line, issue-class); keep the higher severity on collision.
@@ -1094,6 +1111,13 @@ If RC6 reports Critical/High with `introduced:true` → STOP and await operator 
 do not proceed). Findings with `introduced:false` (pre-existing latent bugs surfaced in touched code) are
 reported for triage but do NOT block THIS PR's merge — log them for a separate fix so the merge gate keys
 on regressions, not on debt the PR merely stood next to.
+
+**Regra de Desempate (Refutação de Achados `CRITICAL`/`HIGH`):**
+- Nenhum achado `CRITICAL` ou `HIGH` (`introduced:true`) do RC6 pode ser descartado como "falso positivo" apenas por argumento textual do agente autor.
+- Toda refutação exige **prova verificável** conforme a natureza do achado:
+  - *Lógica, edge case ou regressão:* teste automatizado ou comando executado mostrando o cenário exato coberto e passando (com output colado).
+  - *Contrato, campo, filtro ou símbolo supostamente ausente:* citação direta `arquivo:linha` da definição real no repositório provando que já existe e está ativa no caminho de execução.
+- Sem prova verificável: **corrija** o problema ou **escale explicitamente ao operador** com a dúvida em aberto — nunca feche por conta própria.
 
 ### R2 — Violation Scan
 ```

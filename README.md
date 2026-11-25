@@ -212,6 +212,7 @@ Since `@core` 1.2.0 (spec 003, after dosiq#835 reported full coverage while 3 of
 - **Per-chunk context & graph assembly (`A1/A2/A5`, `B1–B4`):** `select-rules.mjs` and `DETAIL_FILES` run per chunk (`RC6_CHUNK_SCOPE=1`, `--related-paths`, `--format card`), `rc6_graph_context.py` packs coupled files by import graph (`B1`), slices unchanged external callees (`B2`), annotates `RIGHT`-side diff line numbers (`B3`), and injects touched `CON-NNN`/`ADR-NNN` entries (`B4`), all bounded under `RC6_CTX_TOTAL_MAX` (`150 KB`).
 - **Adaptive effort, symmetric quota fallback & standardized language (`C2`, `RC6_ENGINE_AGY=0`, `RC6_LANG`):** `rank_chunks.py` routes `HOT` chunks to `gemini-4-neon-high` (`10m`) and `COLD` Pass B fallback chunks to `neon-medium`. `RC6_ENGINE_AGY=0` runs Pass A (Tier 1 & 2) on `claude` (`RC6_CLAUDE_MODEL`, default `sonnet`). `RC6_LANG` (default `pt-BR`) standardizes output prose while keeping JSON keys, `severity`, `file`, and `snippet` verbatim.
 - **Deterministic reflection & cold second opinion (`C4`, `C6`):** `reflect-gate.sh` adds diff-backed `comment_only` refutation (preserving prompt-injection exceptions), non-refuting `rule_id_warning`, and `corroborated_by_tool` (`tsc`/`eslint`). `second-opinion.sh` adds bounded `CLAUDE.md` + cited `CON/ADR` grounding (`<=150 KB`), `--tier2` (`gemini-4-neon-high`, `10m`), `"truncated"` telemetry, and `RC6_LANG`.
+- **Product-executive summary, test-quality audit & tie-breaker (`v3.5.0`):** `ai-review.sh` adds optional `executive_summary` (`user_impact`, `product_risk`, `verdict`, `manual_qa`, Pass B precedence) rendered at the top of the PR, Extension #9 (`Test Quality Audit` comparing prod + test diffs together), mechanical `test_coverage_alert` (0 LLM when critical paths change without tests), and optional `RC6_SPEC_FILE` (Pass B only, `<=3000B`). `devflow-code` enforces verifiable-proof tie-breaking before dismissing `CRITICAL`/`HIGH` findings.
 - **The last stderr line is the verdict:** `[rc6] VERDICT coverage=partial A=1/4 B=4/4 reviewers_min=1 …`, matching the JSON (appending `truncated=<N>` and `selector=FAILED` when triggered). `partial` is recorded in the PR, not a reason to run RC6 again. A JSONL status feed (`[rc6] status: <path>`) lets a background caller follow progress.
 
 | Env var | Default | Effect |
@@ -239,6 +240,7 @@ Since `@core` 1.2.0 (spec 003, after dosiq#835 reported full coverage while 3 of
 | `RC6_DIFF_LINE_NUMS` | `1` | `B3` annotates diff `+`/context lines with `HEAD` `RIGHT` line numbers (`+   N | ...`). |
 | `RC6_CONTRACTS` / `RC6_CONTRACTS_MAX_BYTES` | `1` / `6000` | `B4` injects active `CON-NNN`/`ADR-NNN` entries touched by each chunk. |
 | `RC6_ADAPTIVE_EFFORT` | `auto` | `C2` routes `HOT` chunks to `neon-high` (`10m`) and `COLD` Pass B fallback chunks to `neon-medium`. |
+| `RC6_SPEC_FILE` | `auto` | Optional spec path (or single changed `plans/specs/*/spec.md`) injected into Pass B only (`<=3000B`, fail-open). |
 | `RC6_SO_GROUNDING` | `1` | Enables bounded `CLAUDE.md` + cited `CON/ADR` grounding (`<=150 KB`) in `second-opinion.sh` (`C6`). |
 
 ---

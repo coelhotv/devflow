@@ -1092,6 +1092,15 @@ RC6 Extensions:
    state whether runtime behavior is preserved. `a - b` vs a.getTime()-b.getTime()
    IS preserved; a dropped ARGUMENT is preserved ONLY if the callee provably
    ignores it — verify by reading the callee.
+9. Test Quality Audit — when production logic changes alongside tests (or without
+   tests), flag concrete gaps that let real bugs pass:
+   - New conditional/error/validation branches in critical logic with no test.
+   - Tautological tests where mocks replace the exact business rule under test.
+   - Weak assertions (e.g. toBeDefined()/toBeTruthy() on numeric/date/domain outputs).
+   - Existing tests weakened or rewritten merely to accommodate a behavioral change
+     without verifying correctness.
+   Keep SCOPE DISCIPLINE: never flag test style or minor assertion nits unless a
+   concrete defect can slip past.
 
 Verification of claims (anti-rationalization): if you claim "safe", cite the
 line; never say "likely"/"probably" — verify or flag as unknown.
@@ -1124,7 +1133,7 @@ positive here — adapted from Alibaba's open-code-review, Apache-2.0):
   style unless you can state a concrete failing input/state. If you cannot, drop it.
 
 OUTPUT: strict JSON only, no prose, no markdown fence. Schema:
-{"summary":"one paragraph","findings":[{"file":"path","line":123,
+{"summary":"one paragraph","executive_summary":{"user_impact":"1-2 sentences for a product owner","product_risk":"low|medium|high","risk_reason":"why","verdict":"approve|approve_with_qa|block","manual_qa":["concrete user-flow check (max 4, [] if low risk clean PR)"]},"findings":[{"file":"path","line":123,
 "snippet":"the exact line from the diff this finding is about",
 "severity":"critical|high|medium|low","introduced":true,
 "rule":"R-NNN | AP-NNN | checklist#6 | none",
@@ -1139,11 +1148,11 @@ If clean, return findings: [].
 PROMPT
 
 if [ -n "$RC6_LANG" ]; then
-  RC6_INSTRUCTION="${RC6_INSTRUCTION}"$'\n'"LANGUAGE: write \"summary\", \"issue\", \"causation\", and \"fix\" in ${RC6_LANG} (keep code identifiers, file paths, types, and rule IDs verbatim). NEVER translate JSON keys, \"severity\" enum values, \"file\", or \"snippet\"."
+  RC6_INSTRUCTION="${RC6_INSTRUCTION}"$'\n'"LANGUAGE: write \"summary\", \"issue\", \"causation\", and \"fix\" in ${RC6_LANG} (keep code identifiers, file paths, types, and rule IDs verbatim). NEVER translate JSON keys, \"severity\" enum values, \"file\", or \"snippet\". Also write \"executive_summary\" prose fields (\"user_impact\", \"risk_reason\", \"manual_qa\") in ${RC6_LANG}; NEVER translate \"product_risk\" or \"verdict\" enum values."
 fi
 
-# Pass B leans on domain/migration extensions with full-file context.
-PASSB_FOCUS=$'\nFOCUS FOR THIS PASS: Extensions #7 (Domain Rule Conformance) and #8 (Migration/Refactor Audit). Use the FULL FILES to reason about unchanged lines around each change. Weight timezone/date-math and dropped-argument regressions highest.'
+# Pass B leans on domain/migration/test-quality extensions with full-file context.
+PASSB_FOCUS=$'\nFOCUS FOR THIS PASS: Extensions #7 (Domain Rule Conformance), #8 (Migration/Refactor Audit), and #9 (Test Quality Audit — compare production diff vs test diff together). Use the FULL FILES to reason about unchanged lines around each change. Produce a holistic executive_summary covering the whole PR. If ===== SPEC / ACCEPTANCE CRITERIA (reference) ===== is present, flag only glaring omissions or silent scope cuts against the stated goal.'
 
 
 PASSB_TIMEOUT="${RC6_PASSB_TIMEOUT:-480}"   # seconds; mirrors agy's --print-timeout 8m
@@ -1169,6 +1178,16 @@ cat > "$SCHEMA" <<'JSON'
   "required": ["summary", "findings"],
   "properties": {
     "summary": { "type": "string" },
+    "executive_summary": {
+      "type": "object",
+      "properties": {
+        "user_impact":  { "type": "string" },
+        "product_risk": { "type": "string", "enum": ["low","medium","high"] },
+        "risk_reason":  { "type": "string" },
+        "verdict":      { "type": "string", "enum": ["approve","approve_with_qa","block"] },
+        "manual_qa":    { "type": "array", "items": { "type": "string" } }
+      }
+    },
     "findings": {
       "type": "array",
       "items": {
@@ -1628,6 +1647,20 @@ if [ "$TIER" = 2 ]; then
     for f in "${FULLFILES[@]:-}"; do
       [ -n "${f:-}" ] && [ -f "$REPO_ROOT/$f" ] && { echo; echo "----- FILE $f -----"; cat "$REPO_ROOT/$f"; }
     done
+    _spec_file="${RC6_SPEC_FILE:-}"
+    if [ -z "$_spec_file" ]; then
+      _spec_cands="$(git -C "$REPO_ROOT" diff --name-only "$MAIN_BRANCH"...HEAD -- 'plans/specs/*/spec.md' 2>/dev/null || true)"
+      if [ -n "$_spec_cands" ] && [ "$(printf '%s\n' "$_spec_cands" | wc -l | tr -d ' ')" = 1 ] && [ -f "$REPO_ROOT/$_spec_cands" ]; then
+        _spec_file="$REPO_ROOT/$_spec_cands"
+      fi
+    elif [ ! -f "$_spec_file" ] && [ -f "$REPO_ROOT/$_spec_file" ]; then
+      _spec_file="$REPO_ROOT/$_spec_file"
+    fi
+    if [ -n "$_spec_file" ] && [ -f "$_spec_file" ] && [ -s "$_spec_file" ]; then
+      echo; echo "===== SPEC / ACCEPTANCE CRITERIA (reference) ====="
+      head -c 3000 "$_spec_file" || true
+      echo
+    fi
   } > "$CTXB"
   build_prompt "$PASSB_FOCUS" "$CTXB" "$WORKDIR/promptB.txt"
   RC6_STATUS_PASS=B; RC6_STATUS_CHUNK=full
@@ -1704,7 +1737,10 @@ ENGINE_LABEL="$(printf '%s\n' "${ENGINES[@]}" | sort -u | paste -sd+ -)"
 MERGED="$WORKDIR/merged.json"
 EFFORT_MODE_LABEL="fixed"
 [ "$ADAPTIVE_EFFORT_ON" = 1 ] && EFFORT_MODE_LABEL="adaptive"
+CHANGED_LIST_FILE="$WORKDIR/changed_files.txt"
+printf '%s\n' "${CHANGED[@]:-}" > "$CHANGED_LIST_FILE"
 RC6_COV_TSV="$COV_TSV" RC6_CHUNK_IDS="${CHUNK_IDS[*]}" RC6_WORKDIR="$WORKDIR" \
+RC6_CHANGED_FILES="$CHANGED_LIST_FILE" \
 RC6_SELECTOR_STATUS="$SELECTOR_STATUS" RC6_SELECTOR_COUNT="$SELECTOR_COUNT" RC6_SELECTOR_REASON="$SELECTOR_REASON" \
 RC6_SELECTOR_SCOPE="$SELECTOR_SCOPE" RC6_SELECTOR_CHUNKS_OK="$SEL_CHUNKS_OK" \
 RC6_SELECTOR_CHUNKS_FAILED="$SEL_CHUNKS_FAILED" RC6_SELECTOR_CHUNKS_EMPTY="$SEL_CHUNKS_EMPTY" \
@@ -1739,13 +1775,25 @@ def extract(text):
     return None
 
 sev_rank = {"critical":4,"high":3,"medium":2,"low":1}
+risk_rank = {"high":3,"medium":2,"low":1}
+verdict_rank = {"block":3,"approve_with_qa":2,"approve":1}
 summaries, merged = [], {}
+exec_b = None
+exec_a_list = []
 for p in paths:
     try: raw = open(p).read()
     except Exception: continue
     obj = extract(raw)
     if not obj: continue
     if obj.get("summary"): summaries.append("**%s:** %s" % (pass_label(p), obj["summary"]))
+    es = obj.get("executive_summary")
+    if isinstance(es, dict) and any(es.get(k) for k in ("user_impact","product_risk","risk_reason","verdict","manual_qa")):
+        import os as _os_es
+        if _os_es.path.basename(p).startswith("outB"):
+            if exec_b is None:
+                exec_b = es
+        else:
+            exec_a_list.append(es)
     for f in obj.get("findings", []) or []:
         if f.get("severity") not in sev_rank:
             print("[rc6] WARN: finding without valid severity (%r) in %s — coercing to low: %s"
@@ -1877,6 +1925,47 @@ result = {
     },
     "findings": findings,
 }
+exec_summary = None
+if exec_b is not None:
+    exec_summary = dict(exec_b)
+    if isinstance(exec_summary.get("manual_qa"), list):
+        exec_summary["manual_qa"] = [str(x).strip() for x in exec_summary["manual_qa"] if str(x).strip()][:4]
+elif exec_a_list:
+    worst_risk = max(exec_a_list, key=lambda e: risk_rank.get(str(e.get("product_risk","")).lower(), 0)).get("product_risk", "low")
+    worst_verdict = max(exec_a_list, key=lambda e: verdict_rank.get(str(e.get("verdict","")).lower(), 0)).get("verdict", "approve")
+    impacts, reasons, qa_items = [], [], []
+    for e in exec_a_list:
+        ui = str(e.get("user_impact") or "").strip()
+        rr = str(e.get("risk_reason") or "").strip()
+        if ui and ui not in impacts: impacts.append(ui)
+        if rr and rr not in reasons: reasons.append(rr)
+        for q in (e.get("manual_qa") or []):
+            qs = str(q).strip()
+            if qs and qs not in qa_items: qa_items.append(qs)
+    exec_summary = {
+        "user_impact": " ".join(impacts[:2]),
+        "product_risk": worst_risk,
+        "risk_reason": " ".join(reasons[:2]),
+        "verdict": worst_verdict,
+        "manual_qa": qa_items[:4],
+    }
+if exec_summary is not None:
+    result["executive_summary"] = exec_summary
+
+_cf_path = _os2.environ.get("RC6_CHANGED_FILES", "")
+if _cf_path and _os2.path.exists(_cf_path):
+    _changed_all = [ln.strip() for ln in open(_cf_path) if ln.strip()]
+    _crit_re = re.compile(r'(?:^|/)(?:core|services|schemas|shared-data|storage|api|server)/')
+    _test_re = re.compile(r'(?:\.test\.|\.spec\.|__tests__|__mocks__)')
+    _test_only_re = re.compile(r'(?:\.test\.|\.spec\.|__tests__)')
+    _crit_files = [f for f in _changed_all if _crit_re.search(f) and not _test_re.search(f)]
+    _test_files = [f for f in _changed_all if _test_only_re.search(f)]
+    if _crit_files and not _test_files:
+        result["test_coverage_alert"] = {
+            "critical_files_without_tests": _crit_files[:15],
+            "total_critical": len(_crit_files),
+        }
+
 json.dump(result, open(out_path,"w"), ensure_ascii=False, indent=2)
 PY
 
@@ -2046,7 +2135,42 @@ if cov:
     if sel.get("status") == "failed":
         cov_line += "\n⚠️ **Selector failed (fail-open):** selected memories were NOT injected (%s)." % (sel.get("reason") or "unknown")
     cov_line += "\n"
+exec_block = ""
+es = merged.get("executive_summary")
+if isinstance(es, dict) and es:
+    verdict_labels = {
+        "approve": "✅ Aprovar",
+        "approve_with_qa": "🟡 Aprovar com QA manual",
+        "block": "🛑 Bloquear",
+    }
+    risk_labels = {"low": "🟢 Baixo", "medium": "🟡 Médio", "high": "🔴 Alto"}
+    v_str = verdict_labels.get(str(es.get("verdict", "")).lower(), str(es.get("verdict", "-")))
+    r_str = risk_labels.get(str(es.get("product_risk", "")).lower(), str(es.get("product_risk", "-")))
+    rr_str = (es.get("risk_reason") or "").strip()
+    ui_str = (es.get("user_impact") or "").strip()
+    exec_lines = [
+        "### Resumo Executivo (Produto & Risco)",
+        f"- **Veredicto:** {v_str} · **Risco de produto:** {r_str}" + (f" — {rr_str}" if rr_str else ""),
+    ]
+    if ui_str:
+        exec_lines.append(f"- **Impacto para o usuário:** {ui_str}")
+    qa_list = [str(q).strip() for q in (es.get("manual_qa") or []) if str(q).strip()]
+    if qa_list:
+        exec_lines.append("- **QA manual sugerido:**")
+        for q in qa_list[:4]:
+            exec_lines.append(f"  - [ ] {q}")
+    exec_block = "\n".join(exec_lines) + "\n\n"
+
+tca = merged.get("test_coverage_alert")
+tca_block = ""
+if isinstance(tca, dict) and tca.get("total_critical"):
+    sample = ", ".join(f"`{f}`" for f in (tca.get("critical_files_without_tests") or [])[:5])
+    extra = f" (+{tca['total_critical'] - 5})" if tca["total_critical"] > 5 else ""
+    tca_block = f"⚠️ **Alerta de testes:** {tca['total_critical']} arquivo(s) crítico(s) alterado(s) sem nenhum arquivo de teste no PR ({sample}{extra}).\n\n"
+
 head = (f"## 🤖 RC6 — Independent AI Review (`{merged['engine']}`)\n\n"
+        f"{exec_block}"
+        f"{tca_block}"
         f"{merged['summary']}\n\n"
         f"{cov_line}"
         f"**Introduced:** {c['introduced_critical']} critical · {c['introduced_high']} high "
