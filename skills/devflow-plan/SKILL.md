@@ -114,6 +114,7 @@ REGRAS:
   - `NENHUM PADRÃO EXISTENTE` em Data access ou Error handling num repo maduro é SUSPEITO — quase
     sempre significa que a busca foi rasa. Varie os termos uma vez antes de aceitar.
   - Tier 1 NÃO preenche esta tabela: herda a ancoragem pelo campo `Mirror:` de cada task (P3).
+  - PROIBIDO apontar evidência de padrão vigente em diretórios declarados feature-frozen / em manutenção no CLAUDE.md/AGENTS.md do projeto.
   [PILOTO 2026-09 · origin: proactive · remoção: ver DEVFLOW-META.md, MP-004]
 ```
 
@@ -153,7 +154,8 @@ Each task MUST:
       * **Target**: `path/do/arquivo` (`[NEW]` | `[MODIFY]` | `[DELETE]`) — o arquivo que DEFINE o
         símbolo, nunca um chamador (mesma regra do C1). Vários alvos ⇒ várias linhas Target.
       * **Mirror**: `file:line` do exemplar a imitar, ou `NENHUM` — o que ancora a task no padrão
-        real do repo (é como o Tier 1 herda o P2.5 sem preencher a tabela).
+        real do repo (é como o Tier 1 herda o P2.5 sem preencher a tabela). PROIBIDO apontar
+        Mirror: para diretórios declarados feature-frozen / em manutenção no CLAUDE.md/AGENTS.md do projeto.
       * **Validate**: UM comando isolado, executável, que prova ESTA task — resolvido no C1
         (runners), nunca chutado. É o comando que o C3 roda após cada arquivo.
     `Validate` é por-task; `guard:` continua sendo do bloco `po` e fecha no C4. Não confunda:

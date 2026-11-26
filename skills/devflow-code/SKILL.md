@@ -467,6 +467,15 @@ pendente. O `guard:` NÃO migra para cá — o C4 segue sendo o portão único d
 
 Falhou o gate? ORDENE os erros por dependência antes de corrigir: imports/resolução de módulo →
 tipos/schemas → lógica → estilo. Corrigir lógica antes do tipo gera retrabalho e mascara a causa.
+
+Higiene de contexto e zero escape hatches:
+  - PROIBIDO escrever comentários de arqueologia de entrega no código-fonte (`// spec 125:`,
+    `// fatia 2:`, `// Smoke 20/11:`, `// RC6 #845:`). Histórico de entrega pertence ao commit/PR;
+    comentário no código só é permitido para documentar invariante atemporal de domínio, SO ou
+    hardware que o tipo ou nome não expresse.
+  - PROIBIDO adicionar `eslint-disable` para `react-hooks/exhaustive-deps`,
+    `react-hooks/set-state-in-effect` ou `no-restricted-syntax` para calar o linter — ataque a
+    causa raiz ou extraia o hook/primitiva canônica.
 ```
 
 ### C4 — Quality Gates
@@ -520,6 +529,19 @@ CLOSE EVERY PROOF OBLIGATION (Tier 1+). For each `po` block of the task whose st
   prevista: `no-slot` em C4/PO MANUAL. Falsificação: 5 slices com smoke em device em que o lote não
   reduziu builds (builds ≥ achados) ⇒ REMOVER]
 
+  PRÉ-VOO MECÂNICO ANTES DE `awaiting_smoke`: antes de estacionar qualquer sessão em
+  `awaiting_smoke` para o operador humano:
+    1. Sanidade de manifesto/env em worktree: se mobile/OTA, rode `npx expo config --type public`
+       no worktree atual e confirme variáveis públicas obrigatórias preenchidas (`supabaseUrl`,
+       `supabaseAnonKey` — previne tela preta estilo `096 A`).
+    2. Compilação da plataforma tocada: se tocou `apps/web`, `npm run build:web` exit 0; se tocou
+       código nativo (`android/`/`ios/`/módulo Expo), compilação nativa local exit 0.
+    3. Roteiro enxuto ao operador: separe explicitamente o que já foi provado por teste/build do
+       que requer julgamento humano de produto/UX (com o estado exato de conta/dados exigido).
+  [PILOTO 2026-11 · origin: proactive · MP-2026-11-26-PRESMOKE · assinatura prevista: `no-slot` ou
+  `stale` em C4 pré-smoke · falsificação: 5 slices mobile/web sem nenhum defeito mecânico barrado
+  antes do smoke ⇒ REMOVER]
+
   DECLARE `evidence_class:` ao fechar e confronte com o que o `proof:` prometia:
     proof: era comando executável → `execution` ou `reconciliation`. Fechar com `static-read` ou
       `inference` um proof que prometia execução é REJEITADO no Pass 0.
@@ -563,6 +585,15 @@ All gates must pass AND all DoD items must be checked before proceeding to C5.
 Execute this checklist IN ORDER:
 
 ```
+  [ ] 0. FILTRO LINTER/TEST-FIRST, PROSE-LAST (obrigatório ANTES de cunhar AP-NNN ou R-NNN):
+      a. Padrão sintático/AST repetível em qualquer arquivo → codifique regra `error` em
+         `eslint.config.js` com mensagem prescritiva (por que falha + qual primitiva usar).
+         PROIBIDO criar prosa nova para o que cabe em AST. Se a regra substituir memória
+         existente, marque a antiga com `status: "superseded"`, `layer: "cold"` e `automated_by`.
+      b. Bug de cálculo ou transição de estado pura → codifique teste unitário ou de propriedade
+         (`fast-check`) no pacote `core`. PROIBIDO narrar bug de cálculo como `AP-NNN` genérico.
+      c. Somente contratos cross-camada, banco/RLS, migrações ou comportamento de plataforma
+         nativa não-verificáveis estaticamente viram `AP-NNN` ou `R-NNN` nos passos 1 e 2 abaixo.
   [ ] 1. New bug found and fixed?
       → FIRST search for an EXISTING pattern of the same CLASS, then decide increment-vs-coin:
           a. Run the project's class search over the memory index (e.g. dosiq:
@@ -640,7 +671,7 @@ Execute this checklist IN ORDER:
       📅 **Falsification clause:** if after 10 coding sessions this ledger holds fewer than 3
       lines, the step is NOT working — REMOVE it, do not enforce it harder. Friction with a process
       is constant; an empty ledger means detection does not fit the flow. Same verdict D4 got.
-  [ ] 2. New pattern discovered? → Add R-NNN to RULES_INDEX.md + rules/[cat]/R-NNN.md
+  [ ] 2. New pattern discovered (and not enforceable by lint/test per step 0)? → Add R-NNN to RULES_INDEX.md + rules/[cat]/R-NNN.md
   [ ] 3. Contract updated? → Update CONTRACTS_INDEX.md (CON-NNN) + contracts/[cat]/CON-NNN.md
   [ ] 4. Architectural decision made? → DECISIONS_INDEX.md ADR-NNN (status: "accepted") + detail file
   [ ] 4b. ARTIFACT TRUTH RECONCILIATION (Tier 1+) — what the implementation DISPROVED gets fixed
@@ -883,6 +914,7 @@ AUTO-FIX (agent fixes without asking):     ASK (needs human judgment):
 ├─ Version/path mismatches                 ├─ Removing functionality
 ├─ Variables assigned but never read       └─ Anything changing user-visible
 └─ Inline styles, O(n*m) view lookups        behavior
+├─ Delivery-archaeology comments (// spec, // RC6, // smoke date) → remove or rewrite as timeless invariant
 ```
 
 **Rule of thumb:** If the fix is mechanical and a senior engineer would apply it without discussion → AUTO-FIX. If reasonable engineers could disagree about the fix → ASK.

@@ -93,6 +93,13 @@ Archival:
   - recurrence is near-zero and usefulness is mostly historical
   - content is tied to a retired wave, persona, experiment, or component lineage
 
+Deflation of automated rules (deterministic):
+  - any R-NNN or AP-NNN whose frontmatter declares `automated_by` pointing to an active `error`
+    linter rule or CI gate MUST migrate to `status: "superseded"` and `layer: "cold"` (removing
+    `hot_reason` when demoted from `hot`)
+  - removes redundant prose from Bootstrap and RC6 index preambles while keeping the ID and
+    detail file on disk for historical traceability
+
 Guardrails:
   - prefer `warm -> cold` before archiving
   - do not archive items that still protect active contracts, production incidents, or ongoing architectural risks
